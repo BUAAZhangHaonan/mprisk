@@ -54,6 +54,11 @@ outputs/**/*
 !outputs/full_cache/manifests/*.csv
 !outputs/full_cache/reports/
 !outputs/full_cache/reports/*.md
+!outputs/state_data/
+!outputs/state_data/**/
+!outputs/state_data/**/*.json
+!outputs/state_data/**/*.jsonl
+!outputs/state_data/**/*.md
 !outputs/paper_exports/
 !outputs/paper_exports/**/
 !outputs/paper_exports/**/*.csv
