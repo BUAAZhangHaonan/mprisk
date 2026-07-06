@@ -17,6 +17,10 @@ dist/
 venv/
 env/
 
+# Frontend
+node_modules/
+curation/frontend/dist/
+
 # Local paths and secrets
 configs/local_paths.yaml
 *.local.yaml

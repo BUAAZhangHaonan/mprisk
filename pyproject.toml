@@ -52,7 +52,7 @@ model = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "curation/tests"]
 pythonpath = ["src"]
 
 [tool.ruff]

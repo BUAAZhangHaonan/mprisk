@@ -10,7 +10,7 @@ lint:
 	ruff check src scripts tests
 
 compile:
-	$(PYTHON) -m compileall -q src scripts
+	$(PYTHON) -m compileall -q src scripts curation
 
 verify: compile test
 

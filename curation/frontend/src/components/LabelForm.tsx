@@ -3,6 +3,26 @@ import { AnnotationPayload } from "../api";
 const labels = ["positive", "negative", "neutral", "uncertain", "invalid"];
 const sampleTypes = ["Conflict", "Ambiguous", "Aligned"];
 const dominant = ["M1", "M2", "balanced", "unclear"];
+const keys = {
+  m1: {
+    label: "m1_label",
+    specific: "m1_specific_affect",
+    clear: "m1_is_clear",
+    confidence: "m1_confidence",
+  },
+  m2: {
+    label: "m2_label",
+    specific: "m2_specific_affect",
+    clear: "m2_is_clear",
+    confidence: "m2_confidence",
+  },
+  joint: {
+    label: "joint_label",
+    specific: "joint_specific_affect",
+    clear: "joint_is_clear",
+    confidence: "joint_confidence",
+  },
+} as const;
 
 export function LabelForm({
   payload,
@@ -21,19 +41,19 @@ export function LabelForm({
       {(["m1", "m2", "joint"] as const).map((prefix) => (
         <fieldset key={prefix}>
           <legend>{prefix.toUpperCase()}</legend>
-          <select value={payload[`${prefix}_label`]} onChange={(event) => set(`${prefix}_label`, event.target.value)}>
+          <select value={String(payload[keys[prefix].label])} onChange={(event) => set(keys[prefix].label, event.target.value)}>
             {labels.map((label) => <option key={label}>{label}</option>)}
           </select>
           <input
-            value={payload[`${prefix}_specific_affect`]}
-            onChange={(event) => set(`${prefix}_specific_affect`, event.target.value)}
+            value={String(payload[keys[prefix].specific])}
+            onChange={(event) => set(keys[prefix].specific, event.target.value)}
             placeholder="specific affect"
           />
           <label>
             <input
               type="checkbox"
-              checked={Boolean(payload[`${prefix}_is_clear`])}
-              onChange={(event) => set(`${prefix}_is_clear`, event.target.checked)}
+              checked={Boolean(payload[keys[prefix].clear])}
+              onChange={(event) => set(keys[prefix].clear, event.target.checked)}
             />
             clear
           </label>
@@ -42,8 +62,8 @@ export function LabelForm({
             min="0"
             max="1"
             step="0.05"
-            value={Number(payload[`${prefix}_confidence`])}
-            onChange={(event) => set(`${prefix}_confidence`, Number(event.target.value))}
+            value={Number(payload[keys[prefix].confidence])}
+            onChange={(event) => set(keys[prefix].confidence, Number(event.target.value))}
           />
         </fieldset>
       ))}
