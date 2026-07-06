@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MPRisk Curation Candidate",
+  "type": "object",
+  "required": ["sample_id", "source_dataset", "source_id", "protocol", "candidate_type", "needs_llm_screening"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "source_dataset": {"type": "string"},
+    "source_id": {"type": "string"},
+    "protocol": {"type": "string"},
+    "m1_modality": {"type": "string"},
+    "m2_modality": {"type": "string"},
+    "m1_label": {"type": "string"},
+    "m2_label": {"type": "string"},
+    "joint_label": {"type": "string"},
+    "candidate_type": {"enum": ["Conflict", "Ambiguous", "Aligned"]},
+    "needs_llm_screening": {"type": "boolean"},
+    "source_is_generated": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

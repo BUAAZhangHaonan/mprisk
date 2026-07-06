@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MPRisk Human Annotation",
+  "type": "object",
+  "required": ["sample_id", "annotator_id", "m1_label", "m2_label", "joint_label", "sample_type"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "annotator_id": {"type": "string"},
+    "m1_label": {"enum": ["positive", "negative", "neutral", "uncertain", "invalid"]},
+    "m2_label": {"enum": ["positive", "negative", "neutral", "uncertain", "invalid"]},
+    "joint_label": {"enum": ["positive", "negative", "neutral", "uncertain", "invalid"]},
+    "m1_is_clear": {"type": "boolean"},
+    "m2_is_clear": {"type": "boolean"},
+    "joint_is_clear": {"type": "boolean"},
+    "sample_type": {"enum": ["Conflict", "Ambiguous", "Aligned"]},
+    "dominant_modality": {"enum": ["M1", "M2", "balanced", "unclear"]}
+  },
+  "additionalProperties": true
+}

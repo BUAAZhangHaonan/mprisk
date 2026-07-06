@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MPRisk LLM Screening",
+  "type": "object",
+  "required": ["sample_id", "protocol", "view_outputs", "sample_type_suggestion", "dominant_modality_suggestion", "needs_human_review"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "protocol": {"type": "string"},
+    "view_outputs": {
+      "type": "object",
+      "required": ["M1", "M2", "M12"],
+      "properties": {
+        "M1": {"$ref": "#/$defs/view_output"},
+        "M2": {"$ref": "#/$defs/view_output"},
+        "M12": {"$ref": "#/$defs/view_output"}
+      }
+    },
+    "sample_type_suggestion": {"enum": ["Conflict", "Ambiguous", "Aligned"]},
+    "dominant_modality_suggestion": {"enum": ["M1", "M2", "balanced", "unclear"]},
+    "quality_flags": {"type": "array", "items": {"type": "string"}},
+    "needs_human_review": {"type": "boolean"}
+  },
+  "$defs": {
+    "view_output": {
+      "type": "object",
+      "required": ["label", "specific_affect", "is_clear", "confidence", "evidence"],
+      "properties": {
+        "label": {"enum": ["positive", "negative", "neutral", "uncertain", "invalid"]},
+        "specific_affect": {"type": "string"},
+        "is_clear": {"type": "boolean"},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "evidence": {"type": "string"},
+        "quality_flags": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}
