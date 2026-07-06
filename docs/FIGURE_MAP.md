@@ -19,3 +19,5 @@ Appendix figures hold template count, layer-wise analysis, conflict-level readou
 ## Export Rule
 
 Generated paper figures must come from `outputs/` through `scripts/export_paper_figures.py`.
+
+The first data-quality figures should consume final curation manifests, not raw candidate files. Screening and agreement summaries belong in the appendix unless they are directly used to explain the main Conflict vs Aligned sample construction.

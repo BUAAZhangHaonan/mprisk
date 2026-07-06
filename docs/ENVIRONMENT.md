@@ -13,6 +13,7 @@ The project uses a split environment design.
 - baselines that operate on cached scores or embeddings;
 - statistics, evaluation, plots, tables, and paper exports;
 - tests and linting.
+- the curation backend and its schema checks.
 
 The environment sets `PYTHONNOUSERSITE=1`. This prevents the core environment from accidentally importing user-site large-model packages such as Torch or Transformers.
 
@@ -46,6 +47,20 @@ mind-molmo-py311
 ```
 
 Those environments produce cache shards, sidecars, manifests, and ledgers. The `mprisk` environment consumes those artifacts and does not need to satisfy every model runtime dependency.
+
+## OpenRouter Gemini Screening
+
+LLM screening uses an OpenAI-compatible OpenRouter endpoint when `MPRISK_SCREENING_PROVIDER=openrouter`.
+
+Required local variables:
+
+```text
+OPENROUTER_API_KEY=
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1/chat/completions
+OPENROUTER_GEMINI_MODEL=google/gemini-3.1-pro-preview
+```
+
+Leave the API key blank in committed files. Fill it only in a local `.env`.
 
 ## Boundary
 

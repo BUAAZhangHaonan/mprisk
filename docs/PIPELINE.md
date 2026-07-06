@@ -6,12 +6,26 @@ The pipeline is designed around traceable paper artifacts.
 
 Inputs are raw datasets and annotation files. Outputs are normalized sample manifests, sample-type labels, protocol views, and deterministic splits.
 
+Data preparation now starts in the independent `curation/` module:
+
+```text
+source data -> initial screening -> LLM screening -> human review -> adjudication -> final manifests
+```
+
 Main artifacts:
 
 - `data/processed/manifests/unified_sample_manifest.jsonl`
 - `data/processed/manifests/conflict_manifest.jsonl`
 - `data/processed/manifests/aligned_manifest.jsonl`
 - `data/processed/manifests/protocol_manifests/*.jsonl`
+
+Curation intermediate artifacts:
+
+- `curation/outputs/candidates/*.jsonl`
+- `curation/outputs/llm_screening/*.jsonl`
+- `curation/outputs/human/*.jsonl`
+- `curation/outputs/adjudicated/*.jsonl`
+- `curation/outputs/exports/*.jsonl`
 
 ## 2. Prompt Banks
 

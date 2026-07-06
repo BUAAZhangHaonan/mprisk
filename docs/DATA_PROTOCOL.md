@@ -8,6 +8,21 @@
 
 Main experiments focus on `Conflict` and `Aligned`. `Ambiguous` is reserved for appendix or supplemental analysis.
 
+The final data layer uses relation labels instead of a shared affective coordinate. Each curated sample must carry:
+
+```text
+m1_label
+m2_label
+joint_label
+m1_is_clear
+m2_is_clear
+joint_is_clear
+sample_type
+dominant_modality
+```
+
+Allowed coarse labels are `positive`, `negative`, `neutral`, `uncertain`, and `invalid`.
+
 ## Protocols
 
 - `VT`: vision and text.
@@ -23,6 +38,24 @@ For each protocol, the pipeline builds three views:
 ## Main Datasets
 
 `CH-SIMS v2` is the main dataset because it provides unimodal and multimodal annotations. `CMU-MOSI`, `CMU-MOSEI`, `DFEW`, and generated samples are supplemental or stress-test data.
+
+## Curation Flow
+
+All curated samples pass through three steps:
+
+1. Initial screening from source labels or generation metadata.
+2. LLM-assisted screening over `M1`, `M2`, and `M12`.
+3. Human review and adjudication.
+
+The LLM step is only a screening assistant. Human adjudication is the final label source.
+
+## Dataset Screening Roles
+
+- `CH-SIMS v2`: main source for natural Conflict and Aligned candidates. Initial screening uses unimodal and multimodal labels.
+- `CMU-MOSI`: candidate pool. It needs LLM screening and human review before receiving relation labels.
+- `CMU-MOSEI`: larger candidate and generalization pool. It also needs LLM screening and human review.
+- `DFEW`: visual-anchor source. It enters the main conflict pool only when paired with natural text or another modality.
+- Generated A/C data: supplemental and stress-test source. Planned labels are candidate labels, not final labels.
 
 ## Normalized Sample Fields
 
@@ -44,3 +77,5 @@ protocol_views
 ## Split Rule
 
 Splits must be deterministic and grouped by source media when needed. A sample, its prompt variants, and its three modality conditions must stay in the same split.
+
+Final manifests are exported by `curation/scripts/export_final_manifests.py` into `data/processed/manifests/`.
