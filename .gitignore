@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# Environments
+.env
+.venv/
+venv/
+env/
+
+# Local paths and secrets
+configs/local_paths.yaml
+*.local.yaml
+*.local.json
+
+# Large data and generated media
+data/external/**/*
+!data/external/**/
+!data/external/**/README.md
+data/mini/tiny_examples/**/*
+!data/mini/tiny_examples/
+
+# Large outputs by default
+outputs/**/*
+!outputs/**/
+!outputs/README.md
+!outputs/assets/
+!outputs/assets/*.csv
+!outputs/assets/*.json
+!outputs/assets/*.md
+!outputs/full_cache/
+!outputs/full_cache/manifests/
+!outputs/full_cache/manifests/*.json
+!outputs/full_cache/manifests/*.csv
+!outputs/full_cache/reports/
+!outputs/full_cache/reports/*.md
+!outputs/paper_exports/
+!outputs/paper_exports/**/
+!outputs/paper_exports/**/*.csv
+!outputs/paper_exports/**/*.json
+!outputs/paper_exports/**/*.tex
+!outputs/paper_exports/**/*.md
+!outputs/reports/
+!outputs/reports/**/
+!outputs/reports/**/*.md
+!outputs/reports/**/*.csv
+!outputs/reports/**/*.json
+
+# Paper build artifacts
+paper/**/*.aux
+paper/**/*.bbl
+paper/**/*.blg
+paper/**/*.fls
+paper/**/*.fdb_latexmk
+paper/**/*.log
+paper/**/*.out
+paper/**/*.synctex.gz
+paper/**/*.toc

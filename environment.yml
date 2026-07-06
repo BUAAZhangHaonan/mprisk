@@ -1,0 +1,24 @@
+name: mprisk-py311
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - seaborn
+  - pyyaml
+  - pydantic
+  - tqdm
+  - joblib
+  - pytest
+  - pip:
+      - safetensors
+      - transformers
+      - accelerate
+      - qwen-vl-utils
