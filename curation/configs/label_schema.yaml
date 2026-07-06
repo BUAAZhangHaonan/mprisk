@@ -1,0 +1,23 @@
+schema: mprisk_curation_label_schema_v1
+coarse_labels:
+  - positive
+  - negative
+  - neutral
+  - uncertain
+  - invalid
+sample_types:
+  - Conflict
+  - Ambiguous
+  - Aligned
+dominant_modality:
+  - M1
+  - M2
+  - balanced
+  - unclear
+quality_flags:
+  - low_audio
+  - face_occluded
+  - weak_context
+  - missing_modality
+  - generated_artifact
+  - unsafe_content

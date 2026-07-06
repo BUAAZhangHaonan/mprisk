@@ -1,7 +1,43 @@
-schema: mprisk_stage1_emotion_schema_v1
+schema: mprisk_stage1_relation_schema_v1
 fields:
   sample_id: string
-  valence: float
-  arousal: float
-  discrete_emotion: string
-  confidence: float
+  source_dataset: string
+  source_id: string
+  protocol: string
+  m1_modality: string
+  m2_modality: string
+  m1_label: string
+  m2_label: string
+  joint_label: string
+  m1_specific_affect: string
+  m2_specific_affect: string
+  joint_specific_affect: string
+  m1_is_clear: bool
+  m2_is_clear: bool
+  joint_is_clear: bool
+  m1_confidence: float
+  m2_confidence: float
+  joint_confidence: float
+  sample_type: string
+  dominant_modality: string
+  quality_flags: list[string]
+  annotator_agreement: float
+  notes: string
+
+coarse_labels:
+  - positive
+  - negative
+  - neutral
+  - uncertain
+  - invalid
+
+sample_types:
+  - Conflict
+  - Ambiguous
+  - Aligned
+
+dominant_modality:
+  - M1
+  - M2
+  - balanced
+  - unclear

@@ -1,0 +1,12 @@
+schema: mprisk_llm_screening_config_v1
+provider: mock
+openrouter:
+  base_url: https://openrouter.ai/api/v1/chat/completions
+  api_key_env: OPENROUTER_API_KEY
+  model: google/gemini-3.1-pro-preview
+  site_url_env: OPENROUTER_SITE_URL
+  app_name_env: OPENROUTER_APP_NAME
+views:
+  - M1
+  - M2
+  - M12

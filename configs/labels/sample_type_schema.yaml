@@ -1,5 +1,37 @@
 schema: mprisk_sample_type_schema_v1
 sample_types:
-  Conflict: clear cross-modal affective disagreement
-  Ambiguous: unclear or weak affective signal
-  Aligned: cross-modal affective agreement
+  Conflict:
+    definition: M1 and M2 are clear and different, and the joint label is clear.
+    required:
+      - m1_is_clear = true
+      - m2_is_clear = true
+      - joint_is_clear = true
+      - m1_label != m2_label
+      - joint_label in {positive, negative, neutral}
+  Ambiguous:
+    definition: At least one key view is unclear, annotators disagree, or the sample has no stable joint conclusion.
+    required_any:
+      - m1_is_clear = false
+      - m2_is_clear = false
+      - joint_is_clear = false
+      - annotator disagreement is high
+  Aligned:
+    definition: M1, M2, and joint labels are clear and match.
+    required:
+      - m1_is_clear = true
+      - m2_is_clear = true
+      - joint_is_clear = true
+      - m1_label = m2_label = joint_label
+
+coarse_labels:
+  - positive
+  - negative
+  - neutral
+  - uncertain
+  - invalid
+
+dominant_modality:
+  - M1
+  - M2
+  - balanced
+  - unclear
