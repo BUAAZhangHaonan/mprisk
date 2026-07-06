@@ -99,11 +99,52 @@ Main artifacts:
 
 `S`, `D`, and `R` are computed from the three conditions. They are then converted into four state patterns.
 
+The second implementation phase adds the first runnable science core:
+
+```text
+state_dataset_manifest
+-> prompt-conditioned bundle manifest
+-> raw trajectory embedding manifest
+-> S/D/R scores
+-> state patterns
+```
+
+Run the bundle builder:
+
+```bash
+python scripts/build_state_bundles.py \
+  --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
+  --prompt-set-key vt_primary_v1 \
+  --model-key qwen3_vl_8b \
+  --protocol VT
+```
+
+Run the smoke chain:
+
+```bash
+python scripts/run_state_measurement_smoke.py \
+  --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
+  --prompt-set-key vt_primary_v1 \
+  --model-key qwen3_vl_8b \
+  --protocol VT \
+  --repr-key raw_layernorm_mean
+```
+
 Main artifacts:
 
+- `outputs/state_bundles/{model_key}/{protocol}/{prompt_set_key}/bundle_manifest.jsonl`
+- `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/embedding_manifest.jsonl`
 - `outputs/states/scores/`
 - `outputs/states/assignments/`
 - `outputs/states/summaries/`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/sdr_scores.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/state_patterns.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/state_summary.json`
+- `outputs/states/reports/STATE_MEASUREMENT_SMOKE.md`
 
 ## 7. Baselines and Evaluation
 
