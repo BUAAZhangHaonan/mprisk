@@ -1,0 +1,321 @@
+{
+  "dataset_root": "/home/team/zhanghaonan/TAFFC/datasets",
+  "generated_at": "2026-07-06T16:37:37.721262+00:00",
+  "datasets": [
+    {
+      "dataset_key": "ch_sims",
+      "root_path": "/home/team/zhanghaonan/TAFFC/datasets/ch_sims",
+      "exists": true,
+      "file_count": 4049,
+      "total_bytes": 10287912286,
+      "detected_modalities": {
+        "video": true,
+        "audio": false,
+        "text": true,
+        "image": false
+      },
+      "label_files": [
+        "Processed/unaligned_39.pkl",
+        "label.csv"
+      ],
+      "label_columns_by_file": {
+        "Processed/unaligned_39.pkl": [],
+        "label.csv": [
+          "video_0001",
+          "0001",
+          "我不想嫁给李茶",
+          "-1.0",
+          "-1.0",
+          "-1.0",
+          "-1.0",
+          "Negative",
+          "train"
+        ]
+      },
+      "protocol_support": {
+        "VT_native": false,
+        "VA_native": false,
+        "IT_derived": false
+      },
+      "column_mapping_suggestions": {
+        "Processed/unaligned_39.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "label.csv": {
+          "sample_id": [
+            "video_0001"
+          ],
+          "text": [],
+          "video": [
+            "video_0001"
+          ],
+          "audio": [],
+          "label": []
+        }
+      },
+      "notes": [
+        "CH-SIMS protocol support is pending audit until local label hints are confirmed."
+      ]
+    },
+    {
+      "dataset_key": "ch_sims_v2",
+      "root_path": "/home/team/zhanghaonan/TAFFC/datasets/ch_sims_v2",
+      "exists": true,
+      "file_count": 16410,
+      "total_bytes": 33826670191,
+      "detected_modalities": {
+        "video": true,
+        "audio": true,
+        "text": true,
+        "image": false
+      },
+      "label_files": [
+        "CH-SIMS v2(s)/Processed/unaligned.pkl",
+        "CH-SIMS v2(s)/meta.csv",
+        "CH-SIMS v2(u)/Processed/unaligned.pkl",
+        "CH-SIMS v2(u)/meta.csv"
+      ],
+      "label_columns_by_file": {
+        "CH-SIMS v2(s)/Processed/unaligned.pkl": [],
+        "CH-SIMS v2(s)/meta.csv": [
+          "video_id",
+          "clip_id",
+          "text",
+          "label",
+          "label_T",
+          "label_A",
+          "label_V",
+          "annotation",
+          "mode"
+        ],
+        "CH-SIMS v2(u)/Processed/unaligned.pkl": [],
+        "CH-SIMS v2(u)/meta.csv": [
+          "video_id",
+          "clip_id",
+          "text",
+          "label",
+          "label_T",
+          "label_A",
+          "label_V",
+          "annotation"
+        ]
+      },
+      "protocol_support": {
+        "VT_native": true,
+        "VA_native": true,
+        "IT_derived": false
+      },
+      "column_mapping_suggestions": {
+        "CH-SIMS v2(s)/Processed/unaligned.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "CH-SIMS v2(s)/meta.csv": {
+          "sample_id": [
+            "video_id",
+            "clip_id"
+          ],
+          "text": [
+            "text"
+          ],
+          "video": [
+            "video_id"
+          ],
+          "audio": [],
+          "label": [
+            "label",
+            "label_T",
+            "label_A",
+            "label_V",
+            "annotation"
+          ]
+        },
+        "CH-SIMS v2(u)/Processed/unaligned.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "CH-SIMS v2(u)/meta.csv": {
+          "sample_id": [
+            "video_id",
+            "clip_id"
+          ],
+          "text": [
+            "text"
+          ],
+          "video": [
+            "video_id"
+          ],
+          "audio": [],
+          "label": [
+            "label",
+            "label_T",
+            "label_A",
+            "label_V",
+            "annotation"
+          ]
+        }
+      },
+      "notes": []
+    },
+    {
+      "dataset_key": "cmu_mosi",
+      "root_path": "/home/team/zhanghaonan/TAFFC/datasets/cmu_mosi",
+      "exists": true,
+      "file_count": 2202,
+      "total_bytes": 1459024957,
+      "detected_modalities": {
+        "video": true,
+        "audio": true,
+        "text": true,
+        "image": false
+      },
+      "label_files": [
+        "Processed/aligned_50.pkl",
+        "Processed/unaligned_50.pkl",
+        "label.csv"
+      ],
+      "label_columns_by_file": {
+        "Processed/aligned_50.pkl": [],
+        "Processed/unaligned_50.pkl": [],
+        "label.csv": [
+          "video_id",
+          "clip_id",
+          "text",
+          "label",
+          "label_T",
+          "label_A",
+          "label_V",
+          "annotation",
+          "mode"
+        ]
+      },
+      "protocol_support": {
+        "VT_native": false,
+        "VA_native": false,
+        "IT_derived": true
+      },
+      "column_mapping_suggestions": {
+        "Processed/aligned_50.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "Processed/unaligned_50.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "label.csv": {
+          "sample_id": [
+            "video_id",
+            "clip_id"
+          ],
+          "text": [
+            "text"
+          ],
+          "video": [
+            "video_id"
+          ],
+          "audio": [],
+          "label": [
+            "label",
+            "label_T",
+            "label_A",
+            "label_V",
+            "annotation"
+          ]
+        }
+      },
+      "notes": []
+    },
+    {
+      "dataset_key": "cmu_mosei",
+      "root_path": "/home/team/zhanghaonan/TAFFC/datasets/cmu_mosei",
+      "exists": true,
+      "file_count": 22859,
+      "total_bytes": 45873726486,
+      "detected_modalities": {
+        "video": true,
+        "audio": true,
+        "text": true,
+        "image": true
+      },
+      "label_files": [
+        "Processed/aligned_50.pkl",
+        "Processed/unaligned_50.pkl",
+        "label.csv"
+      ],
+      "label_columns_by_file": {
+        "Processed/aligned_50.pkl": [],
+        "Processed/unaligned_50.pkl": [],
+        "label.csv": [
+          "video_id",
+          "clip_id",
+          "text",
+          "label",
+          "annotation",
+          "mode",
+          "label_T",
+          "label_A",
+          "label_V"
+        ]
+      },
+      "protocol_support": {
+        "VT_native": false,
+        "VA_native": false,
+        "IT_derived": true
+      },
+      "column_mapping_suggestions": {
+        "Processed/aligned_50.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "Processed/unaligned_50.pkl": {
+          "sample_id": [],
+          "text": [],
+          "video": [],
+          "audio": [],
+          "label": []
+        },
+        "label.csv": {
+          "sample_id": [
+            "video_id",
+            "clip_id"
+          ],
+          "text": [
+            "text"
+          ],
+          "video": [
+            "video_id"
+          ],
+          "audio": [],
+          "label": [
+            "label",
+            "annotation",
+            "label_T",
+            "label_A",
+            "label_V"
+          ]
+        }
+      },
+      "notes": []
+    }
+  ]
+}

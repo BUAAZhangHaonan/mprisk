@@ -21,6 +21,13 @@ env/
 node_modules/
 curation/frontend/dist/
 
+# Curation outputs
+curation/outputs/**/*
+!curation/outputs/
+!curation/outputs/reports/
+!curation/outputs/reports/*.md
+!curation/outputs/reports/*.json
+
 # Local paths and secrets
 configs/local_paths.yaml
 *.local.yaml
