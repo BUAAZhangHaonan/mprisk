@@ -1,0 +1,8 @@
+schema: mprisk_dataset_v1
+key: ch_sims_v2
+display_name: CH-SIMS v2
+role: main
+modalities: [vision, audio, text]
+annotation_space: sentiment
+normalized_range: [-1.0, 1.0]
+notes: Primary dataset because it provides unimodal and multimodal annotations.

@@ -1,0 +1,9 @@
+paths:
+  raw_data_root: /path/to/raw/datasets
+  model_root: /path/to/model/assets
+  output_root: outputs
+  cache_root: outputs/full_cache
+
+runtime:
+  device: cuda:0
+  dtype: bfloat16

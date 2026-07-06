@@ -1,0 +1,4 @@
+schema: mprisk_experiment_v1
+key: stage2_eval
+systems: [base, policy_only, signal_guided, ours]
+ratings: [empathy, relevance, safety, instruction_adherence]

@@ -1,0 +1,4 @@
+schema: mprisk_prompt_task_v1
+task: stage1_emotion_judgment
+output_format: structured_json
+required_fields: [valence, arousal, evidence, uncertainty]

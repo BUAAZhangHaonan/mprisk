@@ -1,0 +1,9 @@
+schema: mprisk_paper_figure_map_v1
+figures:
+  fig01_overview: paper/figures/generated/fig01_overview.pdf
+  fig02_method: paper/figures/generated/fig02_method.pdf
+  fig03_sdr: paper/figures/generated/fig03_sdr.pdf
+  fig04_conflict_vs_aligned: paper/figures/generated/fig04_conflict_vs_aligned.pdf
+  fig05_state_vs_error: paper/figures/generated/fig05_state_vs_error.pdf
+  fig06_t0_vs_posthoc_efficiency: paper/figures/generated/fig06_t0_vs_posthoc_efficiency.pdf
+  fig07_cases_and_policy: paper/figures/generated/fig07_cases_and_policy.pdf

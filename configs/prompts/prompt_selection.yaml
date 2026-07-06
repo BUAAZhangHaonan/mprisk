@@ -1,0 +1,4 @@
+schema: mprisk_prompt_selection_v1
+default_k: 5
+candidate_pool_size: 16
+selection_rule: semantic_equivalence_with_low_template_variance

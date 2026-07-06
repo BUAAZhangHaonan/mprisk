@@ -1,0 +1,7 @@
+schema: mprisk_dataset_v1
+key: dfew
+display_name: DFEW
+role: generalization
+modalities: [image, text]
+annotation_space: emotion
+normalized_range: null

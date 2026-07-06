@@ -1,0 +1,7 @@
+schema: mprisk_dataset_v1
+key: cmu_mosi
+display_name: CMU-MOSI
+role: supplemental
+modalities: [vision, audio, text]
+annotation_space: sentiment
+normalized_range: [-1.0, 1.0]

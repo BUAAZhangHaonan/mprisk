@@ -1,0 +1,7 @@
+schema: mprisk_protocol_v1
+key: vt
+name: vision_text
+m1: vision
+m2: text
+m12: vision_text
+primary_models: [qwen3_vl_8b, internvl3_5_8b]

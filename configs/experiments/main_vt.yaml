@@ -1,0 +1,6 @@
+schema: mprisk_experiment_v1
+key: main_vt
+protocol: vt
+datasets: [ch_sims_v2]
+sample_types: [Conflict, Aligned]
+models: [qwen3_vl_8b, internvl3_5_8b]

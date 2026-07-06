@@ -1,0 +1,5 @@
+schema: mprisk_sample_type_schema_v1
+sample_types:
+  Conflict: clear cross-modal affective disagreement
+  Ambiguous: unclear or weak affective signal
+  Aligned: cross-modal affective agreement

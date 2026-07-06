@@ -1,0 +1,7 @@
+schema: mprisk_protocol_v1
+key: it
+name: image_text
+m1: image
+m2: text
+m12: image_text
+primary_models: []

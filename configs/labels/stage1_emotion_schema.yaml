@@ -1,0 +1,7 @@
+schema: mprisk_stage1_emotion_schema_v1
+fields:
+  sample_id: string
+  valence: float
+  arousal: float
+  discrete_emotion: string
+  confidence: float

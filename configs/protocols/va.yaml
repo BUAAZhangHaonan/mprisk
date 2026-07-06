@@ -1,0 +1,7 @@
+schema: mprisk_protocol_v1
+key: va
+name: vision_audio
+m1: vision
+m2: audio
+m12: vision_audio
+primary_models: [qwen2_5_omni_7b]
