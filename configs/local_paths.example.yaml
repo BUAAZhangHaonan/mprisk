@@ -7,3 +7,9 @@ paths:
 runtime:
   device: cuda:0
   dtype: bfloat16
+
+conda_envs:
+  core: mprisk
+  model_main: mind-py311
+  model_gemma4: mind-gemma4-py311
+  model_molmo: mind-molmo-py311

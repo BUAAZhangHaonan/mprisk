@@ -1,24 +1,29 @@
-name: mprisk-py311
+name: mprisk
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
+  - nodefaults
 dependencies:
   - python=3.11
-  - pip
-  - numpy
-  - pandas
-  - scipy
-  - scikit-learn
-  - matplotlib
-  - seaborn
-  - pyyaml
-  - pydantic
-  - tqdm
-  - joblib
-  - pytest
+  - pip>=24.2
+  - ca-certificates
+  - certifi
+  - openssl
   - pip:
-      - safetensors
-      - transformers
-      - accelerate
-      - qwen-vl-utils
+      - joblib==1.4.2
+      - matplotlib==3.10.1
+      - numpy==2.2.4
+      - pandas==2.2.3
+      - pyarrow==19.0.1
+      - pydantic==2.11.2
+      - pytest==8.3.5
+      - pytest-cov==6.1.1
+      - pyyaml==6.0.2
+      - rich==14.0.0
+      - ruff==0.11.2
+      - safetensors==0.5.3
+      - scikit-learn==1.6.1
+      - scipy==1.15.2
+      - seaborn==0.13.2
+      - tqdm==4.67.1
+variables:
+  PYTHONNOUSERSITE: "1"

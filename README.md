@@ -24,6 +24,18 @@ The project studies misjudgment risk before generation in multimodal affective c
 - `tests/`: smoke tests and contract tests.
 - `paper/`: LaTeX manuscript, appendix, figures, tables, legacy material, and response letter.
 
+## Environment Split
+
+Use the lightweight `mprisk` conda environment for core algorithms, cache reading, statistics, evaluation, and figure/table export.
+
+Use existing model environments for large-model deployment and cache extraction:
+
+- `mind-py311`: main model extraction environment.
+- `mind-gemma4-py311`: separate Gemma 4 environment.
+- `mind-molmo-py311`: separate Molmo environment.
+
+The `mprisk` environment is intentionally not required to run every large model. It reads the cache and manifest outputs produced by the model environments.
+
 ## Large Files
 
 Raw datasets, generated media, hidden-state shards, KV caches, checkpoints, and full experiment dumps are not committed by default. Their manifests, ledgers, checksums, summaries, and paper exports are committed when small enough to review.
