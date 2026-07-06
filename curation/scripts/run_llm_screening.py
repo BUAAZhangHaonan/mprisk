@@ -87,13 +87,59 @@ class OpenRouterGeminiProvider(ScreeningProvider):
         return normalize_view_output(parsed)
 
 
+def _media_path_for_modality(candidate: dict[str, Any], modality: str) -> str:
+    media_paths = candidate.get("media_paths", {})
+    if not isinstance(media_paths, dict):
+        return ""
+    return str(media_paths.get(modality, ""))
+
+
+def build_view_payload(candidate: dict[str, Any], view: str) -> dict[str, Any]:
+    m1_modality = str(candidate.get("m1_modality", "M1"))
+    m2_modality = str(candidate.get("m2_modality", "M2"))
+    payload: dict[str, Any] = {
+        "sample_id": candidate["sample_id"],
+        "source_dataset": candidate.get("source_dataset", ""),
+        "source_id": candidate.get("source_id", candidate["sample_id"]),
+        "protocol": candidate.get("protocol", ""),
+        "view": view,
+    }
+    for key in (
+        "source_is_generated",
+        "source_metadata",
+        "quality_metadata",
+        "quality_flags",
+        "generation_model",
+        "generation_prompt_id",
+    ):
+        if key in candidate:
+            payload[key] = candidate[key]
+
+    if view == "M1":
+        payload["m1_modality"] = m1_modality
+        payload["media_paths"] = {m1_modality: _media_path_for_modality(candidate, m1_modality)}
+    elif view == "M2":
+        payload["m2_modality"] = m2_modality
+        payload["media_paths"] = {m2_modality: _media_path_for_modality(candidate, m2_modality)}
+    elif view == "M12":
+        payload["m1_modality"] = m1_modality
+        payload["m2_modality"] = m2_modality
+        payload["media_paths"] = {
+            m1_modality: _media_path_for_modality(candidate, m1_modality),
+            m2_modality: _media_path_for_modality(candidate, m2_modality),
+        }
+    else:
+        raise ValueError(f"Unknown view: {view}")
+    return payload
+
+
 def build_prompt(candidate: dict[str, Any], view: str) -> str:
     return json.dumps(
         {
             "task": "screen multimodal affect sample view",
             "view": view,
             "allowed_labels": ["positive", "negative", "neutral", "uncertain", "invalid"],
-            "candidate": candidate,
+            "view_payload": build_view_payload(candidate, view),
             "required_output": {
                 "label": "positive|negative|neutral|uncertain|invalid",
                 "specific_affect": "short label",
