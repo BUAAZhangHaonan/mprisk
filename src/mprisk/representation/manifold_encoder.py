@@ -1,6 +1,28 @@
-"""Manifold-aware representation placeholders."""
+"""Manifold-aware representation interfaces."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from mprisk.representation.trajectory_encoder import Embedding, Trajectory
+
+
+class ManifoldEncoder(Protocol):
+    repr_key: str
+
+    def encode(self, trajectory: Trajectory) -> Embedding:
+        """Map one trajectory into a learned manifold embedding."""
+
+
+@dataclass(frozen=True)
+class ManifoldEncoderAdapter:
+    """Interface shell for the planned trained manifold encoder."""
+
+    repr_key: str
+
+    def encode(self, trajectory: Trajectory) -> Embedding:
+        raise NotImplementedError("Trained manifold trajectory encoders are not implemented yet")
 
 
 def cosine_similarity(left: list[float], right: list[float]) -> float:
