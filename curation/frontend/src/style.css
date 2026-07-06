@@ -103,6 +103,26 @@ button, input, select, textarea {
   color: #f8f3e6;
 }
 
+.annotatorBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  max-width: 420px;
+}
+
+.annotatorBar span {
+  font-weight: 800;
+}
+
+.annotatorBar input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  padding: 8px 10px;
+}
+
 .mediaPanel {
   display: grid;
   gap: 12px;
@@ -113,11 +133,57 @@ button, input, select, textarea {
   font-weight: 800;
 }
 
+.mediaGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
 .mediaBox, .textBox, .empty {
   border: 1px solid #c9c2b2;
   background: #fffaf0;
   min-height: 120px;
   padding: 14px;
+}
+
+.mediaBox {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.mediaBox figcaption {
+  font-weight: 800;
+}
+
+.mediaAsset {
+  display: block;
+  width: 100%;
+  max-height: 520px;
+  object-fit: contain;
+  background: #111714;
+}
+
+.audioAsset {
+  width: 100%;
+}
+
+.inlineText {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.pathHint {
+  display: block;
+  overflow-wrap: anywhere;
+  color: #4b554f;
+}
+
+.emptyMedia {
+  display: grid;
+  place-items: center;
+  color: #4b554f;
 }
 
 .labelForm {

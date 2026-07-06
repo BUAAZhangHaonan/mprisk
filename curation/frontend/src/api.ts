@@ -2,6 +2,8 @@ export type Sample = {
   sample_id: string;
   source_dataset: string;
   protocol: string;
+  m1_modality?: string;
+  m2_modality?: string;
   candidate_type: string;
   media_paths?: Record<string, string>;
 };
@@ -28,6 +30,13 @@ export type AnnotationPayload = {
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
+
+export function mediaUrl(pathOrUrl: string): string {
+  if (/^(?:https?:|data:|blob:)/i.test(pathOrUrl)) {
+    return pathOrUrl;
+  }
+  return `${API_BASE}/media?path=${encodeURIComponent(pathOrUrl)}`;
+}
 
 export async function fetchSamples(candidateType = ""): Promise<Sample[]> {
   const suffix = candidateType ? `?candidate_type=${encodeURIComponent(candidateType)}` : "";
