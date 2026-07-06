@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+
 from mprisk.cache.hidden_state_cache import normalize_protocol
 from mprisk.cache.prompt_conditioned_cache import (
     PromptConditionedStateEntry,
