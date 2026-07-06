@@ -103,10 +103,25 @@ The second implementation phase adds the first runnable science core:
 
 ```text
 state_dataset_manifest
+-> prompt-conditioned cache manifest
 -> prompt-conditioned bundle manifest
 -> raw trajectory embedding manifest
 -> S/D/R scores
 -> state patterns
+```
+
+The prompt-conditioned cache is the source of truth for `state(sample, view, prompt_id)`.
+The bundle must not reuse the same view-level `state_cache` for all prompts.
+
+Build or normalize the prompt-conditioned cache manifest from existing model-environment outputs:
+
+```bash
+python scripts/build_prompt_conditioned_cache.py \
+  --mode A \
+  --source-manifest outputs/prompt_conditioned_cache/source_rows.jsonl \
+  --model-key qwen3_vl_8b \
+  --protocol VT \
+  --prompt-set-key vt_primary_v1
 ```
 
 Run the bundle builder:
@@ -115,6 +130,7 @@ Run the bundle builder:
 python scripts/build_state_bundles.py \
   --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
   --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
   --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
   --prompt-set-key vt_primary_v1 \
   --model-key qwen3_vl_8b \
@@ -127,6 +143,7 @@ Run the smoke chain:
 python scripts/run_state_measurement_smoke.py \
   --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
   --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
   --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
   --prompt-set-key vt_primary_v1 \
   --model-key qwen3_vl_8b \
@@ -136,6 +153,7 @@ python scripts/run_state_measurement_smoke.py \
 
 Main artifacts:
 
+- `outputs/prompt_conditioned_cache/{model_key}/{protocol}/{prompt_set_key}/manifest.jsonl`
 - `outputs/state_bundles/{model_key}/{protocol}/{prompt_set_key}/bundle_manifest.jsonl`
 - `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/embedding_manifest.jsonl`
 - `outputs/states/scores/`

@@ -17,6 +17,7 @@ except ModuleNotFoundError:
 
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 from mprisk.cache.prefill_extract import extract_t0_trajectory
+from mprisk.cache.prompt_conditioned_cache import prompt_conditioned_entry_from_row
 from mprisk.data.manifests import read_jsonl
 from mprisk.data.protocol_views import VIEW_KEYS, normalize_protocol
 from mprisk.data.state_bundle import StateBundleBuildResult, build_state_bundles
@@ -49,6 +50,7 @@ def run_state_measurement_smoke(
     *,
     state_dataset_manifest_path: str | Path,
     prompt_cache_manifest_path: str | Path,
+    prompt_conditioned_cache_manifest_path: str | Path,
     prompt_set_path: str | Path,
     model_key: str,
     protocol: str,
@@ -63,6 +65,7 @@ def run_state_measurement_smoke(
     bundle_result = build_state_bundles(
         state_dataset_manifest_path=state_dataset_manifest_path,
         prompt_cache_manifest_path=prompt_cache_manifest_path,
+        prompt_conditioned_cache_manifest_path=prompt_conditioned_cache_manifest_path,
         prompt_set_path=prompt_set_path,
         prompt_set_key=prompt_set_key,
         model_key=model_key,
@@ -150,7 +153,13 @@ def _embedding_row(bundle: dict[str, Any], *, repr_key: str, encoder) -> dict[st
         "embeddings": {
             view_key: {
                 prompt_id: encoder.encode(
-                    extract_t0_trajectory(_entry_from_state_cache(bundle["views"][view_key]["state_cache"]))
+                    extract_t0_trajectory(
+                        _entry_from_prompt_conditioned_state(
+                            bundle["views"][view_key]["prompts"][prompt_id][
+                                "prompt_conditioned_state"
+                            ]
+                        )
+                    )
                 )
                 for prompt_id in bundle["views"][view_key]["prompts"]
             }
@@ -176,6 +185,10 @@ def _entry_from_state_cache(row: dict[str, Any]) -> HiddenStateEntry:
         checksum=row.get("checksum"),
         metadata=row.get("metadata") or {},
     )
+
+
+def _entry_from_prompt_conditioned_state(row: dict[str, Any]) -> HiddenStateEntry:
+    return prompt_conditioned_entry_from_row(row).to_hidden_state_entry()
 
 
 def _write_smoke_report(
@@ -209,6 +222,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the state-measurement smoke pipeline.")
     parser.add_argument("--state-dataset-manifest", required=True)
     parser.add_argument("--prompt-cache-manifest", required=True)
+    parser.add_argument("--prompt-conditioned-cache-manifest", required=True)
     parser.add_argument("--prompt-set", required=True)
     parser.add_argument("--prompt-set-key", required=True)
     parser.add_argument("--model-key", required=True)
@@ -228,6 +242,7 @@ def main() -> int:
     result = run_state_measurement_smoke(
         state_dataset_manifest_path=Path(args.state_dataset_manifest),
         prompt_cache_manifest_path=Path(args.prompt_cache_manifest),
+        prompt_conditioned_cache_manifest_path=Path(args.prompt_conditioned_cache_manifest),
         prompt_set_path=Path(args.prompt_set),
         model_key=args.model_key,
         protocol=args.protocol,
