@@ -1,13 +1,16 @@
+PYTHON ?= python3.11
+PYTEST_ENV ?= PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+
 .PHONY: test lint compile verify clean
 
 test:
-	pytest -q
+	$(PYTEST_ENV) $(PYTHON) -m pytest -q
 
 lint:
 	ruff check src scripts tests
 
 compile:
-	python -m compileall -q src scripts
+	$(PYTHON) -m compileall -q src scripts
 
 verify: compile test
 
