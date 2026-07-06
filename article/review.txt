@@ -1,0 +1,391 @@
+RE: TAFFCSI-2026-01-0164, "Before the First Token: Auditing Affective Modality Conflict in Pre-generation States"
+Manuscript Type: SI - Can AI Care? Affective LLMs for the Future of Mental Health
+
+Dear Mr. Haonan,
+
+We have completed the review process of the above referenced paper for the IEEE Transactions on Affective Computing and recommend that your paper undergo a Major Revision.  
+
+Enclosed are your reviews. If you should choose to revise your paper, please prepare a separate document describing how each of the reviewers' comments are responded to in your revision and submit by 23-Jul-2026.
+
+When you are ready to submit your revision, visit the following link:
+https://ieee.atyponrex.com/submission/submissionBoard/REX-PROD-2-E245EB23-14E0-4D18-86D2-C1545ADBF99B-FF7612BB-181F-454A-BAE8-D906B9CDC230-38107/current?idtype=external
+
+Once the revised manuscript is prepared, you can upload it and submit it through your Author Center.
+
+The revised manuscript must contain the following:
+
+-abstract
+-index terms
+-affiliation information
+-main text
+-references
+-figure captions
+-table titles
+-brief biographies of each author
+
+If you have appendices or supplemenary material, it must be submitted as a separate document.
+
+When submitting your revised manuscript, you will be able to respond to the comments made by the reviewer(s) in the space provided. You can use this space to document any changes you make to the original manuscript. In order to expedite the processing of the revised manuscript, please be as specific as possible in your response to the reviewer(s)’ questions and comments. You may also upload your responses as separate files for review along with your revision. If you choose to do this, please choose “Summary of Changes” as the file designation. You may not designate the changes in the text by using colored, bold, or italic text.
+
+Please note, some reviewers may have recommended that you discuss additional literature when revising your manuscript. If you feel that the recommended literature does not contribute to the scholarly content of the article or is otherwise irrelevant, please note your concerns in your response to reviewer feedback.
+
+When the submission process is complete, you will receive an automated confirmation email immediately. If you did not receive that email, your submission is not yet complete.  
+
+The Administrator will contact you should we have any concerns or questions regarding your revision. Otherwise, your revision will be forwarded to the assigned Associate Editor with a request to begin the second round of reviews.
+
+Please be mindful when making your revisions that you still need to maintain the size limitations for papers submitted to IEEE Transactions on Affective Computing. Our manuscript types and submission length guidelines (including the main text, the abstract, index terms, illustrations and references) are as follows:
+
+IEEE Transactions on Affective Computing manuscript types and submission length guidelines are found at,
+
+https://www.computer.org/publications/author-resources/peer-review/journals#length
+
+Please note that double column will translate more readily into the final publication format.  Our peer review double column templates can be found at,
+
+https://www.computer.org/publications/author-resources/peer-review/journals#templates
+
+Please do not hesitate in contacting me should you have any questions about our process or are experiencing technical difficulties. Thank you for your contribution to IEEE Transactions on Affective Computing, and we look forward to receiving your revised manuscript.
+
+Sincerely,
+
+Jesse Hoey, EIC
+Transactions on Affective Computing
+jhoey@uwaterloo.ca
+
+**************
+
+Associate Editor
+Comments to the Author:
+(There are no comments. Please check to see if comments were included as a file attachment with this e-mail or as an attachment in your Author Center.)
+
+********************
+
+Reviewer Comments
+
+Reviewer: 1
+
+Recommendation: Author Should Prepare A Major Revision
+
+Comments:
+This manuscript proposes a pre-generation auditing framework for multimodal large language models (MLLMs), conceptualising affective modality conflict as a structural event observable at the final conditioning token (t₀) prior to generation. The introduction of a validity-gated triplet (S, D, R) and the resulting four-state taxonomy (Confusion, Consensus, Balanced, Dominant) represents a novel shift from output-level evaluation to upstream structural measurement.
+
+The work contributes a measurement protocol rather than a new fusion architecture, which is a meaningful reframing of the research problem. It introduces a falsifiable and auditable interface for examining multimodal integration states prior to generation, which is both methodologically novel and conceptually defensible.
+
+However, despite its originality, the manuscript requires substantial revision to strengthen theoretical justification, clarify methodological assumptions, and address limitations that currently weaken the strength of its claims.
+
+Title
+The term “Pre-generation States” is somewhat vague and could be operationalised more precisely (e.g., “at the Last Conditioning Token (t₀)”).
+The title foregrounds auditing but does not indicate the proposed triplet framework or four-state taxonomy.
+Clarify the operational locus (t₀) and possibly signal the validity-gated taxonomy to reflect the methodological innovation.
+
+Abstract
+The abstract does not sufficiently justify why t₀ is theoretically privileged beyond being “causally upstream”.
+The phrase “structural event” is not concretely defined in the abstract.
+The downstream policy implication is stated but not quantified.
+Clarify what constitutes a “structural event”.
+Briefly justify why hidden state geometry is epistemically informative.
+Temper claims about policy impact unless backed by rigorous comparative evaluation.
+
+Introduction
+The argument that post-generation explanations are decoupled from pre-generation states is asserted rather than empirically demonstrated.
+The mental health framing raises ethical stakes but empirical validation is limited to sentiment benchmarks rather than clinically grounded datasets.
+The notion of “commitment” could be more formally defined in probabilistic or information-theoretic terms.
+The theoretical basis for treating t₀ as a decisive commitment point is conceptually persuasive but insufficiently formalised.
+
+Related Work
+The relationship to interpretability literature (e.g., representation geometry, probing reliability) could be more critically examined.
+The distinction between “uncertainty” and “conflict” needs deeper theoretical articulation.
+Some citations are listed but not critically synthesised.
+Strengthen theoretical differentiation between:
+Epistemic uncertainty,
+Measurement instability,
+Genuine modality conflict.
+
+Methods
+Linear Readout Assumption
+The framework hinges on a linear ridge readout calibrated on low-conflict data.
+High-conflict degradation is treated as boundary evidence rather than potential model misspecification.
+The decision to privilege interpretability over predictive adequacy is justified pragmatically but not theoretically.
+
+Dependence on Annotated Conflict Axis
+Conflict levels are defined using annotation discrepancy (|yV − yA|).
+This presumes annotation reliability and equates human disagreement with structural modality conflict.
+
+Template Sensitivity Interpretation
+High S is interpreted as instability.
+However, sensitivity to prompt variation may reflect non-linear representational structure rather than unreliability.
+
+Single-Time-Point Assumption
+The exclusive focus on t₀ ignores potential dynamic integration processes earlier in the network.
+
+Bimodal Restriction
+The rationale for excluding trimodal evaluation is pragmatic but limits generalisability.
+
+Provide stronger justification for:
+The sufficiency of linear readout,
+The interpretive status of D and R under distributional shift,
+The assumption that template variation approximates measurement perturbation.
+
+Results
+Lack of statistical testing
+Monotonic trends are visually apparent but formal statistical significance is not reported.
+
+No baseline comparison
+It is unclear how the proposed audit compares against entropy-based or self-consistency measures in conflict detection.
+
+Human evaluation
+LLM-based evaluation (Gemini-3-Flash) risks circularity.
+Human evaluation protocol lacks detail on inter-rater reliability.
+
+Policy impact marginality
+Gains from “Ours” over “Signal-Guided” appear modest in some cases.
+
+Include statistical tests for monotonicity and model differences.
+Compare against uncertainty baselines.
+Report inter-rater reliability metrics.
+Clarify practical significance of response-level gains.
+
+Discussion
+The broader theoretical implications for representation geometry are underdeveloped.
+No discussion of adversarial or spurious correlation cases.
+Does not address computational scalability in real-world deployment.
+
+Implications
+Practical integration into production systems remains underspecified.
+Clinical implications are speculative without user outcome validation.
+
+Limitations
+Does not discuss annotation noise.
+Does not explore fairness or bias across demographic groups.
+No robustness analysis under adversarial or out-of-distribution inputs.
+
+Conclusion
+Could better synthesise the epistemic significance of upstream auditing.
+Future work suggestions are brief and somewhat generic.
+
+Quality of Communication
+Some sentences are overly dense and conceptually layered.
+Occasional terminological ambiguity (e.g., “structural event”, “commitment”).
+Minor grammatical infelicities and punctuation inconsistencies.
+Overall communication quality is high but would benefit from editorial tightening for clarity and conceptual precision.
+
+Additional Questions:
+A1. Which category describes this manuscript?: Affective computing applications
+
+A2. How relevant is this manuscript to the readers of this journal?: Relevant
+
+B1. Is the manuscript technically sound in its treatment of computational issues?: Partially
+
+B2. Is the manuscript adequately informed and technically sound in its treatment of emotion-related concepts?: Partially
+
+C1. Are the title, abstract, and keywords appropriate? Please explain under Public Comments below.: No
+
+C2. Does the manuscript contain sufficient and appropriate references? Please explain under Public Comments below.: Important references are missing; more references are needed
+
+If you are suggesting additional references they must be entered in the text box provided.  All suggestions must include full bibliographic information plus a DOI.
+
+
+If you are not suggesting any references, please type NA.: Up-to-date is required.
+
+C3. How would you rate the organization of the manuscript? (Is it focused? Is the length appropriate for the topic?): Could be improved
+
+C4. Please rate the readability of the manuscript.: Difficult to read and understand
+
+C5. How is the length of the manuscript?  If changes are suggested, please make explicit recommendations in Public Comments below.: Should be trimmed a bit
+
+C6. Should the supplemental material be included? (Click on the Supplementary Files icon to view files): Yes, as part of the digital library for this submission if accepted
+
+C7. If yes to 6, should it be accepted:
+
+A. Overall Evaluation: Fair
+
+
+Reviewer: 2
+
+Recommendation: Author Should Prepare A Major Revision
+
+Comments:
+This paper studies a timely problem in multimodal affective computing: how an MLLM internally handles conflicting affective cues before it generates the first token. Instead of improving fusion itself, the authors propose a pre-generation audit interface at the last conditioning token   0 and summarize the model state with three signals—template sensitivity   , split strength   , and arbitration bias   . Based on these signals, the paper defines four states: Confusion, Consensus, Balanced, and Dominant. Experiments on CMU-MOSI, CMU-MOSEI, and CH-SIMS v2 suggest that split strength increases with conflict level, while arbitration behavior varies across backbones. The idea is interesting and potentially useful for affect-sensitive dialogue systems. However, in its current form, the paper is not yet fully convincing as a top-tier TAC submission, mainly because several core claims are still stronger than the evidence provided.
+
+Here are some points:
+
+1. Firstly, the paper motivates the work with mental health support and the risk of harmful affective misinterpretation, but the experiments do not evaluate mental-health dialogues, real user safety, or clinically meaningful outcomes. What is actually shown is a hidden-state auditing framework on multimodal sentiment benchmarks.
+
+2. Secondly, the novelty claim is interesting, but the related-work positioning is still not sharp enough. The manuscript says clearly that it is not proposing a new fusion model, but rather a pre-generation audit protocol. Still, the difference from existing probing, uncertainty estimation, and conflict-aware multimodal sentiment methods remains somewhat under-argued. Additionally, a series of multimodal sentiment analysis references [1][2][3][4][5] should be included to further improve the diversity of this section.
+[1] Artificial Intelligence as the Fourth Decentering Revolution: From Cosmic, Biological, and Psychological Displacement to Cognitive Decentering
+[2] SenticNet 9: Generative Commonsense for Emotion AI via Conceptual Primitive Discovery and Time Shift Mechanism
+[3] Recovering Coherent Affective Patterns: Addressing Modality Missing in Multimodal Sentiment Analysis
+[4] Exploring cognitive and aesthetic causality for multimodal aspect-based sentiment analysis
+[5] MATADOR: Multimodal traffic accident prediction enhanced by multi-source aggregated emotion recognition
+
+3. Thirdly, this is a central technical weakness. The paper calibrates a linear ridge readout on the consistency domain   , then freezes it and uses the resulting geometry for higher-conflict conditions. But the paper also shows that readout quality degrades substantially as conflict increases, especially for the joint condition. Once that happens, it becomes harder to know whether the observed geometry still reflects affective conflict or simply instability of the chart under distribution shift.  
+
+4. Treating prompt variation as a measurement probe is a nice idea, but the framework depends on only five “semantically equivalent” templates verified by human inspection. For such a central variable, this feels too informal. The authors should show that the state assignments are stable across different template pools, not just one handcrafted set, otherwise    may partly reflect prompt design choices rather than model-internal repeatability.
+
+5. The evaluation uses two bimodal protocols, (  ,  ) and (  ,  ), and only a small set of backbones. That is enough for a proof of concept, but not enough to support broader claims about multimodal LLM behavior in general. The model-specific arbitration patterns are interesting, but at this stage they should be framed more cautiously as exploratory observations rather than robust backbone signatures.
+
+6. The monotonic increase of split strength with conflict dosage makes intuitive sense, but that alone does not prove that the proposed method captures something uniquely valuable about pre-generation commitment. A stronger paper would show that
+   and    predict downstream failures, affective hallucinations, or unsafe responses better than simpler baselines such as unimodal label distance or output-level uncertainty. Right now the evidence is suggestive, but not decisive.
+
+7. Lastly, the paper is readable, but parts of the method and discussion are still a bit overpacked and rhetorically dense. Some claims are repeated across sections, and some terminology—especially around validity, interpretation, and geometry, could be streamlined for clarity. A thorough language revision would improve precision and readability.
+
+Additional Questions:
+A1. Which category describes this manuscript?: Psychology of emotion and & affective behavior
+
+A2. How relevant is this manuscript to the readers of this journal?: Very Relevant
+
+B1. Is the manuscript technically sound in its treatment of computational issues?: Partially
+
+B2. Is the manuscript adequately informed and technically sound in its treatment of emotion-related concepts?: Yes
+
+C1. Are the title, abstract, and keywords appropriate? Please explain under Public Comments below.: Yes
+
+C2. Does the manuscript contain sufficient and appropriate references? Please explain under Public Comments below.: References are sufficient and appropriate
+
+If you are suggesting additional references they must be entered in the text box provided.  All suggestions must include full bibliographic information plus a DOI.
+
+
+If you are not suggesting any references, please type NA.: NA
+
+C3. How would you rate the organization of the manuscript? (Is it focused? Is the length appropriate for the topic?): Could be improved
+
+C4. Please rate the readability of the manuscript.: Readable - but requires some effort to understand
+
+C5. How is the length of the manuscript?  If changes are suggested, please make explicit recommendations in Public Comments below.: About right
+
+C6. Should the supplemental material be included? (Click on the Supplementary Files icon to view files): No, it should not be included at all
+
+C7. If yes to 6, should it be accepted:
+
+A. Overall Evaluation: Good
+
+
+Reviewer: 3
+
+Recommendation: Author Should Prepare A Minor Revision
+
+Comments:
+Summary and Overall Impression
+
+This manuscript investigates an important issue in multimodal large language models: their tendency to converge too early to a single interpretation when faced with conflicting information. To address this problem, the authors propose a pre-generation auditing framework that probes the model’s internal hidden state at the final conditioning token, namely the t0 interface, before any content is generated. By introducing three geometric indicators, stability, split strength, and arbitration bias, the framework builds a four-state taxonomy that is subsequently used to guide downstream response policies. Overall, the paper is thoughtfully designed and clearly written, and it offers a valuable perspective on conflict auditing in multimodal affective interaction.
+
+Major Strengths
+
+The paper is well motivated and addresses the problem from an appropriate and original angle. Instead of focusing only on conventional late-fusion performance or prediction accuracy, it shifts attention to pre-generation decision-state auditing, which is a meaningful way to analyze the risk of trajectory collapse when models process conflicting evidence.
+
+The choice of the t0 interface as the observation point is also well justified. This position allows the framework to capture integrated multimodal information immediately before the model commits to an output trajectory, making it both intuitive and methodologically sound.
+
+Another notable strength is the interpretability of the proposed design. The indicator set consisting of stability, split strength, and arbitration bias provides a geometric vocabulary for understanding model behavior, making the internal state more analyzable than in purely black-box approaches.
+
+Finally, the paper demonstrates awareness of practical deployment considerations. The latency analysis and discussion of parallel prefilling suggest that the framework has meaningful real-world implementation potential.
+
+Suggestions for Improvement
+
+Although the paper is of good quality, several refinements could further strengthen its final version.
+
+First, it would be helpful to include a brief discussion of how the proposed framework relates to external baselines or existing uncertainty indicators, such as semantic entropy. Even if extensive new experiments are not added, a clearer discussion would better position the SDR framework within the broader literature.
+
+Second, the contribution of individual components could be clarified further. In particular, a more explicit discussion of the distinct roles of the stability gate and split strength would help readers better understand why each component is necessary and in what situations each signal is most informative.
+
+Third, the human evaluation section would benefit from greater statistical transparency. Providing additional details on annotator agreement, such as Cohen’s kappa, as well as basic information about annotator background, would make the reported gains in empathy and helpfulness more convincing.
+
+Finally, since the current framework mainly focuses on bimodal and single-turn conflict settings, the discussion of generalization to broader multimodal or long-dialogue scenarios should be phrased with slightly more caution in the conclusion.
+
+Conclusion
+
+This is a solid piece of work that offers a structured solution to a subtle yet important problem in multimodal model interaction. With some refinement in baseline discussion and statistical reporting, the paper’s clarity and overall persuasiveness would be further improved.
+
+Overall Evaluation: Good
+Recommendation: Minor Revision
+
+Additional Questions:
+A1. Which category describes this manuscript?: Affective issues in enhancing machine/robotic intelligence
+
+A2. How relevant is this manuscript to the readers of this journal?: Very Relevant
+
+B1. Is the manuscript technically sound in its treatment of computational issues?: Yes
+
+B2. Is the manuscript adequately informed and technically sound in its treatment of emotion-related concepts?: Yes
+
+C1. Are the title, abstract, and keywords appropriate? Please explain under Public Comments below.: Yes
+
+C2. Does the manuscript contain sufficient and appropriate references? Please explain under Public Comments below.: References are sufficient and appropriate
+
+If you are suggesting additional references they must be entered in the text box provided.  All suggestions must include full bibliographic information plus a DOI.
+
+
+If you are not suggesting any references, please type NA.: NA
+
+C3. How would you rate the organization of the manuscript? (Is it focused? Is the length appropriate for the topic?): Satisfactory
+
+C4. Please rate the readability of the manuscript.: Easy to read
+
+C5. How is the length of the manuscript?  If changes are suggested, please make explicit recommendations in Public Comments below.: About right
+
+C6. Should the supplemental material be included? (Click on the Supplementary Files icon to view files): Yes, as part of the digital library for this submission if accepted
+
+C7. If yes to 6, should it be accepted: As is
+
+A. Overall Evaluation: Good
+
+
+Reviewer: 4
+
+Recommendation: Author Should Prepare A Major Revision
+
+Comments:
+This paper studies affective modality conflict in multimodal large language models and proposes a pre-generation auditing framework to characterize the model’s internal state before the first generated token. The key idea is to probe the hidden state at the last conditioning token, map it into a low-dimensional affective coordinate space, and derive three signals—template sensitivity, split strength, and arbitration bias—to identify whether the model is in a state of confusion, consensus, balanced conflict, or dominant conflict. Based on these state labels, the paper further designs response policies for downstream empathetic interaction. The problem setting is meaningful, especially for high-stakes scenarios such as affect-sensitive dialogue and mental health support, where blindly collapsing conflicting multimodal evidence into a single emotional interpretation may be risky. Overall, I find the motivation important and timely. The paper addresses a real limitation of multimodal generative models: even when modalities provide contradictory affective evidence, models often still produce a single confident interpretation. The attempt to derive an auditable pre-generation signal from internal representations is interesting and potentially valuable. That said, I have substantial concerns about the simplifying assumptions behind the representation design, the stability of the proposed coordinate construction, the generalization of the rule/threshold-heavy framework, and the insufficient evidence that the proposed audit signals translate into robust practical benefits.
+
+Strengths
+1. Important problem setting. The paper addresses a practically relevant issue: multimodal models may over-commit to one affective interpretation despite conflicting visual/audio/text cues. This is especially important in mental-health-facing or affect-sensitive applications.
+
+2. Interesting pre-generation perspective. Instead of only evaluating final outputs, the work studies the model state at a causally earlier interface, i.e., the last conditioning token before generation starts. This is a meaningful and potentially insightful perspective for auditing model behavior.
+
+3. Clear methodological pipeline. The framework is well organized: readout calibration, repeatability estimation, validity gating, state taxonomy, and policy-conditioned response. The paper is conceptually coherent.
+
+4. Some effort toward quantitative validation. The authors do not stop at qualitative claims and provide experiments on layer selection, template count selection, split-strength trends across conflict levels, and some downstream response evaluations.
+
+Weaknesses and Main Concerns
+
+1. The representation assumption appears overly idealized. My biggest concern is the paper’s core assumption that a single layer and a single token position—specifically, the last conditioning token at one selected layer—can provide a sufficiently complete basis for auditing multimodal affect conflict. While I appreciate the appeal of defining a clean interface, this assumption feels too idealized for large multimodal generative models. Internal signals in such models are highly complex and distributed. From a representation perspective, geometry can evolve substantially across layers, both in direction and magnitude, and meaningful information may be encoded not only at the final conditioning position but also across other token positions and attention-mediated interactions. Even if one layer and one position empirically yield the best linear readout under the current protocol, it is not clear that the remaining layers and positions can simply be discarded. In other words, the paper currently seems to assume that the relevant conflict structure is sufficiently localized to a single vector, but this is far from obvious.
+
+2. The affective coordinate system may be unstable, and the current construction is not fully convincing. The paper builds its affective coordinate space by training a small linear readout from hidden states to affective labels, calibrated on a low-conflict subset. The authors further compare against a nonlinear MLP and argue that the linear readout is preferable because it is more interpretable and gives more stable layer selection. However, this also implies that the entire downstream geometry depends heavily on the stability of a relatively small supervised linear probe trained from a limited set of samples. I am not fully convinced this procedure is robust enough. From experience, such small probes can exhibit substantial variation across random seeds, calibration splits, regularization settings, and minor distributional changes. The paper currently does not provide enough evidence that the learned coordinate system itself is stable across repeated training runs.
+
+More importantly, if the paper's central claim is that the relevant signal is fundamentally linear in representation space, then I wonder whether a more direct approach would be preferable. For example, one could attempt to identify affect-related linear directions directly from hidden states, e.g., via contrastive or difference-in-means style directions, instead of training a supervised readout on a small sample set and then treating the resulting axes as a coordinate system.
+
+3. The framework relies on many rule-based thresholds, and its generalization remains unclear. The proposed taxonomy depends on multiple designed signals and thresholds: template-sensitivity gating, split thresholds, arbitration significance thresholds, and rule-based routing into four states. The paper argues that these values are data-driven or quantitatively calibrated, which is helpful. Still, I remain concerned about generalization. There are two distinct issues here:
+
+- First, can this threshold-heavy pipeline generalize robustly to various multimodal conflict scenarios beyond the current experimental setup? The current evaluation focuses on a particular family of affective datasets and a conflict stratification scheme.
+
+- Second, what are the side effects of the method on capabilities beyond affective reasoning? Since the framework ultimately conditions downstream generation policies, one should ask whether the induced behaviors hurt other useful properties of the model, such as task relevance, fluency, informativeness, or non-affective reasoning competence. The paper currently emphasizes conflict-aware safety and humility, but does not sufficiently study possible negative effects on broader model utility.
+
+4. The paper assumes that initial misinterpretation persists through decoding, but this claim needs stronger evidence. A central premise of the paper is that once the model begins decoding, it tends to follow the initial affective commitment encoded at the pre-generation state, even if that commitment arose from an incorrect handling of multimodal conflict. This motivates focusing on the state right before the first generated token. I understand the intuition, but I am not fully convinced this assumption holds for modern LLMs or MLLMs, especially given their increasingly strong reflective and self-corrective abilities. Many current models can revise earlier hypotheses during generation, hedge, introduce clarification, or explicitly reconsider conflicting evidence. Therefore, it is not obvious that a problematic pre-generation configuration necessarily leads to a correspondingly problematic final response.
+
+Additional Questions:
+A1. Which category describes this manuscript?: Synthesis & Generation of affective behavior
+
+A2. How relevant is this manuscript to the readers of this journal?: Relevant
+
+B1. Is the manuscript technically sound in its treatment of computational issues?: Partially
+
+B2. Is the manuscript adequately informed and technically sound in its treatment of emotion-related concepts?: Partially
+
+C1. Are the title, abstract, and keywords appropriate? Please explain under Public Comments below.: Yes
+
+C2. Does the manuscript contain sufficient and appropriate references? Please explain under Public Comments below.: References are sufficient and appropriate
+
+If you are suggesting additional references they must be entered in the text box provided.  All suggestions must include full bibliographic information plus a DOI.
+
+
+If you are not suggesting any references, please type NA.: NA
+
+C3. How would you rate the organization of the manuscript? (Is it focused? Is the length appropriate for the topic?): Satisfactory
+
+C4. Please rate the readability of the manuscript.: Readable - but requires some effort to understand
+
+C5. How is the length of the manuscript?  If changes are suggested, please make explicit recommendations in Public Comments below.: About right
+
+C6. Should the supplemental material be included? (Click on the Supplementary Files icon to view files): Yes, as part of the main paper if accepted (cannot exceed the strict page limit)
+
+C7. If yes to 6, should it be accepted: After revisions.  Please include explanation under Public Comments below.
+
+A. Overall Evaluation: Good
