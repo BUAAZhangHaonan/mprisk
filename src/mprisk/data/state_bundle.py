@@ -7,6 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
+from mprisk.cache.prompt_conditioned_cache import (
+    PromptConditionedManifest,
+    load_prompt_conditioned_manifest,
+)
 from mprisk.cache.prompt_cache import load_prompt_cache_manifest
 from mprisk.data.protocol_views import VIEW_KEYS, normalize_protocol
 from mprisk.data.state_dataset import read_state_dataset_manifest
@@ -33,6 +37,7 @@ def build_state_bundles(
     *,
     state_dataset_manifest_path: str | Path,
     prompt_cache_manifest_path: str | Path,
+    prompt_conditioned_cache_manifest_path: str | Path,
     model_key: str,
     protocol: str,
     prompt_set_path: str | Path | None = None,
@@ -50,6 +55,9 @@ def build_state_bundles(
     templates = prompt_set.enabled_templates()
     prompt_ids = [template.prompt_id for template in templates]
     prompt_cache = load_prompt_cache_manifest(prompt_cache_manifest_path)
+    prompt_conditioned_cache = load_prompt_conditioned_manifest(
+        prompt_conditioned_cache_manifest_path
+    )
     state_rows = _read_validated_state_dataset_manifest(state_dataset_manifest_path)
 
     bundle_rows: list[dict[str, Any]] = []
@@ -67,14 +75,23 @@ def build_state_bundles(
         missing_prompt_ids = [
             prompt_id for prompt_id in prompt_ids if prompt_id not in prompt_cache_rows
         ]
-        if missing_prompt_ids:
+        prompt_conditioned_rows, missing_prompted = _prompt_conditioned_rows_for_sample(
+            prompt_conditioned_cache=prompt_conditioned_cache,
+            row=row,
+            model_key=model_key,
+            protocol=normalized_protocol,
+            prompt_set_key=prompt_set.key,
+            prompt_ids=prompt_ids,
+        )
+        if missing_prompt_ids or missing_prompted:
             missing_rows.append(
-                _missing_prompt_cache_row(
+                _missing_bundle_row(
                     row=row,
                     model_key=model_key,
                     protocol=normalized_protocol,
                     prompt_set_key=prompt_set.key,
                     missing_prompt_ids=missing_prompt_ids,
+                    missing_prompt_conditioned_states=missing_prompted,
                 )
             )
             continue
@@ -86,6 +103,7 @@ def build_state_bundles(
                 prompt_set_key=prompt_set.key,
                 templates=templates,
                 prompt_cache_rows=prompt_cache_rows,
+                prompt_conditioned_rows=prompt_conditioned_rows,
             )
         )
 
@@ -188,6 +206,7 @@ def _bundle_row(
     prompt_set_key: str,
     templates: Iterable[PromptTemplate],
     prompt_cache_rows: dict[str, dict[str, Any]],
+    prompt_conditioned_rows: dict[str, dict[str, dict[str, Any]]],
 ) -> dict[str, Any]:
     prompts = [
         _prompt_ref(template=template, prompt_cache_row=prompt_cache_rows[template.prompt_id])
@@ -206,6 +225,7 @@ def _bundle_row(
                 view_key=view_key,
                 prompts=prompts,
                 prompt_cache_rows=prompt_cache_rows,
+                prompt_conditioned_rows=prompt_conditioned_rows,
             )
             for view_key in VIEW_KEYS
         },
@@ -233,6 +253,7 @@ def _view_bundle(
     view_key: str,
     prompts: Iterable[dict[str, Any]],
     prompt_cache_rows: dict[str, dict[str, Any]],
+    prompt_conditioned_rows: dict[str, dict[str, dict[str, Any]]],
 ) -> dict[str, Any]:
     state_cache = dict(row[_ENTRY_FIELDS[view_key]])
     return {
@@ -243,6 +264,9 @@ def _view_bundle(
                 "prompt_id": prompt["prompt_id"],
                 "state_cache_condition": view_key,
                 "prompt_cache": dict(prompt_cache_rows[prompt["prompt_id"]]),
+                "prompt_conditioned_state": dict(
+                    prompt_conditioned_rows[view_key][prompt["prompt_id"]]
+                ),
             }
             for prompt in prompts
         },
@@ -257,13 +281,42 @@ def _metadata(row: dict[str, Any]) -> dict[str, Any]:
     return metadata
 
 
-def _missing_prompt_cache_row(
+def _prompt_conditioned_rows_for_sample(
+    *,
+    prompt_conditioned_cache: PromptConditionedManifest,
+    row: dict[str, Any],
+    model_key: str,
+    protocol: str,
+    prompt_set_key: str,
+    prompt_ids: list[str],
+) -> tuple[dict[str, dict[str, dict[str, Any]]], list[str]]:
+    rows: dict[str, dict[str, dict[str, Any]]] = {view_key: {} for view_key in VIEW_KEYS}
+    missing: list[str] = []
+    for view_key in VIEW_KEYS:
+        for prompt_id in prompt_ids:
+            entry = prompt_conditioned_cache.lookup(
+                sample_id=str(row["sample_id"]),
+                model_key=model_key,
+                protocol=protocol,
+                condition=view_key,
+                prompt_set_key=prompt_set_key,
+                prompt_id=prompt_id,
+            )
+            if entry is None:
+                missing.append(f"{view_key}:{prompt_id}")
+            else:
+                rows[view_key][prompt_id] = entry.to_manifest_row()
+    return rows, missing
+
+
+def _missing_bundle_row(
     *,
     row: dict[str, Any],
     model_key: str,
     protocol: str,
     prompt_set_key: str,
     missing_prompt_ids: list[str],
+    missing_prompt_conditioned_states: list[str],
 ) -> dict[str, Any]:
     return {
         "sample_id": row["sample_id"],
@@ -272,6 +325,7 @@ def _missing_prompt_cache_row(
         "protocol": protocol,
         "prompt_set_key": prompt_set_key,
         "missing_prompt_ids": missing_prompt_ids,
+        "missing_prompt_conditioned_states": missing_prompt_conditioned_states,
     }
 
 

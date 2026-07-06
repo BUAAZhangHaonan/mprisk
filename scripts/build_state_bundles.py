@@ -23,6 +23,11 @@ def parse_args() -> argparse.Namespace:
         required=True,
         help="Input prompt cache manifest JSONL.",
     )
+    parser.add_argument(
+        "--prompt-conditioned-cache-manifest",
+        required=True,
+        help="Input prompt-conditioned cache manifest JSONL.",
+    )
     parser.add_argument("--model-key", required=True)
     parser.add_argument("--protocol", required=True)
     parser.add_argument(
@@ -41,6 +46,7 @@ def main() -> int:
     result = build_state_bundles(
         state_dataset_manifest_path=Path(args.state_dataset_manifest),
         prompt_cache_manifest_path=Path(args.prompt_cache_manifest),
+        prompt_conditioned_cache_manifest_path=Path(args.prompt_conditioned_cache_manifest),
         model_key=args.model_key,
         protocol=args.protocol,
         prompt_set_path=Path(args.prompt_set) if args.prompt_set else None,
