@@ -1,4 +1,22 @@
 schema: mprisk_equiv_prompt_set_v1
 key: vt_primary_v1
 protocol: vt
-templates: []
+version: v1
+active: true
+templates:
+  - prompt_id: vt_primary_v1_t01
+    role: user
+    enabled: true
+    template_text: |
+      You are judging the Stage-1 emotion signal in a visual-text sample.
+      Sample: {sample_text}
+      Question: {question}
+      Give the most likely emotion and a brief reason.
+  - prompt_id: vt_primary_v1_t02
+    role: user
+    enabled: true
+    template_text: |
+      Read the visual-text sample and decide the main emotional state.
+      Input: {sample_text}
+      Task: {question}
+      Answer with one emotion label and one short explanation.

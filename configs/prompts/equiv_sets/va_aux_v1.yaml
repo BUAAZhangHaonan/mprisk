@@ -1,4 +1,22 @@
 schema: mprisk_equiv_prompt_set_v1
 key: va_aux_v1
 protocol: va
-templates: []
+version: v1
+active: true
+templates:
+  - prompt_id: va_aux_v1_t01
+    role: user
+    enabled: true
+    template_text: |
+      You are judging the Stage-1 emotion signal in a visual-audio sample.
+      Sample: {sample_text}
+      Question: {question}
+      Give the most likely emotion and a brief reason.
+  - prompt_id: va_aux_v1_t02
+    role: user
+    enabled: true
+    template_text: |
+      Review the visual-audio sample and identify the main emotional state.
+      Input: {sample_text}
+      Task: {question}
+      Answer with one emotion label and one short explanation.
