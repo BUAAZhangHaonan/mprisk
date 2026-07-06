@@ -10,6 +10,9 @@ dependencies:
   - openssl
   - pip:
       - joblib==1.4.2
+      - fastapi==0.115.6
+      - httpx==0.28.1
+      - jsonschema==4.23.0
       - matplotlib==3.10.1
       - numpy==2.2.4
       - pandas==2.2.3
@@ -25,5 +28,6 @@ dependencies:
       - scipy==1.15.2
       - seaborn==0.13.2
       - tqdm==4.67.1
+      - uvicorn==0.34.0
 variables:
   PYTHONNOUSERSITE: "1"

@@ -13,7 +13,10 @@ authors = [
   { name = "BUAAZhangHaonan" }
 ]
 dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.28",
   "joblib>=1.4",
+  "jsonschema>=4.23",
   "matplotlib>=3.10",
   "numpy>=2.2",
   "pandas>=2.2",
@@ -24,7 +27,8 @@ dependencies = [
   "scikit-learn>=1.6",
   "scipy>=1.15",
   "seaborn>=0.13",
-  "tqdm>=4.67"
+  "tqdm>=4.67",
+  "uvicorn>=0.34"
 ]
 
 [project.optional-dependencies]

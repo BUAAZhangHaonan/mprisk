@@ -1,0 +1,151 @@
+:root {
+  color: #18201d;
+  background: #f4f1e8;
+  font-family: "Aptos", "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+button, input, select, textarea {
+  font: inherit;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 220px 1fr;
+}
+
+.rail {
+  background: #16231e;
+  color: #f8f3e6;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.brand {
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+
+.rail button {
+  border: 0;
+  color: inherit;
+  background: transparent;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  cursor: pointer;
+}
+
+.rail button.active {
+  background: #d5ff61;
+  color: #16231e;
+}
+
+.workspace {
+  padding: 24px;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pageHeader h1 {
+  font-size: 28px;
+  margin: 0 0 20px;
+}
+
+.queueGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.sampleRow {
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  display: grid;
+  grid-template-columns: 2fr 1fr 80px 120px;
+  gap: 12px;
+  padding: 12px;
+  text-align: left;
+}
+
+.pill, .count {
+  background: #16231e;
+  color: #f8f3e6;
+  padding: 4px 8px;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid #16231e;
+  margin-bottom: 16px;
+}
+
+.segmented button {
+  border: 0;
+  background: #fffaf0;
+  padding: 8px 18px;
+}
+
+.segmented button.active {
+  background: #16231e;
+  color: #f8f3e6;
+}
+
+.mediaPanel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.mediaTitle {
+  font-weight: 800;
+}
+
+.mediaBox, .textBox, .empty {
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  min-height: 120px;
+  padding: 14px;
+}
+
+.labelForm {
+  display: grid;
+  gap: 14px;
+}
+
+.labelForm fieldset {
+  border: 1px solid #c9c2b2;
+  display: grid;
+  grid-template-columns: 160px 1fr 100px 180px;
+  gap: 12px;
+  align-items: center;
+}
+
+.formRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+textarea {
+  min-height: 90px;
+}
+
+.saveButton {
+  border: 0;
+  background: #d5ff61;
+  padding: 12px 18px;
+  font-weight: 800;
+}
