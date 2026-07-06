@@ -12,6 +12,7 @@ dist/
 
 # Environments
 .env
+.vscode
 .venv/
 venv/
 env/
