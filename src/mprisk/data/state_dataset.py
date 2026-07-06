@@ -171,3 +171,15 @@ def entry_to_manifest(entry: HiddenStateEntry) -> dict[str, Any]:
         "checksum": entry.checksum,
         "metadata": entry.metadata or {},
     }
+
+
+def read_state_dataset_manifest(path: str | Path) -> list[dict[str, Any]]:
+    import json
+
+    rows: list[dict[str, Any]] = []
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
