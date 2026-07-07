@@ -181,6 +181,27 @@ python scripts/run_state_measurement_smoke.py \
   --repr-key raw_layernorm_mean
 ```
 
+Run the minimal core SDR pipeline from final manifests and cache manifests:
+
+```bash
+python scripts/run_core_sdr_pipeline.py \
+  --model-key qwen3_vl_8b \
+  --protocol VT \
+  --prompt-set-key vt_primary_v1 \
+  --repr-key raw_layernorm_mean \
+  --manifest-paths data/processed/manifests/conflict_manifest.jsonl data/processed/manifests/aligned_manifest.jsonl \
+  --full-cache-root . \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
+  --output-root . \
+  --thresholds '{"kappa": 0.5, "tau": 0.25, "delta": 0.2}'
+```
+
+`raw_layernorm_mean` and `raw_layernorm_flat` run without a checkpoint. `tme_supcon_v1`
+requires `--checkpoint`; this runner exports embeddings from an existing checkpoint and
+does not train one.
+
 Main artifacts:
 
 - `outputs/prompt_conditioned_cache/{model_key}/{protocol}/{prompt_set_key}/manifest.jsonl`
@@ -192,6 +213,7 @@ Main artifacts:
 - `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/sdr_scores.jsonl`
 - `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/state_patterns.jsonl`
 - `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/state_summary.json`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/{repr_key}/CORE_SDR_SUMMARY.md`
 - `outputs/states/reports/STATE_MEASUREMENT_SMOKE.md`
 
 ## 7. Baselines and Evaluation
