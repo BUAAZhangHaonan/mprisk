@@ -28,6 +28,8 @@ dependencies:
       - scipy==1.15.2
       - seaborn==0.13.2
       - tqdm==4.67.1
+      - --extra-index-url https://download.pytorch.org/whl/cpu
+      - torch==2.12.1+cpu
       - uvicorn==0.34.0
 variables:
   PYTHONNOUSERSITE: "1"

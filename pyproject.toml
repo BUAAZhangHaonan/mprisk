@@ -27,6 +27,7 @@ dependencies = [
   "scikit-learn>=1.6",
   "scipy>=1.15",
   "seaborn>=0.13",
+  "torch>=2.6",
   "tqdm>=4.67",
   "uvicorn>=0.34"
 ]
