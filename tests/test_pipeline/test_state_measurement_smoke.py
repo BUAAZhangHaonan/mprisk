@@ -68,8 +68,12 @@ def _prompted_entry(
 def _prompted_rows(root, sample_id: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for condition in ("M1", "M2", "M12"):
-        rows.append(_prompted_entry(root, sample_id, condition, "vt_primary_v1_t01", [1.0, 0.0, 0.0]))
-        rows.append(_prompted_entry(root, sample_id, condition, "vt_primary_v1_t02", [0.0, 1.0, 0.0]))
+        rows.append(
+            _prompted_entry(root, sample_id, condition, "vt_primary_v1_t01", [1.0, 0.0, 0.0])
+        )
+        rows.append(
+            _prompted_entry(root, sample_id, condition, "vt_primary_v1_t02", [0.0, 1.0, 0.0])
+        )
     return rows
 
 

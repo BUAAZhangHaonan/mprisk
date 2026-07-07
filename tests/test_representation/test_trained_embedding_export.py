@@ -117,5 +117,8 @@ def test_export_trained_embeddings_matches_raw_manifest_shape_and_feeds_sdr(tmp_
             assert np.isfinite(np.asarray(embedding)).all()
     assert summary["embedding_dim"] == 4
 
-    sdr = compute_sdr_scores(embedding_manifest_path=result.manifest_path, output_dir=tmp_path / "sdr")
+    sdr = compute_sdr_scores(
+        embedding_manifest_path=result.manifest_path,
+        output_dir=tmp_path / "sdr",
+    )
     assert _read_jsonl(sdr.scores_path)[0]["sample_id"] == "sample-1"

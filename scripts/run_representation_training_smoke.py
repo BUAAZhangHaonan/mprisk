@@ -30,7 +30,6 @@ from mprisk.representation.training import (
 )
 from mprisk.utils.io import ensure_parent
 
-
 DEFAULT_THRESHOLDS = {"kappa": 0.5, "tau": 0.25, "delta": 0.2}
 
 

@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import numpy as np
 import torch
@@ -15,7 +16,6 @@ from mprisk.cache.prompt_conditioned_cache import prompt_conditioned_entry_from_
 from mprisk.data.manifests import read_jsonl
 from mprisk.representation.trajectory_model import MLPProjection
 from mprisk.utils.io import write_json, write_jsonl
-
 
 VIEW_KEYS = ("M1", "M2", "M12")
 
