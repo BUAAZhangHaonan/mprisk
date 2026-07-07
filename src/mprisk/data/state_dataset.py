@@ -10,7 +10,7 @@ from mprisk.cache.cache_manifest import DEFAULT_CONDITIONS, load_full_cache_mani
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 from mprisk.cache.prefill_extract import t0_token_index
 from mprisk.data.manifests import FinalManifestRow, read_final_manifest
-from mprisk.data.protocol_views import normalize_protocol
+from mprisk.data.protocol_views import VIEW_KEYS, normalize_protocol
 from mprisk.utils.io import write_json, write_jsonl
 
 
@@ -112,6 +112,7 @@ def _state_row(
         "protocol": row.protocol,
         "model_key": model_key,
         "target_label": _target_label(row),
+        "view_labels": _view_labels(row),
         "dominant_modality": extras.get("dominant_modality", "unclear"),
         "m1_entry": entry_to_manifest(m1_entry),
         "m2_entry": entry_to_manifest(m2_entry),
@@ -141,6 +142,21 @@ def _missing_row(
 
 def _target_label(row: FinalManifestRow) -> str | None:
     return row.views.M12.get("label") or row.views.M12.get("joint_label")
+
+
+def _view_labels(row: FinalManifestRow) -> dict[str, dict[str, Any]]:
+    return {
+        view_key: _view_label(getattr(row.views, view_key))
+        for view_key in VIEW_KEYS
+    }
+
+
+def _view_label(view: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "label": view.get("label") or view.get("joint_label"),
+        "specific_affect": view.get("specific_affect"),
+        "is_clear": view.get("is_clear", False),
+    }
 
 
 def _require_consistent_entry_shape(entries: tuple[HiddenStateEntry, ...], sample_id: str) -> None:

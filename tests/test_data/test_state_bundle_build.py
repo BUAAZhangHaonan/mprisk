@@ -30,6 +30,14 @@ def _state_entry(sample_id: str, condition: str) -> dict[str, object]:
     }
 
 
+def _view_labels() -> dict[str, dict[str, object]]:
+    return {
+        "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},
+        "M2": {"label": "negative", "specific_affect": "anger", "is_clear": True},
+        "M12": {"label": "negative", "specific_affect": "frustration", "is_clear": True},
+    }
+
+
 def _state_row(sample_id: str) -> dict[str, object]:
     return {
         "sample_id": sample_id,
@@ -38,6 +46,7 @@ def _state_row(sample_id: str) -> dict[str, object]:
         "protocol": "VT",
         "model_key": "qwen3_vl_8b",
         "target_label": "negative",
+        "view_labels": _view_labels(),
         "dominant_modality": "M2",
         "m1_entry": _state_entry(sample_id, "M1"),
         "m2_entry": _state_entry(sample_id, "M2"),
@@ -159,6 +168,7 @@ def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_
     assert summary["prompt_count"] == 2
     assert rows[0]["sample_id"] == "sample-ok"
     assert rows[0]["prompt_set_key"] == "vt_primary_v1"
+    assert rows[0]["view_labels"] == _view_labels()
     assert [prompt["prompt_id"] for prompt in rows[0]["prompts"]] == [
         "vt_primary_v1_t01",
         "vt_primary_v1_t02",

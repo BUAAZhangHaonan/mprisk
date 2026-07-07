@@ -16,9 +16,24 @@ def _manifest_row(sample_id: str, sample_type: str = "Conflict") -> dict[str, ob
         "split_group_id": sample_id,
         "media_paths": {"vision": "video.mp4", "text": "text.txt"},
         "views": {
-            "M1": {"modality": "vision", "label": "positive", "is_clear": True},
-            "M2": {"modality": "text", "label": "negative", "is_clear": True},
-            "M12": {"modality": "vision+text", "label": "negative", "is_clear": True},
+            "M1": {
+                "modality": "vision",
+                "label": "positive",
+                "specific_affect": "joy",
+                "is_clear": True,
+            },
+            "M2": {
+                "modality": "text",
+                "label": "negative",
+                "specific_affect": "anger",
+                "is_clear": True,
+            },
+            "M12": {
+                "modality": "vision+text",
+                "label": "negative",
+                "specific_affect": "frustration",
+                "is_clear": True,
+            },
         },
         "dominant_modality": "M2",
         "use_in_main": True,
@@ -92,6 +107,11 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
     assert manifest_rows[0]["sample_id"] == "sample-ok"
     assert manifest_rows[0]["model_key"] == "qwen3_vl_8b"
     assert manifest_rows[0]["target_label"] == "negative"
+    assert manifest_rows[0]["view_labels"] == {
+        "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},
+        "M2": {"label": "negative", "specific_affect": "anger", "is_clear": True},
+        "M12": {"label": "negative", "specific_affect": "frustration", "is_clear": True},
+    }
     assert manifest_rows[0]["m1_entry"]["condition"] == "M1"
     assert manifest_rows[0]["trajectory_meta"] == {
         "layer_count": 2,

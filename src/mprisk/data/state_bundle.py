@@ -161,7 +161,14 @@ def _read_validated_state_dataset_manifest(path: str | Path) -> list[dict[str, A
 
 
 def _validate_state_dataset_row(row: dict[str, Any]) -> None:
-    for field in ("sample_id", "sample_type", "model_key", "protocol", "trajectory_meta"):
+    for field in (
+        "sample_id",
+        "sample_type",
+        "model_key",
+        "protocol",
+        "view_labels",
+        "trajectory_meta",
+    ):
         if field not in row:
             raise ValueError(f"state dataset row missing {field}")
     for view_key, entry_field in _ENTRY_FIELDS.items():
@@ -218,6 +225,7 @@ def _bundle_row(
         "model_key": model_key,
         "protocol": protocol,
         "prompt_set_key": prompt_set_key,
+        "view_labels": dict(row["view_labels"]),
         "prompts": prompts,
         "views": {
             view_key: _view_bundle(
