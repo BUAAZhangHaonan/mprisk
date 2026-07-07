@@ -89,11 +89,41 @@ Main artifacts:
 
 The main representation uses full-layer prefill trajectories and maps them into a manifold-aware embedding space.
 
+The trained representation smoke chain is:
+
+```text
+bundle_manifest
+-> representation_dataset
+-> tme_supcon_v1 checkpoint
+-> trained embedding manifest
+-> S/D/R scores
+-> state patterns
+```
+
+Run the trained representation smoke pipeline:
+
+```bash
+python scripts/run_representation_training_smoke.py \
+  --bundle-manifest outputs/state_bundles/qwen3_vl_8b/VT/vt_primary_v1/bundle_manifest.jsonl \
+  --config configs/experiments/representation_tme_supcon_v1.yaml \
+  --model-key qwen3_vl_8b \
+  --protocol VT \
+  --prompt-set-key vt_primary_v1 \
+  --output-root . \
+  --device cpu
+```
+
 Main artifacts:
 
-- `outputs/representation/checkpoints/`
-- `outputs/representation/embeddings/`
-- `outputs/representation/diagnostics/`
+- `outputs/representation_data/{model_key}/{protocol}/{prompt_set_key}/representation_dataset.jsonl`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/checkpoint.pt`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_config.yaml`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_metrics.json`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_log.jsonl`
+- `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/embedding_manifest.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/sdr_scores.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/state_patterns.jsonl`
+- `outputs/representation_train/reports/REPRESENTATION_TRAINING_SMOKE.md`
 
 ## 6. State Analysis
 
