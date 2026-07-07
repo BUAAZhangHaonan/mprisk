@@ -19,7 +19,6 @@ REQUIRED_PREDICTION_FIELDS = frozenset(
         "protocol",
         "prediction",
         "target_label",
-        "is_correct",
         "confidence_text",
         "raw_response",
         "source",
@@ -108,7 +107,7 @@ def normalize_prediction_row(
         location = f" on line {line_number}" if line_number is not None else ""
         raise TypeError(f"Prediction field 'confidence_text'{location} must be a string or None")
 
-    if type(row["is_correct"]) is not bool:
+    if "is_correct" in row and type(row["is_correct"]) is not bool:
         location = f" on line {line_number}" if line_number is not None else ""
         raise TypeError(f"Prediction field 'is_correct'{location} must be a bool")
 

@@ -24,7 +24,6 @@ def _row(
         "protocol": protocol,
         "prediction": prediction,
         "target_label": target_label,
-        "is_correct": False,
         "confidence_text": "0.5",
         "raw_response": prediction,
         "source": "unit-test",

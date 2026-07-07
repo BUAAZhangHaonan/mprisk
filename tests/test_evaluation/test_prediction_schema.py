@@ -18,7 +18,6 @@ def _row(**overrides: object) -> dict[str, object]:
         "protocol": "posthoc",
         "prediction": "positive",
         "target_label": "positive",
-        "is_correct": False,
         "confidence_text": "0.82",
         "raw_response": "The answer is positive.",
         "source": "unit-test",
@@ -43,11 +42,19 @@ def test_normalize_prediction_row_validates_required_schema_fields() -> None:
         normalize_prediction_row(row)
 
 
-def test_normalize_prediction_row_validates_field_types() -> None:
+def test_normalize_prediction_row_validates_optional_is_correct_type() -> None:
     row = _row(is_correct="false")
 
     with pytest.raises(TypeError, match="is_correct"):
         normalize_prediction_row(row)
+
+
+def test_normalize_prediction_row_accepts_missing_is_correct() -> None:
+    normalized = normalize_prediction_row(_row(prediction="negative", target_label="negative"))
+
+    assert "is_correct" not in normalized
+    assert normalized["normalized_prediction"] == "negative"
+    assert normalized["normalized_target_label"] == "negative"
 
 
 def test_normalize_prediction_row_adds_normalized_labels() -> None:
