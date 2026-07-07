@@ -10,7 +10,9 @@ from mprisk.evaluation.error_analysis import analyze_state_to_error
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Analyze state patterns against prediction errors.")
+    parser = argparse.ArgumentParser(
+        description="Analyze state patterns against prediction errors."
+    )
     parser.add_argument("--state-patterns", required=True)
     parser.add_argument("--predictions", required=True)
     parser.add_argument("--output-dir", required=True)

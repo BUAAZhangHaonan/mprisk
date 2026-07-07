@@ -10,7 +10,6 @@ from typing import Any
 from mprisk.data.manifests import read_jsonl
 from mprisk.utils.io import ensure_parent, write_json
 
-
 ABSTAIN_POLICY = (
     "Rows are marked abstain when prediction/outcome/status is abstain or "
     "normalized_prediction is uncertain/invalid. Abstain rows are treated as not "
@@ -65,7 +64,11 @@ def analyze_state_to_error(
     return StateToErrorResult(json_path=json_path, csv_path=csv_path, count=len(merged_rows))
 
 
-def _index_by_sample_id(rows: list[dict[str, Any]], *, source_name: str) -> dict[str, dict[str, Any]]:
+def _index_by_sample_id(
+    rows: list[dict[str, Any]],
+    *,
+    source_name: str,
+) -> dict[str, dict[str, Any]]:
     indexed: dict[str, dict[str, Any]] = {}
     for row in rows:
         sample_id = str(row.get("sample_id", ""))
@@ -167,7 +170,10 @@ def _association_test(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
         from scipy.stats import chi2_contingency
 
-        statistic, p_value, degrees_of_freedom, expected = chi2_contingency(counts, correction=False)
+        statistic, p_value, degrees_of_freedom, expected = chi2_contingency(
+            counts,
+            correction=False,
+        )
         return {
             "status": "ok",
             "method": "chi_square",
@@ -241,7 +247,10 @@ def _has_separate_outcome_field(row: dict[str, Any]) -> bool:
 def _is_abstain(row: dict[str, Any]) -> bool:
     if _normalized_value(row.get("normalized_prediction")) in {"abstain", "uncertain", "invalid"}:
         return True
-    return any(_normalized_value(row.get(field)) == "abstain" for field in ("prediction", "outcome", "status"))
+    return any(
+        _normalized_value(row.get(field)) == "abstain"
+        for field in ("prediction", "outcome", "status")
+    )
 
 
 def _normalized_value(value: Any) -> str:
@@ -251,7 +260,7 @@ def _normalized_value(value: Any) -> str:
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return bool(value)
     if isinstance(value, str):
         return value.strip().casefold() in {"1", "true", "yes", "y"}

@@ -115,7 +115,8 @@ def _data_scale_lines(
         lines.append("- Four-state/error relation: missing")
 
     if repr_data is not None:
-        lines.append(f"- Raw vs TME comparison: {_comparison_total(_named_entries(repr_data))} rows")
+        comparison_count = _comparison_total(_named_entries(repr_data))
+        lines.append(f"- Raw vs TME comparison: {comparison_count} rows")
     else:
         lines.append("- Raw vs TME comparison: missing")
 
@@ -138,7 +139,11 @@ def _conflict_vs_aligned_lines(
     groups = _dict(data.get("groups"))
     conflict = _dict(groups.get("Conflict"))
     aligned = _dict(groups.get("Aligned"))
-    lines = [f"- Conflict n={_format_count(conflict.get('n'))}; Aligned n={_format_count(aligned.get('n'))}"]
+    lines = [
+        "- Conflict "
+        f"n={_format_count(conflict.get('n'))}; "
+        f"Aligned n={_format_count(aligned.get('n'))}"
+    ]
 
     conflict_metrics = _dict(conflict.get("metrics"))
     aligned_metrics = _dict(aligned.get("metrics"))
@@ -311,13 +316,13 @@ def _format_count(value: Any) -> str:
 def _format_decimal(value: Any) -> str:
     if value is None:
         return "n/a"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return f"{float(value):.4f}"
     return str(value)
 
 
 def _float_or_zero(value: Any) -> float:
-    if isinstance(value, (int, float)):
+    if isinstance(value, int | float):
         return float(value)
     return 0.0
 
