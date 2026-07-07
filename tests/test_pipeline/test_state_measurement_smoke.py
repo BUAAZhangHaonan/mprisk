@@ -82,6 +82,11 @@ def _state_row(root, sample_id: str) -> dict[str, object]:
         "model_key": "qwen3_vl_8b",
         "target_label": "negative",
         "dominant_modality": "M2",
+        "view_labels": {
+            "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},
+            "M2": {"label": "negative", "specific_affect": "anger", "is_clear": True},
+            "M12": {"label": "negative", "specific_affect": "sarcasm", "is_clear": True},
+        },
         "m1_entry": _state_entry(root, sample_id, "M1", 1.0),
         "m2_entry": _state_entry(root, sample_id, "M2", 2.0),
         "m12_entry": _state_entry(root, sample_id, "M12", 3.0),
