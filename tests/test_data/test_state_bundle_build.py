@@ -43,6 +43,7 @@ def _state_row(sample_id: str) -> dict[str, object]:
         "sample_id": sample_id,
         "sample_type": "Conflict",
         "source_dataset": "ch_sims_v2",
+        "split_group_id": sample_id,
         "protocol": "VT",
         "model_key": "qwen3_vl_8b",
         "target_label": "negative",
@@ -168,6 +169,7 @@ def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_
     assert summary["prompt_count"] == 2
     assert rows[0]["sample_id"] == "sample-ok"
     assert rows[0]["prompt_set_key"] == "vt_primary_v1"
+    assert rows[0]["metadata"]["split_group_id"] == "sample-ok"
     assert rows[0]["view_labels"] == _view_labels()
     assert [prompt["prompt_id"] for prompt in rows[0]["prompts"]] == [
         "vt_primary_v1_t01",

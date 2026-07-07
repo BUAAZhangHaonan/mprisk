@@ -106,6 +106,7 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
     assert result.missing_count == 1
     assert manifest_rows[0]["sample_id"] == "sample-ok"
     assert manifest_rows[0]["model_key"] == "qwen3_vl_8b"
+    assert manifest_rows[0]["split_group_id"] == "sample-ok"
     assert manifest_rows[0]["target_label"] == "negative"
     assert manifest_rows[0]["view_labels"] == {
         "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},

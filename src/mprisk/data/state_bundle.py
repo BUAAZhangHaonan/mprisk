@@ -283,7 +283,7 @@ def _view_bundle(
 
 def _metadata(row: dict[str, Any]) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
-    for field in ("source_dataset", "target_label", "dominant_modality"):
+    for field in ("source_dataset", "split_group_id", "target_label", "dominant_modality"):
         if field in row:
             metadata[field] = row[field]
     return metadata

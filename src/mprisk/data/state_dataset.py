@@ -111,6 +111,7 @@ def _state_row(
         "source_dataset": row.source_dataset,
         "protocol": row.protocol,
         "model_key": model_key,
+        "split_group_id": row.split_group_id,
         "target_label": _target_label(row),
         "view_labels": _view_labels(row),
         "dominant_modality": extras.get("dominant_modality", "unclear"),
