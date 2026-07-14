@@ -1,0 +1,45 @@
+schema_name: mprisk_generated_archive_freeze_config_v1
+freeze_id: generated_round1_v1
+source_root: /home/team/lvshuyang/prompt-make/output
+output_root: data/frozen/generated_round1_v1
+external_media_root: /home/team/zhanghaonan/TAFFC/artifacts/generated_round1_v1/silent_media
+official_archetypes_path: /home/team/lvshuyang/prompt-make/src/glm_client.py
+official_c_templates_path: /home/team/lvshuyang/prompt-make/scripts/c_type_batch.py
+ffmpeg_path: /usr/bin/ffmpeg
+ffprobe_path: /usr/bin/ffprobe
+archives:
+  accept_a_svt:
+    data_type: A
+    sample_type: Conflict
+    protocol: VT
+    media_field: silent
+    expected_count: 371
+    expected_gt_eligible: 64
+  accept_a_va:
+    data_type: A
+    sample_type: Conflict
+    protocol: VA
+    media_field: primary
+    expected_count: 52
+    expected_gt_eligible: 8
+  accept_c_svt:
+    data_type: C
+    sample_type: Aligned
+    protocol: VT
+    media_field: silent
+    expected_count: 142
+    expected_gt_eligible: 77
+  accept_c_va:
+    data_type: C
+    sample_type: Aligned
+    protocol: VA
+    media_field: primary
+    expected_count: 87
+    expected_gt_eligible: 13
+silent_copy_overrides:
+  - source_archive: accept_a_svt
+    sample_id: S0114
+  - source_archive: accept_a_svt
+    sample_id: S0115
+  - source_archive: accept_a_svt
+    sample_id: S0116

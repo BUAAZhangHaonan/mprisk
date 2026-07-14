@@ -1,0 +1,109 @@
+{
+  "artifacts": {
+    "archive_manifest": {
+      "bytes": 1549998,
+      "path": "data/frozen/generated_round1_v1/archive_manifest.jsonl",
+      "sha256": "a981c2223274df4a10be61482615a79de7fa5239b0f3040aadeb5e58e954899e"
+    },
+    "gt_eligible": {
+      "bytes": 176509,
+      "path": "data/frozen/generated_round1_v1/gt_eligible.jsonl",
+      "sha256": "affbcf47fbbc646587846ea935cfbb2a473535370dd9008841042112a2dba8b8"
+    }
+  },
+  "builder": "mprisk.data.generated_archive_freeze.freeze_generated_round1",
+  "config": {
+    "path": "/home/team/zhanghaonan/TAFFC/mprisk/configs/data/generated_round1_v1.yaml",
+    "sha256": "96996657da432446e1faca3e6d97fbda689665727c0755a3f97bd60c2935a563"
+  },
+  "counts": {
+    "by_archive": {
+      "accept_a_svt": 371,
+      "accept_a_va": 52,
+      "accept_c_svt": 142,
+      "accept_c_va": 87
+    },
+    "gt_eligible": 162,
+    "gt_eligible_anchor_source": {
+      "official_template": 88,
+      "recorded": 74
+    },
+    "gt_eligible_by_archive": {
+      "accept_a_svt": 64,
+      "accept_a_va": 8,
+      "accept_c_svt": 77,
+      "accept_c_va": 13
+    },
+    "gt_eligible_by_data_type": {
+      "A": 72,
+      "C": 90
+    },
+    "gt_eligible_by_protocol": {
+      "VA": 21,
+      "VT": 141
+    },
+    "gt_eligible_context_source": {
+      "setting": 126,
+      "trigger": 36
+    },
+    "ineligible": 490,
+    "total": 652
+  },
+  "freeze_id": "generated_round1_v1",
+  "media": {
+    "bytes_hashed": 319212072,
+    "files_hashed": 1160,
+    "large_media_committed": false,
+    "silent_copy_overrides": [
+      {
+        "sample_id": "S0114",
+        "source_archive": "accept_a_svt"
+      },
+      {
+        "sample_id": "S0115",
+        "source_archive": "accept_a_svt"
+      },
+      {
+        "sample_id": "S0116",
+        "source_archive": "accept_a_svt"
+      }
+    ]
+  },
+  "official_sources": {
+    "archetypes_glm": {
+      "path": "/home/team/lvshuyang/prompt-make/src/glm_client.py",
+      "sha256": "0a7b627bd9c564f7b95287385171ec8f5f5481cdcace2816b2da1603be4a829b"
+    },
+    "c_emotion_variants": {
+      "path": "/home/team/lvshuyang/prompt-make/scripts/c_type_batch.py",
+      "sha256": "6b9749afa1029471d9f65b26144da0c9d0d2576e0d1cd4b33bba05d2cf47e85e"
+    }
+  },
+  "primary_key": [
+    "source_archive",
+    "original_variant_id"
+  ],
+  "schema_name": "mprisk_generated_archive_provenance_v1",
+  "source_indexes": {
+    "accept_a_svt": {
+      "path": "/home/team/lvshuyang/prompt-make/output/accept_a_svt/index.jsonl",
+      "rows": 371,
+      "sha256": "fab21963b23c44a71f7b5d40892ae2aad8fb5bada997b07ece1a11fbe9312e4f"
+    },
+    "accept_a_va": {
+      "path": "/home/team/lvshuyang/prompt-make/output/accept_a_va/index.jsonl",
+      "rows": 52,
+      "sha256": "55b3e4f2f3878e4eddfd59b17bc223abbbfc3a1a5a0e29b0dffadcf3568e9de5"
+    },
+    "accept_c_svt": {
+      "path": "/home/team/lvshuyang/prompt-make/output/accept_c_svt/index.jsonl",
+      "rows": 142,
+      "sha256": "abd96cadce15e41f89d1dbc5be1d8b3088ffd12f67d5dfa34c5b6245b04cfe5c"
+    },
+    "accept_c_va": {
+      "path": "/home/team/lvshuyang/prompt-make/output/accept_c_va/index.jsonl",
+      "rows": 87,
+      "sha256": "5d75f03addac52fe6112a6a3e7cd9c18ff8956b22842abf6df472090158cadaf"
+    }
+  }
+}
