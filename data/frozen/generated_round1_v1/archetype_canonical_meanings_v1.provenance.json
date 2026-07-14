@@ -1,0 +1,64 @@
+{
+  "artifacts": {
+    "assignments": {
+      "bytes": 290031,
+      "path": "data/frozen/generated_round1_v1/archetype_semantic_assignments_v1.jsonl",
+      "sha256": "21cbc5972896ad2910ddef6219dafa5601b3ea7808099d17780baf70f27105ca"
+    },
+    "dictionary": {
+      "bytes": 16543,
+      "path": "data/frozen/generated_round1_v1/archetype_canonical_meanings_v1.jsonl",
+      "sha256": "0f91c21be5e68988ff3ad8c194d5f6bd581799267bcf7affbf63451880b23695"
+    },
+    "review_queue": {
+      "bytes": 0,
+      "path": "data/frozen/generated_round1_v1/archetype_canonical_review_queue_v1.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "assignment_primary_key": [
+    "sample_id"
+  ],
+  "builder": "mprisk.data.archetype_canonical_meanings.build_archetype_canonical_meanings",
+  "config": {
+    "path": "/home/team/zhanghaonan/TAFFC/mprisk/configs/labels/archetype_canonical_meanings_v1.yaml",
+    "sha256": "8f47ea6de880f21e129243245a8e27bbbb7704c3e2a40f0bffa84b933e0464ca"
+  },
+  "counts": {
+    "assignments": 652,
+    "dictionary": 24,
+    "dictionary_by_data_type": {
+      "A": 14,
+      "C": 10
+    },
+    "gt_eligible_assignments": 162,
+    "review_queue": 0,
+    "snapshot_by_data_type": {
+      "A": 423,
+      "C": 229
+    }
+  },
+  "dictionary_id": "archetype_canonical_meanings_v1",
+  "dictionary_primary_key": [
+    "archetype_semantic_id"
+  ],
+  "freeze_binding": {
+    "archive_manifest_sha256": "a981c2223274df4a10be61482615a79de7fa5239b0f3040aadeb5e58e954899e",
+    "freeze_id": "generated_round1_v1",
+    "gt_eligible_sha256": "affbcf47fbbc646587846ea935cfbb2a473535370dd9008841042112a2dba8b8",
+    "path": "/home/team/zhanghaonan/TAFFC/mprisk/data/frozen/generated_round1_v1/provenance.json",
+    "sha256": "6018b9a94884a9ce2190aebe6201e85002936b3cd344c56db025939cb8a354ee"
+  },
+  "official_sources": {
+    "archetypes_glm": {
+      "path": "/home/team/lvshuyang/prompt-make/src/glm_client.py",
+      "sha256": "0a7b627bd9c564f7b95287385171ec8f5f5481cdcace2816b2da1603be4a829b"
+    },
+    "c_emotion_variants": {
+      "path": "/home/team/lvshuyang/prompt-make/scripts/c_type_batch.py",
+      "sha256": "6b9749afa1029471d9f65b26144da0c9d0d2576e0d1cd4b33bba05d2cf47e85e"
+    }
+  },
+  "schema_name": "mprisk_archetype_canonical_dictionary_provenance_v1",
+  "status": "complete"
+}

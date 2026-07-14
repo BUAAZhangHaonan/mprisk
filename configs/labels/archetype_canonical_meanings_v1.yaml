@@ -1,0 +1,30 @@
+schema_name: mprisk_archetype_canonical_dictionary_config_v1
+dictionary_id: archetype_canonical_meanings_v1
+freeze_root: data/frozen/generated_round1_v1
+dictionary_file: archetype_canonical_meanings_v1.jsonl
+assignments_file: archetype_semantic_assignments_v1.jsonl
+review_queue_file: archetype_canonical_review_queue_v1.jsonl
+provenance_file: archetype_canonical_meanings_v1.provenance.json
+max_description_words: 30
+recorded_name_aliases:
+  tears_of_joy_SVT: tears_of_joy
+  suppressed_anger_SVT: suppressed_anger
+  composure_shock_SVT: composure_shock
+  composure_fear_SVT: composure_fear
+  composure_fear_VA: composure_fear
+  composure_anxiety_VA: composure_anxiety
+  smile_of_disbelief_SVT: smile_of_disbelief
+  polite_confrontation_SVT: polite_confrontation
+  defensive_denial_SVT: defensive_denial
+  nervous_laughter_SVT: nervous_laughter
+  sarcasm_SVT: sarcasm
+recorded_surface_aliases:
+  warmth: warmth (polite smile)
+  distress_visual: distress_visual (tears, contorted face)
+  professional_neutrality: professional neutrality
+  professional_composure: professional composure
+  frozen_smile: frozen smile
+  diplomatic_warmth: diplomatic warmth
+  feigned_indifference: feigned indifference
+  intermittent_forced_smile: intermittent forced smile
+  mock_praise: mock praise
