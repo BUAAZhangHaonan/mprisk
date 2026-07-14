@@ -62,3 +62,32 @@ CUDA_VISIBLE_DEVICES=1 PYTHONNOUSERSITE=1 \
 
 The CLI is batch-size one by construction. Multiple sample IDs are processed sequentially.
 Existing sample/model/protocol/condition entries fail unless `--overwrite` is explicit.
+
+## Resumable full-manifest extraction
+
+`extract_prefill_batch.py` expands every manifest row across every enabled equivalent
+prompt and M1/M2/M12. It does not filter `annotation_count` or `use_in_main`; those fields
+and `sample_type` are recorded in `batch_state.sqlite3`. Each prompt has its own cache root
+under `prompts/<prompt_id>`, so prompt variants cannot collide in a cache manifest.
+
+The VA prompt set requires an explicit `question` variable. No canonical value is present
+in the repository, so the formal run must receive the approved value and otherwise fails:
+
+```bash
+CUDA_VISIBLE_DEVICES=1 PYTHONNOUSERSITE=1 \
+  /home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python \
+  scripts/extract_prefill_batch.py \
+  --manifest data/processed/manifests/protocol_manifests/va_aux.jsonl \
+  --prompt-set configs/prompts/equiv_sets/va_aux_v1.yaml \
+  --prompt-variable 'question=<APPROVED_CANONICAL_QUESTION>' \
+  --protocol va --conditions M1 M2 M12 \
+  --joint-audio-mode embedded_video \
+  --model-path /home/team/lvshuyang/Models/Qwen/Qwen2.5-Omni-7B \
+  --device cuda:0 --attn-implementation sdpa --video-fps 1 --max-pixels 602112 \
+  --output-root outputs/full_cache/qwen2_5_omni_7b_va
+```
+
+Interrupted `running` tasks return to `pending` on the next identical invocation. Completed
+artifacts are checksum/shape/request validated before recovery. Failed tasks remain failed
+unless `--retry-failed` is explicit. `failures.jsonl`, prompt manifests, and
+`batch_summary.json` are atomically materialized from the SQLite ledger.

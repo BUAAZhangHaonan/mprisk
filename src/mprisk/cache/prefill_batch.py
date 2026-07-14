@@ -1,0 +1,672 @@
+"""Manifest-wide, resumable prefill-cache extraction."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import sqlite3
+import string
+import subprocess
+import traceback
+from collections import Counter
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from safetensors.numpy import load_file
+
+from mprisk.cache.prefill_writer import (
+    prefill_artifact_paths,
+    write_full_cache_manifest,
+    write_prefill_result,
+)
+from mprisk.models.base_wrapper import PrefillRequest
+from mprisk.models.qwen_omni import build_condition_request
+from mprisk.models.wrapper_registry import get_wrapper
+from mprisk.prompts.compiler import compile_prompt
+from mprisk.prompts.template_bank import PromptTemplate, load_equiv_prompt_set
+
+WrapperFactory = Callable[..., Any]
+CONDITIONS = ("M1", "M2", "M12")
+
+
+@dataclass(frozen=True)
+class BatchTask:
+    task_id: str
+    sample_id: str
+    prompt_id: str
+    prompt_text: str | None
+    condition: str
+    row: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class BatchPlan:
+    tasks: list[BatchTask]
+    prompt_ids: tuple[str, ...]
+    unresolved_prompt_variables: tuple[str, ...]
+    rows: list[dict[str, Any]]
+    signature: dict[str, Any]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run resumable manifest-wide prefill extraction.")
+    parser.add_argument("--manifest", required=True, type=Path)
+    parser.add_argument("--prompt-set", required=True, type=Path)
+    parser.add_argument("--prompt-variable", action="append", default=[])
+    parser.add_argument("--protocol", default="va", choices=("vt", "va", "vta"))
+    parser.add_argument("--conditions", nargs="+", default=CONDITIONS)
+    parser.add_argument(
+        "--joint-audio-mode", default="embedded_video", choices=("embedded_video", "separate_file")
+    )
+    parser.add_argument("--video-fps", type=float, default=1.0)
+    parser.add_argument("--model-key", default="qwen2_5_omni_7b")
+    parser.add_argument("--family", default="qwen_omni", choices=("qwen_omni",))
+    parser.add_argument("--model-path", required=True, type=Path)
+    parser.add_argument("--device", default="cuda:1")
+    parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
+    parser.add_argument("--attn-implementation", default="sdpa", choices=("sdpa", "eager"))
+    parser.add_argument("--min-pixels", type=int)
+    parser.add_argument("--max-pixels", type=int)
+    parser.add_argument("--output-root", required=True, type=Path)
+    parser.add_argument("--retry-failed", action="store_true")
+    parser.add_argument("--fail-fast", action="store_true")
+    parser.add_argument("--materialize-every", type=int, default=100)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--probe-media", action="store_true")
+    parser.add_argument("--ffprobe-workers", type=int, default=16)
+    parser.add_argument("--gpu-index", type=int)
+    parser.add_argument("--trajectory-shape", nargs=2, type=int, metavar=("LAYERS", "HIDDEN"))
+    parser.add_argument("--smoke-condition-seconds", action="append", default=[])
+    parser.add_argument("--smoke-wall-seconds", type=float)
+    parser.add_argument("--smoke-media-seconds", type=float)
+    parser.add_argument("--smoke-artifact-bytes-per-task", type=float)
+    return parser
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    wrapper_factory: WrapperFactory | None = None,
+) -> int:
+    args = build_parser().parse_args(argv)
+    if args.materialize_every <= 0:
+        raise ValueError("--materialize-every must be positive")
+    plan = build_batch_plan(args)
+    if args.dry_run:
+        print(json.dumps(_dry_run_payload(args, plan), ensure_ascii=False, sort_keys=True))
+        return 0
+    if plan.unresolved_prompt_variables:
+        raise ValueError(
+            "Unresolved prompt variables: " + ", ".join(plan.unresolved_prompt_variables)
+        )
+    _validate_media(plan.rows)
+    factory = wrapper_factory or get_wrapper(args.family)
+    wrapper = factory(
+        model_key=args.model_key,
+        model_path=args.model_path,
+        device=args.device,
+        dtype=args.dtype,
+        attn_implementation=args.attn_implementation,
+        min_pixels=args.min_pixels,
+        max_pixels=args.max_pixels,
+    )
+    output_root = args.output_root.expanduser().resolve()
+    ledger = BatchLedger(output_root / "batch_state.sqlite3")
+    ledger.prepare(plan, retry_failed=args.retry_failed)
+    for task, recorded_entry in ledger.completed_tasks(plan):
+        request = _request_for_task(args, task)
+        prompt_root = output_root / "prompts" / task.prompt_id
+        recovered_entry = _recover_entry(request, prompt_root)
+        if recovered_entry is None:
+            raise FileNotFoundError(f"Completed task has no cache artifact: {task.task_id}")
+        if recovered_entry != recorded_entry:
+            raise ValueError(f"Completed task ledger entry mismatch: {task.task_id}")
+    processed = 0
+    try:
+        wrapper.load()
+        for task in ledger.pending_tasks(plan):
+            request = _request_for_task(args, task)
+            prompt_root = output_root / "prompts" / task.prompt_id
+            try:
+                recovered = _recover_entry(request, prompt_root)
+                if recovered is None:
+                    result = wrapper.extract_prefill(request)
+                    artifact = write_prefill_result(
+                        result,
+                        output_root=prompt_root,
+                        update_manifest=False,
+                    )
+                    entry = artifact.entry
+                    elapsed = result.provenance.get("elapsed_seconds")
+                else:
+                    entry = recovered
+                    elapsed = None
+                ledger.complete(task.task_id, entry, elapsed)
+            except Exception as exc:
+                ledger.fail(task.task_id, exc)
+                _materialize_failures(ledger, output_root)
+                if args.fail_fast:
+                    raise
+            processed += 1
+            if processed % args.materialize_every == 0:
+                _materialize_outputs(ledger, output_root, plan.prompt_ids)
+    finally:
+        wrapper.close()
+        _materialize_outputs(ledger, output_root, plan.prompt_ids)
+        ledger.close()
+    print(
+        json.dumps(
+            {"status": "ok", "summary": _read_json(output_root / "batch_summary.json")},
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
+def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
+    rows = _read_jsonl(args.manifest)
+    _validate_rows(rows, args.protocol)
+    prompt_set = load_equiv_prompt_set(args.prompt_set)
+    if not prompt_set.active:
+        raise ValueError(f"Prompt set is inactive: {prompt_set.key}")
+    if prompt_set.protocol.lower() != args.protocol:
+        raise ValueError("Prompt-set protocol does not match --protocol")
+    templates = prompt_set.enabled_templates()
+    if not templates:
+        raise ValueError("Prompt set has no enabled templates")
+    prompt_ids = tuple(template.prompt_id for template in templates)
+    if len(prompt_ids) != len(set(prompt_ids)):
+        raise ValueError("Enabled prompt IDs must be unique")
+    conditions = tuple(str(item).upper() for item in args.conditions)
+    if set(conditions) != set(CONDITIONS) or len(conditions) != len(CONDITIONS):
+        raise ValueError("Full extraction requires conditions M1, M2, and M12 exactly once")
+    variables = _parse_variables(args.prompt_variable)
+    required = set().union(*(_template_fields(template) for template in templates))
+    allowed_external = required - {"sample_text"}
+    extra = set(variables) - allowed_external
+    if extra:
+        raise ValueError(f"Unused or reserved prompt variables: {sorted(extra)}")
+    unresolved = tuple(sorted(allowed_external - set(variables)))
+    tasks = []
+    for row in rows:
+        for template in templates:
+            values = {"sample_text": str(row.get("text_content", "")), **variables}
+            prompt_text = None if unresolved else compile_prompt(template, values)
+            for condition in conditions:
+                identity = {
+                    "sample_id": row["sample_id"],
+                    "prompt_id": template.prompt_id,
+                    "condition": condition,
+                    "protocol": args.protocol,
+                    "model_key": args.model_key,
+                }
+                task_id = hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
+                tasks.append(
+                    BatchTask(
+                        task_id=task_id,
+                        sample_id=str(row["sample_id"]),
+                        prompt_id=template.prompt_id,
+                        prompt_text=prompt_text,
+                        condition=condition,
+                        row=row,
+                    )
+                )
+    signature = {
+        "schema": "mprisk_prefill_batch_signature_v1",
+        "manifest_sha256": _sha256(args.manifest),
+        "prompt_set_sha256": _sha256(args.prompt_set),
+        "prompt_ids": prompt_ids,
+        "prompt_variables": variables,
+        "protocol": args.protocol,
+        "conditions": conditions,
+        "model_key": args.model_key,
+        "model_path": str(args.model_path.expanduser().resolve()),
+        "dtype": args.dtype,
+        "attn_implementation": args.attn_implementation,
+        "min_pixels": args.min_pixels,
+        "max_pixels": args.max_pixels,
+        "joint_audio_mode": args.joint_audio_mode,
+        "video_fps": args.video_fps,
+    }
+    return BatchPlan(tasks, prompt_ids, unresolved, rows, signature)
+
+
+class BatchLedger:
+    def __init__(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=FULL")
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tasks (
+              task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL, prompt_id TEXT NOT NULL,
+              condition TEXT NOT NULL, sample_type TEXT NOT NULL, use_in_main INTEGER NOT NULL,
+              annotation_count INTEGER NOT NULL, split TEXT NOT NULL, source_dataset TEXT NOT NULL,
+              status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
+              attempts INTEGER NOT NULL DEFAULT 0, error_type TEXT, error_message TEXT,
+              traceback TEXT, elapsed_seconds REAL, entry_json TEXT
+            );
+            """
+        )
+
+    def prepare(self, plan: BatchPlan, *, retry_failed: bool) -> None:
+        signature = _canonical_json(plan.signature)
+        with self.connection:
+            row = self.connection.execute(
+                "SELECT value FROM metadata WHERE key='signature'"
+            ).fetchone()
+            if row is not None and row["value"] != signature:
+                raise ValueError("Existing batch ledger signature does not match this run")
+            self.connection.execute(
+                "INSERT OR IGNORE INTO metadata(key,value) VALUES('signature',?)", (signature,)
+            )
+            self.connection.executemany(
+                """INSERT OR IGNORE INTO tasks(
+                   task_id,sample_id,prompt_id,condition,sample_type,use_in_main,
+                   annotation_count,split,source_dataset,status)
+                   VALUES(?,?,?,?,?,?,?,?,?,'pending')""",
+                [
+                    (
+                        task.task_id,
+                        task.sample_id,
+                        task.prompt_id,
+                        task.condition,
+                        str(task.row.get("sample_type", "")),
+                        int(bool(task.row.get("use_in_main"))),
+                        int(task.row.get("annotation_count", 0)),
+                        str(task.row.get("split", "")),
+                        str(task.row.get("source_dataset", "")),
+                    )
+                    for task in plan.tasks
+                ],
+            )
+            count = self.connection.execute("SELECT COUNT(*) AS n FROM tasks").fetchone()["n"]
+            if count != len(plan.tasks):
+                raise ValueError("Existing batch ledger task set does not match this run")
+            self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
+            if retry_failed:
+                self.connection.execute(
+                    """UPDATE tasks SET status='pending', error_type=NULL, error_message=NULL,
+                       traceback=NULL WHERE status='failed'"""
+                )
+
+    def pending_tasks(self, plan: BatchPlan) -> Iterator[BatchTask]:
+        by_id = {task.task_id: task for task in plan.tasks}
+        rows = self.connection.execute(
+            "SELECT task_id FROM tasks WHERE status='pending' ORDER BY rowid"
+        ).fetchall()
+        for row in rows:
+            task = by_id[row["task_id"]]
+            with self.connection:
+                changed = self.connection.execute(
+                    """UPDATE tasks SET status='running', attempts=attempts+1
+                       WHERE task_id=? AND status='pending'""",
+                    (task.task_id,),
+                ).rowcount
+            if changed == 1:
+                yield task
+
+    def completed_tasks(self, plan: BatchPlan) -> Iterator[tuple[BatchTask, dict[str, Any]]]:
+        by_id = {task.task_id: task for task in plan.tasks}
+        rows = self.connection.execute(
+            """SELECT task_id,entry_json FROM tasks WHERE status='completed'
+               ORDER BY rowid"""
+        ).fetchall()
+        for row in rows:
+            if row["entry_json"] is None:
+                raise ValueError(f"Completed task has no ledger entry: {row['task_id']}")
+            yield by_id[row["task_id"]], json.loads(row["entry_json"])
+
+    def complete(self, task_id: str, entry: dict[str, Any], elapsed: Any) -> None:
+        with self.connection:
+            self.connection.execute(
+                """UPDATE tasks SET status='completed', entry_json=?, elapsed_seconds=?,
+                   error_type=NULL,error_message=NULL,traceback=NULL WHERE task_id=?""",
+                (_canonical_json(entry), elapsed, task_id),
+            )
+
+    def fail(self, task_id: str, error: Exception) -> None:
+        with self.connection:
+            self.connection.execute(
+                """UPDATE tasks SET status='failed', error_type=?, error_message=?, traceback=?
+                   WHERE task_id=?""",
+                (type(error).__name__, str(error), traceback.format_exc(), task_id),
+            )
+
+    def completed_entries(self, prompt_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """SELECT entry_json FROM tasks WHERE prompt_id=? AND status='completed'
+               ORDER BY rowid""",
+            (prompt_id,),
+        ).fetchall()
+        return [json.loads(row["entry_json"]) for row in rows]
+
+    def failures(self) -> list[dict[str, Any]]:
+        return [
+            dict(row)
+            for row in self.connection.execute(
+                """SELECT task_id,sample_id,prompt_id,condition,sample_type,use_in_main,
+               annotation_count,split,source_dataset,attempts,error_type,error_message,traceback
+               FROM tasks WHERE status='failed' ORDER BY rowid"""
+            ).fetchall()
+        ]
+
+    def summary(self) -> dict[str, Any]:
+        counts = {
+            row["status"]: row["n"]
+            for row in self.connection.execute(
+                "SELECT status,COUNT(*) AS n FROM tasks GROUP BY status"
+            ).fetchall()
+        }
+        return {
+            "total": sum(counts.values()),
+            **{key: counts.get(key, 0) for key in ("pending", "running", "completed", "failed")},
+        }
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillRequest:
+    if task.prompt_text is None:
+        raise ValueError(f"Task {task.task_id} has an unresolved prompt")
+    media = task.row["media_paths"]
+    return build_condition_request(
+        sample_id=task.sample_id,
+        model_key=args.model_key,
+        protocol=args.protocol,
+        condition=task.condition,
+        dataset_key=str(task.row["source_dataset"]),
+        split=str(task.row["split"]),
+        media_paths={str(key): str(value) for key, value in media.items()},
+        transcript=None if task.row.get("text_content") is None else str(task.row["text_content"]),
+        task_prompt=task.prompt_text,
+        joint_audio_mode=args.joint_audio_mode,
+        video_fps=args.video_fps,
+    )
+
+
+def _recover_entry(request: PrefillRequest, prompt_root: Path) -> dict[str, Any] | None:
+    paths = prefill_artifact_paths(request, output_root=prompt_root)
+    existing = (paths.shard_path.is_file(), paths.sidecar_path.is_file())
+    if existing == (False, False):
+        return None
+    if existing != (True, True):
+        raise RuntimeError(f"Incomplete cache artifact pair for {request.sample_id}")
+    payload = _read_json(paths.sidecar_path)
+    if payload.get("schema") != "mprisk_prefill_cache_sidecar_v1":
+        raise ValueError(f"Unsupported sidecar schema: {paths.sidecar_path}")
+    expected_request = {
+        "sample_id": request.sample_id,
+        "model_key": request.model_key,
+        "protocol": request.protocol,
+        "condition": request.condition,
+        "dataset_key": request.dataset_key,
+        "split": request.split,
+        "messages": list(request.messages),
+        "media_paths": dict(request.media_paths),
+        "use_audio_in_video": request.use_audio_in_video,
+    }
+    if payload.get("request") != expected_request:
+        raise ValueError(f"Existing sidecar request mismatch: {paths.sidecar_path}")
+    entry = payload.get("entry")
+    if not isinstance(entry, dict) or entry.get("checksum") != _sha256(paths.shard_path):
+        raise ValueError(f"Existing cache checksum mismatch: {paths.shard_path}")
+    tensors = load_file(paths.shard_path)
+    hidden = tensors.get("hidden_states")
+    if hidden is None or list(hidden.shape) != [entry.get("layer_count"), entry.get("hidden_dim")]:
+        raise ValueError(f"Existing cache tensor shape mismatch: {paths.shard_path}")
+    return entry
+
+
+def _materialize_outputs(ledger: BatchLedger, root: Path, prompt_ids: Sequence[str]) -> None:
+    for prompt_id in prompt_ids:
+        manifest = root / "prompts" / prompt_id / "manifests" / "unified_full_cache_manifest.json"
+        write_full_cache_manifest(ledger.completed_entries(prompt_id), manifest)
+    _materialize_failures(ledger, root)
+    _atomic_json(root / "batch_summary.json", ledger.summary())
+
+
+def _materialize_failures(ledger: BatchLedger, root: Path) -> None:
+    lines = "".join(_canonical_json(row) + "\n" for row in ledger.failures())
+    _atomic_text(root / "failures.jsonl", lines)
+
+
+def _dry_run_payload(args: argparse.Namespace, plan: BatchPlan) -> dict[str, Any]:
+    rows = plan.rows
+    payload: dict[str, Any] = {
+        "status": "dry_run",
+        "ready": not plan.unresolved_prompt_variables,
+        "unresolved_prompt_variables": plan.unresolved_prompt_variables,
+        "sample_count": len(rows),
+        "prompt_count": len(plan.prompt_ids),
+        "prompt_ids": plan.prompt_ids,
+        "condition_count": len(CONDITIONS),
+        "conditions": CONDITIONS,
+        "task_count": len(plan.tasks),
+        "sample_type_counts": dict(Counter(str(row.get("sample_type")) for row in rows)),
+        "use_in_main_counts": dict(
+            Counter(str(bool(row.get("use_in_main"))).lower() for row in rows)
+        ),
+        "annotation_count_counts": dict(Counter(str(row.get("annotation_count")) for row in rows)),
+        "split_counts": dict(Counter(str(row.get("split")) for row in rows)),
+        "source_dataset_counts": dict(Counter(str(row.get("source_dataset")) for row in rows)),
+        "writes_performed": 0,
+    }
+    durations = _probe_durations(rows, args.ffprobe_workers) if args.probe_media else None
+    if durations is not None:
+        payload["media_duration_seconds"] = _duration_summary(durations)
+    smoke = _parse_condition_seconds(args.smoke_condition_seconds)
+    if smoke:
+        if set(smoke) != set(CONDITIONS):
+            raise ValueError("Smoke timing requires M1, M2, and M12 values")
+        triplet = sum(smoke.values())
+        overhead = max(0.0, (args.smoke_wall_seconds or triplet) - triplet)
+        payload["gpu_time_estimate"] = {
+            "basis_condition_seconds": smoke,
+            "model_load_overhead_seconds": overhead,
+            "constant_sample_total_seconds": triplet * len(rows) * len(plan.prompt_ids) + overhead,
+        }
+        if durations is not None and args.smoke_media_seconds:
+            payload["gpu_time_estimate"]["linear_duration_total_seconds"] = (
+                triplet * sum(durations) / args.smoke_media_seconds * len(plan.prompt_ids)
+                + overhead
+            )
+    if args.trajectory_shape:
+        layers, hidden = args.trajectory_shape
+        if layers <= 0 or hidden <= 0:
+            raise ValueError("--trajectory-shape values must be positive")
+        raw_per_task = layers * hidden * 4
+        payload["storage_estimate"] = {
+            "trajectory_bytes_per_task": raw_per_task,
+            "trajectory_total_bytes": raw_per_task * len(plan.tasks),
+        }
+        if args.smoke_artifact_bytes_per_task is not None:
+            payload["storage_estimate"]["smoke_artifact_total_bytes"] = (
+                args.smoke_artifact_bytes_per_task * len(plan.tasks)
+            )
+    if args.gpu_index is not None:
+        payload["gpu"] = _gpu_status(args.gpu_index)
+    return payload
+
+
+def _validate_rows(rows: list[dict[str, Any]], protocol: str) -> None:
+    if not rows:
+        raise ValueError("Input manifest is empty")
+    seen = set()
+    required = {"sample_id", "protocol", "media_paths", "source_dataset", "split"}
+    for row in rows:
+        missing = required - set(row)
+        if missing:
+            raise ValueError(f"Manifest row is missing fields: {sorted(missing)}")
+        if str(row["protocol"]).lower() != protocol:
+            raise ValueError(f"Manifest contains non-{protocol} row: {row['sample_id']}")
+        sample_id = str(row["sample_id"])
+        if sample_id in seen:
+            raise ValueError(f"Manifest contains duplicate sample_id: {sample_id}")
+        seen.add(sample_id)
+        if not isinstance(row["media_paths"], dict):
+            raise ValueError(f"Manifest row has invalid media_paths: {sample_id}")
+
+
+def _validate_media(rows: list[dict[str, Any]]) -> None:
+    missing = sorted(
+        {
+            str(path)
+            for row in rows
+            for path in row["media_paths"].values()
+            if not Path(str(path)).is_file()
+        }
+    )
+    if missing:
+        raise FileNotFoundError(f"Manifest references missing media files: {missing[:10]}")
+
+
+def _parse_variables(items: Sequence[str]) -> dict[str, str]:
+    result = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"Prompt variable must be NAME=VALUE: {item!r}")
+        key, value = item.split("=", 1)
+        if not key or key in result:
+            raise ValueError(f"Invalid or duplicate prompt variable: {key!r}")
+        result[key] = value
+    return result
+
+
+def _template_fields(template: PromptTemplate) -> set[str]:
+    return {field for _, field, _, _ in string.Formatter().parse(template.template_text) if field}
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    rows = []
+    with path.open(encoding="utf-8") as handle:
+        for number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            value = json.loads(line)
+            if not isinstance(value, dict):
+                raise ValueError(f"Manifest line {number} must be a JSON object")
+            rows.append(value)
+    return rows
+
+
+def _probe_durations(rows: list[dict[str, Any]], workers: int) -> list[float]:
+    if workers <= 0:
+        raise ValueError("--ffprobe-workers must be positive")
+    paths = sorted({str(path) for row in rows for path in row["media_paths"].values()})
+
+    def probe(path: str) -> float:
+        completed = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        value = float(completed.stdout.strip())
+        if not np.isfinite(value) or value <= 0:
+            raise ValueError(f"Invalid media duration for {path}: {value}")
+        return value
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(probe, paths))
+
+
+def _duration_summary(values: list[float]) -> dict[str, float | int]:
+    return {
+        "count": len(values),
+        "total": float(sum(values)),
+        "mean": float(np.mean(values)),
+        "p50": float(np.percentile(values, 50)),
+        "p90": float(np.percentile(values, 90)),
+        "p95": float(np.percentile(values, 95)),
+        "p99": float(np.percentile(values, 99)),
+        "max": float(max(values)),
+    }
+
+
+def _gpu_status(index: int) -> dict[str, Any]:
+    query = "index,name,memory.used,memory.total,utilization.gpu"
+    result = subprocess.run(
+        ["nvidia-smi", f"--query-gpu={query}", "--format=csv,noheader,nounits", "-i", str(index)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    values = [value.strip() for value in result.stdout.strip().split(",")]
+    used, total, utilization = int(values[2]), int(values[3]), int(values[4])
+    return {
+        "index": int(values[0]),
+        "name": values[1],
+        "memory_used_mib": used,
+        "memory_total_mib": total,
+        "memory_fraction": used / total,
+        "utilization_percent": utilization,
+        "under_90_percent": used / total < 0.9 and utilization < 90,
+    }
+
+
+def _parse_condition_seconds(items: Sequence[str]) -> dict[str, float]:
+    parsed = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"Smoke timing must be CONDITION=SECONDS: {item!r}")
+        key, raw = item.split("=", 1)
+        key = key.upper()
+        if key in parsed or key not in CONDITIONS:
+            raise ValueError(f"Invalid or duplicate smoke condition: {key}")
+        value = float(raw)
+        if value <= 0:
+            raise ValueError("Smoke condition seconds must be positive")
+        parsed[key] = value
+    return parsed
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected JSON object: {path}")
+    return value
+
+
+def _atomic_json(path: Path, value: Any) -> None:
+    _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+
+def _atomic_text(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(value, encoding="utf-8")
+    os.replace(temporary, path)

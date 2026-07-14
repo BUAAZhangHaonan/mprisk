@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 from safetensors.numpy import save_file
 
-from mprisk.models.base_wrapper import PrefillResult
+from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
 
 DEFAULT_PREFILL_MANIFEST = Path("manifests/unified_full_cache_manifest.json")
 
@@ -28,34 +28,53 @@ class PrefillCacheArtifact:
     entry: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class PrefillCachePaths:
+    shard_path: Path
+    sidecar_path: Path
+    manifest_path: Path
+
+
 def write_prefill_result(
     result: PrefillResult,
     *,
     output_root: str | Path,
     manifest_path: str | Path | None = None,
     overwrite: bool = False,
+    update_manifest: bool = True,
 ) -> PrefillCacheArtifact:
-    """Persist one trajectory and update the unified manifest."""
+    """Persist one trajectory and optionally update the unified manifest."""
     root = Path(output_root).expanduser().resolve()
-    manifest = _resolve_manifest(root, manifest_path)
+    paths = prefill_artifact_paths(
+        result.request,
+        output_root=root,
+        manifest_path=manifest_path,
+    )
+    manifest = paths.manifest_path
     stem = _artifact_stem(result.request.sample_id)
     relative_dir = Path("shards") / result.request.model_key / result.request.protocol
     relative_dir = relative_dir / result.request.condition
     relative_shard = relative_dir / f"{stem}.safetensors"
     relative_sidecar = relative_dir / f"{stem}.json"
-    shard = root / relative_shard
-    sidecar = root / relative_sidecar
+    shard = paths.shard_path
+    sidecar = paths.sidecar_path
 
-    manifest_payload = _load_manifest(manifest)
+    manifest_payload = _load_manifest(manifest) if update_manifest else None
     key = (
         result.request.sample_id,
         result.request.model_key,
         result.request.protocol,
         result.request.condition,
     )
-    existing_indices = [
-        index for index, entry in enumerate(manifest_payload["entries"]) if _entry_key(entry) == key
-    ]
+    existing_indices = (
+        [
+            index
+            for index, entry in enumerate(manifest_payload["entries"])
+            if _entry_key(entry) == key
+        ]
+        if manifest_payload is not None
+        else []
+    )
     if len(existing_indices) > 1:
         raise ValueError(f"Manifest contains duplicate cache entries for {key!r}")
     if existing_indices and not overwrite:
@@ -64,11 +83,15 @@ def write_prefill_result(
         raise FileExistsError(f"Cache artifact already exists for {key!r}")
 
     shard.parent.mkdir(parents=True, exist_ok=True)
-    manifest.parent.mkdir(parents=True, exist_ok=True)
+    if update_manifest:
+        manifest.parent.mkdir(parents=True, exist_ok=True)
     tmp_shard = shard.with_name(f".{shard.name}.tmp")
     tmp_sidecar = sidecar.with_name(f".{sidecar.name}.tmp")
-    tmp_manifest = manifest.with_name(f".{manifest.name}.tmp")
-    for path in (tmp_shard, tmp_sidecar, tmp_manifest):
+    tmp_manifest = manifest.with_name(f".{manifest.name}.tmp") if update_manifest else None
+    temporary_paths = [tmp_shard, tmp_sidecar]
+    if tmp_manifest is not None:
+        temporary_paths.append(tmp_manifest)
+    for path in temporary_paths:
         if path.exists():
             raise FileExistsError(f"Stale temporary cache file exists: {path}")
 
@@ -104,18 +127,20 @@ def write_prefill_result(
         json.dumps(sidecar_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    if existing_indices:
-        manifest_payload["entries"][existing_indices[0]] = entry
-    else:
-        manifest_payload["entries"].append(entry)
-    tmp_manifest.write_text(
-        json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    if manifest_payload is not None and tmp_manifest is not None:
+        if existing_indices:
+            manifest_payload["entries"][existing_indices[0]] = entry
+        else:
+            manifest_payload["entries"].append(entry)
+        tmp_manifest.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     os.replace(tmp_shard, shard)
     os.replace(tmp_sidecar, sidecar)
-    os.replace(tmp_manifest, manifest)
+    if tmp_manifest is not None:
+        os.replace(tmp_manifest, manifest)
     return PrefillCacheArtifact(
         shard_path=shard,
         sidecar_path=sidecar,
@@ -123,6 +148,42 @@ def write_prefill_result(
         checksum=checksum,
         entry=entry,
     )
+
+
+def prefill_artifact_paths(
+    request: PrefillRequest,
+    *,
+    output_root: str | Path,
+    manifest_path: str | Path | None = None,
+) -> PrefillCachePaths:
+    """Return deterministic artifact paths for one request without writing files."""
+    root = Path(output_root).expanduser().resolve()
+    manifest = _resolve_manifest(root, manifest_path)
+    stem = _artifact_stem(str(request.sample_id))
+    relative_dir = Path("shards") / str(request.model_key) / str(request.protocol).lower()
+    relative_dir = relative_dir / str(request.condition).upper()
+    return PrefillCachePaths(
+        shard_path=root / relative_dir / f"{stem}.safetensors",
+        sidecar_path=root / relative_dir / f"{stem}.json",
+        manifest_path=manifest,
+    )
+
+
+def write_full_cache_manifest(entries: list[dict[str, Any]], path: str | Path) -> Path:
+    """Atomically materialize a full cache manifest from validated entries."""
+    destination = Path(path).expanduser().resolve()
+    keys = [_entry_key(entry) for entry in entries]
+    if len(keys) != len(set(keys)):
+        raise ValueError("Cache manifest entries contain duplicate cache keys")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.tmp")
+    payload = {"schema": "mprisk_full_cache_manifest_v1", "entries": entries}
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    os.replace(temporary, destination)
+    return destination
 
 
 def _manifest_entry(
