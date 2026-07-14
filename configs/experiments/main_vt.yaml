@@ -3,4 +3,17 @@ key: main_vt
 protocol: vt
 datasets: [ch_sims_v2]
 sample_types: [Conflict, Aligned]
-models: [qwen3_vl_8b, internvl3_5_8b]
+models:
+  - gemma3_4b
+  - gemma3_12b
+  - glm4_6v_flash
+  - internvl3_5_8b
+  - llava_v1_5_7b
+  - llava_onevision_qwen2_7b
+  - minicpm_v_2_6
+  - minicpm_v_4_5
+  - phi3_5_vision
+  - qwen2_5_vl_7b
+  - qwen3_vl_8b
+  - qwen3_5_4b
+  - qwen3_5_9b

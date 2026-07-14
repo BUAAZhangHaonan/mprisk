@@ -43,10 +43,14 @@ Large-model loading and hidden-state extraction reuse existing environments:
 ```text
 mind-py311
 mind-gemma4-py311
-mind-molmo-py311
 ```
 
 Those environments produce cache shards, sidecars, manifests, and ledgers. The `mprisk` environment consumes those artifacts and does not need to satisfy every model runtime dependency.
+
+The frozen model panel resolves checkpoints below `/home/team/lvshuyang/Models`. The
+Qwen2.5-Omni-7B checkpoint is at
+`/home/team/lvshuyang/Models/Qwen/Qwen2.5-Omni-7B`; a dedicated extraction environment is not
+declared until its wrapper requirements are implemented and validated.
 
 ## OpenRouter Gemini Screening
 

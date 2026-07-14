@@ -1,32 +1,227 @@
-schema: mprisk_model_assets_v1
+schema: mprisk_model_assets_v2
+model_root: /home/team/lvshuyang/Models
 models:
-  - key: qwen2_5_omni_7b
-    display_name: Qwen2.5-Omni-7B-Instruct
-    family: qwen_omni
-    source: Qwen/Qwen2.5-Omni-7B-Instruct
-    protocols: [va]
-    status: planned
-  - key: qwen3_vl_8b
-    display_name: Qwen3-VL-8B-Instruct
-    family: qwen_vl
-    source: Qwen/Qwen3-VL-8B-Instruct
+  - key: gemma3_4b
+    display_name: Gemma-3-4B
+    family: gemma3
+    hf_model_id: google/gemma-3-4b-it
+    local_path: /home/team/lvshuyang/Models/gemma-3-4b-it
+    parameter_scale: 4B
+    panel_group: vt
     protocols: [vt]
-    status: planned
+    input_modalities: [text, image]
+    video_mode: multi_image_simulation
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: gemma3_12b
+    display_name: Gemma-3-12B
+    family: gemma3
+    hf_model_id: google/gemma-3-12b-it
+    local_path: /home/team/lvshuyang/Models/gemma-3-12b-it
+    parameter_scale: 12B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image]
+    video_mode: multi_image_simulation
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: glm4_6v_flash
+    display_name: GLM-4.6V-Flash
+    family: glm4v
+    hf_model_id: zai-org/GLM-4.6V-Flash
+    local_path: /home/team/lvshuyang/Models/GLM-4.6V-Flash
+    parameter_scale: ~9B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video
+    max_video_frames: null
+    thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
+    policy: {allow_thinking: false}
+    status: available
   - key: internvl3_5_8b
-    display_name: InternVL3 5-8B
+    display_name: InternVL3.5-8B
     family: internvl
-    source: OpenGVLab/InternVL3_5-8B
+    hf_model_id: OpenGVLab/InternVL3_5-8B
+    local_path: /home/team/lvshuyang/Models/InternVL3_5-8B
+    parameter_scale: 8B
+    panel_group: vt
     protocols: [vt]
-    status: planned
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: llava_v1_5_7b
+    display_name: LLaVA-v1.5-7B
+    family: llava_v15
+    hf_model_id: llava-hf/llava-1.5-7b-hf
+    local_path: /home/team/lvshuyang/Models/llava-1.5-7b-hf
+    parameter_scale: 7B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image]
+    video_mode: multi_image_simulation
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: llava_onevision_qwen2_7b
+    display_name: LLaVA-OneVision-7B
+    family: llava_onevision
+    hf_model_id: llava-hf/llava-onevision-qwen2-7b-ov-hf
+    local_path: /home/team/lvshuyang/Models/llava-onevision-qwen2-7b-ov-hf
+    parameter_scale: 7B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: minicpm_v_2_6
+    display_name: MiniCPM-V-2.6
+    family: minicpm_v
+    hf_model_id: openbmb/MiniCPM-V-2_6
+    local_path: /home/team/lvshuyang/Models/MiniCPM-V-2_6
+    parameter_scale: 8B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image]
+    video_mode: multi_image_or_video_frames
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: minicpm_v_4_5
+    display_name: MiniCPM-V-4.5
+    family: minicpm_v
+    hf_model_id: openbmb/MiniCPM-V-4_5
+    local_path: /home/team/lvshuyang/Models/MiniCPM-V-4_5
+    parameter_scale: 8B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
+    policy: {allow_thinking: false}
+    status: available
+  - key: phi3_5_vision
+    display_name: Phi-3.5-Vision
+    family: phi3_vision
+    hf_model_id: microsoft/Phi-3.5-vision-instruct
+    local_path: /home/team/lvshuyang/Models/Phi-3.5-vision-instruct
+    parameter_scale: 4.2B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image]
+    video_mode: multi_image_simulation
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
   - key: qwen2_5_vl_7b
     display_name: Qwen2.5-VL-7B
     family: qwen_vl
-    source: Qwen/Qwen2.5-VL-7B-Instruct
-    protocols: [vt, it]
-    status: planned
-  - key: llava_onevision_qwen2_7b
-    display_name: LLaVA-OneVision-Qwen2-7B
-    family: llava_ov
-    source: llava-hf/llava-onevision-qwen2-7b-ov-hf
-    protocols: [it]
-    status: planned
+    hf_model_id: Qwen/Qwen2.5-VL-7B-Instruct
+    local_path: /home/team/lvshuyang/Models/Qwen2.5-VL-7B-Instruct
+    parameter_scale: 7B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: qwen3_vl_8b
+    display_name: Qwen3-VL-8B-Instruct
+    family: qwen_vl
+    hf_model_id: Qwen/Qwen3-VL-8B-Instruct
+    local_path: /home/team/lvshuyang/Models/Qwen3-VL-8B-Instruct
+    parameter_scale: 8B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: qwen3_5_4b
+    display_name: Qwen3.5-4B
+    family: qwen3_5
+    hf_model_id: Qwen/Qwen3.5-4B
+    local_path: /home/team/lvshuyang/Models/Qwen3.5-4B
+    parameter_scale: 4B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
+    policy: {allow_thinking: false}
+    status: available
+  - key: qwen3_5_9b
+    display_name: Qwen3.5-9B
+    family: qwen3_5
+    hf_model_id: Qwen/Qwen3.5-9B
+    local_path: /home/team/lvshuyang/Models/Qwen3.5-9B
+    parameter_scale: 9B
+    panel_group: vt
+    protocols: [vt]
+    input_modalities: [text, image, video]
+    video_mode: native_video_or_multi_image
+    max_video_frames: null
+    thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
+    policy: {allow_thinking: false}
+    status: available
+  - key: gemma4_12b
+    display_name: Gemma-4-12B
+    family: gemma4
+    hf_model_id: google/gemma-4-12B-it
+    local_path: /home/team/lvshuyang/Models/gemma-4-12B-it
+    parameter_scale: 12B
+    panel_group: va_vta
+    protocols: [va]
+    input_modalities: [text, image, video, audio]
+    video_mode: native_video
+    max_video_frames: null
+    thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
+    policy: {allow_thinking: false}
+    status: available
+  - key: phi4_multimodal
+    display_name: Phi-4-Multimodal-Instruct
+    family: phi4_multimodal
+    hf_model_id: microsoft/Phi-4-multimodal-instruct
+    local_path: /home/team/lvshuyang/Models/Phi-4-multimodal-instruct
+    parameter_scale: 5.6B
+    panel_group: va_vta
+    protocols: [va]
+    input_modalities: [text, image, audio]
+    video_mode: extracted_frames
+    max_video_frames: 64
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
+  - key: qwen2_5_omni_7b
+    display_name: Qwen2.5-Omni-7B
+    family: qwen_omni
+    hf_model_id: Qwen/Qwen2.5-Omni-7B
+    local_path: /home/team/lvshuyang/Models/Qwen/Qwen2.5-Omni-7B
+    parameter_scale: 7B
+    panel_group: va_vta
+    protocols: [va]
+    input_modalities: [text, image, video, audio]
+    video_mode: native_video
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available

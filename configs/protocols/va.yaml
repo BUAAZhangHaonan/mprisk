@@ -4,4 +4,7 @@ name: vision_audio
 m1: vision
 m2: audio
 m12: vision_audio
-primary_models: [qwen2_5_omni_7b]
+primary_models:
+  - gemma4_12b
+  - phi4_multimodal
+  - qwen2_5_omni_7b
