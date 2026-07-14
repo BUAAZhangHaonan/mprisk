@@ -9,6 +9,7 @@ htmlcov/
 *.egg-info/
 build/
 dist/
+batch_state.sqlite3*
 
 # Environments
 .env

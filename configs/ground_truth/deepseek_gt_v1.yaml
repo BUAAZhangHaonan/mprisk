@@ -1,0 +1,18 @@
+schema_name: mprisk_deepseek_gt_config_v1
+run_id: deepseek_gt_v1
+model: deepseek-v4-flash
+api_url: https://api.deepseek.com/v1/chat/completions
+env_file: /home/team/lvshuyang/prompt-make/.env
+api_key_variables: [DEEPSEEK_API_KEY, GLM_API_KEY]
+temperature: 0
+max_tokens: 128
+thinking: disabled
+concurrency: 4
+retry_delays_seconds: [2, 5, 10]
+request_timeout_seconds: 120
+min_words: 6
+max_words: 60
+input_root: data/frozen/generated_round1_v1
+output_root: data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1
+a_prompt_path: configs/prompts/ground_truth/a_conflict_gt_v1.txt
+c_prompt_path: configs/prompts/ground_truth/c_aligned_gt_v1.txt
