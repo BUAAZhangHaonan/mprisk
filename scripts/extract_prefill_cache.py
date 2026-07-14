@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from mprisk.cli import scaffold_main
-
+from mprisk.cache.prefill_cli import main
 
 if __name__ == "__main__":
-    raise SystemExit(scaffold_main("extract_prefill_cache"))
+    raise SystemExit(main())

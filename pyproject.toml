@@ -48,6 +48,11 @@ model = [
   "timm>=1.0",
   "sentencepiece>=0.2"
 ]
+qwen-omni = [
+  "accelerate>=1.6,<2",
+  "qwen-omni-utils[decord]==0.0.9",
+  "transformers>=4.57,<5"
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
