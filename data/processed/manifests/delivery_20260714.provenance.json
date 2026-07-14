@@ -1,0 +1,146 @@
+{
+  "schema_name": "mprisk_delivery_provenance_v1",
+  "delivery_id": "delivery_20260714",
+  "source_archive": "/home/team/lvshuyang/TAFFC/mprisk/delivery_20260714.tar.gz",
+  "archive_sha256": "193a25008b5594d513c0b9340b8625abeee7fd369a85b3f25e5d1f9e0ad03b7d",
+  "archive_member_count": 29,
+  "artifacts": {
+    "unified_sample_manifest": {
+      "path": "data/processed/manifests/unified_sample_manifest.jsonl",
+      "bytes": 4635167,
+      "sha256": "196ee4ad328e2bca79383af81b1f1d558862379253a8fd564537d82e3939444e"
+    },
+    "conflict_manifest": {
+      "path": "data/processed/manifests/conflict_manifest.jsonl",
+      "bytes": 623308,
+      "sha256": "cc2db0ed78e581c8e0d9d9f3a7b8812b44939ea4f21db9b208f4515e9da9a7b9"
+    },
+    "aligned_manifest": {
+      "path": "data/processed/manifests/aligned_manifest.jsonl",
+      "bytes": 4011859,
+      "sha256": "806f84d970981c9ec64590234b50bff066b3cf030bfee1bc9e2542ec5e6f7e07"
+    },
+    "ambiguous_manifest": {
+      "path": "data/processed/manifests/ambiguous_manifest.jsonl",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "curation_summary": {
+      "path": "curation/outputs/reports/CURATION_SUMMARY.md",
+      "bytes": 2651,
+      "sha256": "8547c4b794b7b533f75f4e10ea5418517a1eb634422974b900d46def35f62163"
+    },
+    "variety_discard_report": {
+      "path": "curation/outputs/reports/variety_discarded.json",
+      "bytes": 4738,
+      "sha256": "92d0b338492029edbd13b370b71c1359a3116aa2b7ba2ac23c4385bc533d334f"
+    },
+    "dataset_audit_json": {
+      "path": "curation/outputs/reports/dataset_audit.json",
+      "bytes": 7440,
+      "sha256": "7d199d3dc425939cc8bad0cd60d960e37864bb6d05c5e9d322c508a1d6814915"
+    },
+    "dataset_audit_markdown": {
+      "path": "curation/outputs/reports/DATASET_AUDIT.md",
+      "bytes": 2193,
+      "sha256": "08b421ae5a62da6c904847c2238d3d5ad3c776a0066be39ca205589bef62c8aa"
+    }
+  },
+  "counts": {
+    "total": 4754,
+    "conflict": 585,
+    "aligned": 4169,
+    "ambiguous": 0,
+    "protocols": {
+      "VT": 2512,
+      "VA": 2242
+    },
+    "use_in_main": {
+      "Aligned": 4089,
+      "Conflict": 460
+    },
+    "quality_flags": {
+      "variety_source_suspect": 363
+    }
+  },
+  "annotation_policy": {
+    "policy_id": "machine_screening_waiver_20260714",
+    "label_source": "machine_screening_and_design_labels",
+    "accepted_for_current_experiments": true,
+    "annotation_requirement_waived": true,
+    "observed_annotation_count": 0,
+    "observed_annotator_agreement": 0.0,
+    "preserve_delivered_use_in_main": true,
+    "pending_statistics": [
+      "multi_annotator_mean",
+      "multi_annotator_standard_deviation"
+    ]
+  },
+  "media_policy": {
+    "media_in_archive": false,
+    "subtitle_crop_dataset": "ch_sims_v2",
+    "subtitle_bottom_crop_fraction": 0.18,
+    "cropped_media_prefix": "/home/team/lvshuyang/TAFFC/mprisk/curation/outputs/media_cropped",
+    "variety_discard_report": "curation/outputs/reports/variety_discarded.json",
+    "variety_discarded_count": 42,
+    "variety_suspect_flag": "variety_source_suspect",
+    "variety_suspect_count": 363
+  },
+  "source_boundaries": {
+    "real": {
+      "source_is_generated": false,
+      "sources": [
+        "ch_sims_v2"
+      ],
+      "rows": 4225,
+      "sample_types": {
+        "Aligned": 4029,
+        "Conflict": 196
+      },
+      "use_in_main": {
+        "Aligned": 3949,
+        "Conflict": 71
+      }
+    },
+    "generated": {
+      "source_is_generated": true,
+      "sources": [
+        "accept_a_svt",
+        "accept_a_va",
+        "accept_c_svt"
+      ],
+      "rows": 529,
+      "sample_types": {
+        "Conflict": 389,
+        "Aligned": 140
+      },
+      "use_in_main": {
+        "Conflict": 389,
+        "Aligned": 140
+      }
+    }
+  },
+  "derivation_policy": {
+    "builder": "scripts/build_manifests.py",
+    "split_key": "split_group_id",
+    "split_algorithm": "sha256_first_8_hex_mod_100",
+    "split_thresholds": {
+      "train": [
+        0,
+        70
+      ],
+      "val": [
+        70,
+        85
+      ],
+      "test": [
+        85,
+        100
+      ]
+    },
+    "protocol_outputs": {
+      "VT": "data/processed/manifests/protocol_manifests/vt_primary.jsonl",
+      "VA": "data/processed/manifests/protocol_manifests/va_aux.jsonl"
+    }
+  }
+}

@@ -37,6 +37,11 @@ FINAL_MANIFESTS: dict[str, FinalManifestSpec] = {
         filename="aligned_manifest.jsonl",
         sample_type="Aligned",
     ),
+    "ambiguous": FinalManifestSpec(
+        key="ambiguous",
+        filename="ambiguous_manifest.jsonl",
+        sample_type="Ambiguous",
+    ),
 }
 
 

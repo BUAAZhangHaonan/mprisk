@@ -7,7 +7,6 @@ from mprisk.data.manifests import (
     FinalManifestRow,
     filter_manifest_rows,
     read_final_manifest,
-    read_jsonl,
     write_jsonl,
 )
 
@@ -32,11 +31,22 @@ def _manifest_row(**overrides: object) -> dict[str, object]:
     return row
 
 
-def test_processed_manifest_placeholders_are_readable() -> None:
-    for key in ("unified", "conflict", "aligned"):
-        rows = read_jsonl(final_manifest_path(key))
-        assert rows[0]["schema"] == "mprisk_sample_manifest_v1"
-        assert read_final_manifest(final_manifest_path(key)) == []
+@pytest.mark.parametrize(
+    ("key", "expected_count", "expected_type"),
+    [
+        ("unified", 4754, None),
+        ("conflict", 585, "Conflict"),
+        ("aligned", 4169, "Aligned"),
+        ("ambiguous", 0, "Ambiguous"),
+    ],
+)
+def test_processed_manifests_are_populated(
+    key: str, expected_count: int, expected_type: str | None
+) -> None:
+    rows = read_final_manifest(final_manifest_path(key))
+    assert len(rows) == expected_count
+    if expected_type is not None and rows:
+        assert {row.sample_type for row in rows} == {expected_type}
 
 
 def test_read_final_manifest_skips_placeholder_rows_and_normalizes_protocol(tmp_path) -> None:

@@ -18,6 +18,18 @@ Main artifacts:
 - `data/processed/manifests/conflict_manifest.jsonl`
 - `data/processed/manifests/aligned_manifest.jsonl`
 - `data/processed/manifests/protocol_manifests/*.jsonl`
+- `data/processed/manifests/delivery_20260714.provenance.json`
+
+Validate the frozen delivery and derive deterministic split/protocol manifests:
+
+```bash
+python scripts/build_manifests.py --repo-root .
+```
+
+The builder verifies the frozen archive and tracked artifact hashes, the current machine-label
+inclusion policy, media existence, variety-text exclusions, and real/generated source boundaries.
+It assigns splits only from `split_group_id`, so VT/VA rows from the same source cannot cross
+train, validation, and test.
 
 Curation intermediate artifacts:
 

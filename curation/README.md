@@ -277,7 +277,26 @@ Annotators must record:
 }
 ```
 
-Every sample should have at least two independent annotations before it can enter the main experiment.
+The standard human-annotation workflow requires at least two independent annotations before a
+sample enters a main experiment.
+
+## Frozen Machine-Screened Delivery Exception
+
+`delivery_20260714` is an explicit exception for the current experiment run. Its existing
+machine-screened labels and generated-data design labels are accepted as the current inclusion
+policy. All rows truthfully retain `annotation_count=0` and `annotator_agreement=0.0`, while
+the delivered `use_in_main` values remain authoritative.
+
+Do not pass these final manifests back through `export_final_manifests.py`. That exporter is
+the strict path for future human-adjudicated batches and intentionally keeps the two-annotator
+rule. Re-exporting this delivery would both change its inclusion labels and lose delivery-only
+provenance fields.
+
+The machine-verifiable exception, archive hash, label sources, counts, subtitle crop, variety-text
+handling, real/generated source boundary, and pending future annotation statistics are recorded
+in:
+
+- `data/processed/manifests/delivery_20260714.provenance.json`
 
 ## Adjudication And Final Export
 
