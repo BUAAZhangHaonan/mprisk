@@ -26,6 +26,7 @@ def run_state_data_smoke(
     cache_root: str | Path = ".",
     model_key: str,
     protocol: str,
+    split_assignment_path: str | Path,
     output_dir: str | Path | None = None,
     reports_dir: str | Path = "outputs/state_data/reports",
     cache_manifest_path: str | Path | None = None,
@@ -37,6 +38,7 @@ def run_state_data_smoke(
         cache_root=cache_root,
         model_key=model_key,
         protocol=protocol,
+        split_assignment_path=split_assignment_path,
         output_dir=output_dir,
         manifest_path=cache_manifest_path,
         ledger_path=ledger_path,
@@ -142,6 +144,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ledger", default=None)
     parser.add_argument("--model-key", required=True)
     parser.add_argument("--protocol", required=True)
+    parser.add_argument("--split-assignment", required=True)
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--reports-dir", default="outputs/state_data/reports")
     parser.add_argument("--trajectory-check-limit", type=int, default=5)
@@ -157,6 +160,7 @@ def main() -> int:
         ledger_path=args.ledger,
         model_key=args.model_key,
         protocol=args.protocol,
+        split_assignment_path=args.split_assignment,
         output_dir=args.output_dir,
         reports_dir=args.reports_dir,
         trajectory_check_limit=args.trajectory_check_limit,

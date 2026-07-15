@@ -84,6 +84,12 @@ def _bundle(
             "source_dataset": "fake",
             "split_group_id": sample_id,
             "master_split": master_split,
+            "representation_split": (
+                "relation_val" if master_split == "val" else "relation_train"
+            ),
+            "calibration_split": "",
+            "split_assignment_key": "fixture_v1",
+            "split_assignment_sha256": "a" * 64,
         },
     }
 
@@ -116,7 +122,7 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
     config_path.write_text(
         yaml.safe_dump(
             {
-                "schema": "mprisk_representation_training_v2",
+                "schema": "mprisk_representation_training_v3",
                 "key": "qwen3_vl_8b_tme_proxy_anchor_v1",
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
@@ -133,7 +139,6 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
                 "proxy_margin": 0.1,
                 "patience": 2,
                 "min_delta": 0.0,
-                "val_fraction": 0.25,
                 "seed": 123,
             }
         ),

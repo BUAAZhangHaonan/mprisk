@@ -87,6 +87,12 @@ def _dataset(tmp_path: Path, *, direct_2d: bool = False) -> Path:
                     "prompt_id": prompt_id,
                     "split_group_id": f"g{index}",
                     "master_split": split,
+                    "representation_split": (
+                        "relation_val" if split == "val" else "relation_train"
+                    ),
+                    "calibration_split": "",
+                    "split_assignment_key": "fixture_v1",
+                    "split_assignment_sha256": "a" * 64,
                     "conditions": conditions,
                 }
             )
@@ -111,7 +117,6 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
         proxy_margin=0.1,
         patience=2,
         min_delta=0.0,
-        val_fraction=0.25,
         seed=7,
     )
 
@@ -152,6 +157,9 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
         for vector in row["condition_z"].values()
     )
     assert all("misread" not in json.dumps(row).casefold() for row in rows)
+    assert result.metrics["train_group_count"] == 6
+    assert result.metrics["val_group_count"] == 2
+    assert result.metrics["split_assignment_sha256"] == "a" * 64
 
 
 def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_path) -> None:
@@ -204,3 +212,57 @@ def test_relation_training_reads_direct_float32_layer_hidden_cache(tmp_path) -> 
     )
     checkpoint = torch.load(result.best_checkpoint_path, map_location="cpu")
     assert checkpoint["model_config"] == {"input_dim": 3, "layer_count": 2}
+
+
+def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> None:
+    dataset = _dataset(tmp_path)
+    rows = [json.loads(line) for line in dataset.read_text().splitlines()]
+    for index, (master_split, representation_split, sample_type) in enumerate(
+        (
+            ("val", "aligned_calibration", "Aligned"),
+            ("test", "official_test", "Conflict"),
+        )
+    ):
+        row = json.loads(json.dumps(rows[index]))
+        row["row_id"] = f"excluded-{index}:p1"
+        row["sample_id"] = f"excluded-{index}"
+        row["sample_type"] = sample_type
+        row["label_id"] = int(sample_type == "Conflict")
+        row["split_group_id"] = f"excluded-g{index}"
+        row["master_split"] = master_split
+        row["representation_split"] = representation_split
+        row["calibration_split"] = (
+            "aligned_calibration" if representation_split == "aligned_calibration" else ""
+        )
+        for state in row["conditions"].values():
+            state["cache_root"] = str(tmp_path / "must-not-be-read")
+            state["shard_path"] = "missing.safetensors"
+        rows.append(row)
+    dataset.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    result = train_trajectory_encoder(
+        dataset_path=dataset,
+        config=_config(max_epochs=1),
+        output_dir=tmp_path / "run-excluded",
+    )
+
+    assert result.metrics["train_rows"] == 12
+    assert result.metrics["val_rows"] == 4
+    assert result.metrics["excluded_rows"] == {
+        "aligned_calibration": 1,
+        "official_test": 1,
+    }
+
+
+def test_training_rejects_missing_registered_split_instead_of_rehashing(tmp_path) -> None:
+    dataset = _dataset(tmp_path)
+    row = json.loads(dataset.read_text().splitlines()[0])
+    del row["representation_split"]
+    dataset.write_text(json.dumps(row) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="representation_split"):
+        train_trajectory_encoder(
+            dataset_path=dataset,
+            config=_config(max_epochs=1),
+            output_dir=tmp_path / "run-missing-split",
+        )

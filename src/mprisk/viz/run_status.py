@@ -30,6 +30,7 @@ def build_run_status(
         *_command_lines(records["commands"]),
         *_gpu_lines(records["gpus"]),
         *_cache_lines(records["caches"]),
+        *_split_lines(records["splits"]),
         *_experiment_lines(records["experiments"]),
         *_visual_qa_lines(records["visual_qa"]),
     ]
@@ -64,13 +65,14 @@ def _load_records(path: str | Path | None) -> dict[str, list[dict[str, Any]]]:
             "gpus": [],
             "caches": [],
             "experiments": [],
+            "splits": [],
             "visual_qa": [],
         }
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema") != RUN_RECORDS_SCHEMA:
         raise ValueError(f"run records schema must be {RUN_RECORDS_SCHEMA}")
     result: dict[str, list[dict[str, Any]]] = {}
-    for key in ("commands", "gpus", "caches", "experiments", "visual_qa"):
+    for key in ("commands", "gpus", "caches", "splits", "experiments", "visual_qa"):
         rows = payload.get(key, [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise ValueError(f"run records {key} must be a list of objects")
@@ -94,6 +96,29 @@ def _gpu_lines(rows: list[dict[str, Any]]) -> list[str]:
             f"{row.get('memory_used_mib', '')}/{row.get('memory_total_mib', '')} | "
             f"{row.get('utilization_percent', '')}% | {row.get('recorded_at', '')} |"
         )
+    lines.append("")
+    return lines
+
+
+def _split_lines(rows: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "## Representation Split",
+        "",
+        "| Split | Seed | Calibration fraction | Train | Validation | Calibration | Test | "
+        "Manifest SHA-256 |",
+        "|---|---:|---:|---:|---:|---:|---:|---|",
+    ]
+    if not rows:
+        lines.extend(("| None recorded | - | - | - | - | - | - | - |", ""))
+        return lines
+    for row in rows:
+        lines.append(
+            f"| {row.get('split_key', '')} | {row.get('seed', '')} | "
+            f"{row.get('calibration_fraction', '')} | {row.get('relation_train', '')} | "
+            f"{row.get('relation_val', '')} | {row.get('aligned_calibration', '')} | "
+            f"{row.get('official_test', '')} | `{row.get('manifest_sha256', '')}` |"
+        )
+        lines.append(f"| Rule | - | `{row.get('ranking_rule', '')}` | - | - | - | - | - |")
     lines.append("")
     return lines
 

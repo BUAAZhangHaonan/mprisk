@@ -54,3 +54,35 @@ def calibrate_aligned_thresholds(
         "stable_aligned_count": len(stable_rows),
         "sample_ids_sha256": signature,
     }
+
+
+def calibrate_registered_aligned_thresholds(
+    rows: list[dict[str, Any]],
+    *,
+    quantile_level: float = 0.95,
+) -> dict[str, Any]:
+    """Select the registered calibration partition, then filter its Aligned rows."""
+    if not rows:
+        raise ValueError("registered calibration requires non-empty SDR rows")
+    checksums = {str(row.get("split_assignment_sha256", "")) for row in rows}
+    if len(checksums) != 1 or len(next(iter(checksums))) != 64:
+        raise ValueError("SDR rows require one valid split assignment checksum")
+    registered = [
+        row for row in rows if row.get("representation_split") == "aligned_calibration"
+    ]
+    if not registered:
+        raise ValueError("no rows use the registered aligned_calibration split")
+    aligned = [row for row in registered if row.get("sample_type") == "Aligned"]
+    if not aligned:
+        raise ValueError("registered calibration split has no Aligned rows")
+    payload = calibrate_aligned_thresholds(aligned, quantile_level=quantile_level)
+    payload.update(
+        {
+            "input_count": len(rows),
+            "registered_calibration_count": len(registered),
+            "excluded_non_aligned_calibration_count": len(registered) - len(aligned),
+            "split_assignment_sha256": next(iter(checksums)),
+            "selection_rule": "representation_split=aligned_calibration then sample_type=Aligned",
+        }
+    )
+    return payload

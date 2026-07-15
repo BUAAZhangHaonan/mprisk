@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from mprisk.state.patterns import StatePattern, StateThresholds, assign_state
 from mprisk.state.spherical import compute_spherical_state
-from mprisk.state.thresholds import calibrate_aligned_thresholds
+from mprisk.state.thresholds import (
+    calibrate_aligned_thresholds,
+    calibrate_registered_aligned_thresholds,
+)
+from mprisk.utils.io import write_jsonl
+from scripts.compute_sdr_scores import compute_sdr_scores
 
 
 def _bundle(sample_id: str, *, sample_type: str = "Aligned") -> dict[str, object]:
@@ -72,3 +79,51 @@ def test_pattern_hierarchy_uses_sample_delta_after_confusion_and_consensus() -> 
     assert assign_state(0.1, 0.2, 0.9, thresholds, delta_i=0.1) is StatePattern.CONSENSUS
     assert assign_state(0.1, 0.8, 0.1, thresholds, delta_i=0.1) is StatePattern.BALANCED
     assert assign_state(0.1, 0.8, -0.2, thresholds, delta_i=0.1) is StatePattern.DOMINANT
+
+
+def test_calibration_filters_registered_split_before_aligned_label(tmp_path) -> None:
+    calibration = compute_spherical_state(_bundle("calibration"))
+    calibration.update(
+        representation_split="aligned_calibration",
+        split_assignment_sha256="a" * 64,
+    )
+    relation_val = dict(
+        compute_spherical_state(_bundle("relation-val")),
+        representation_split="relation_val",
+        split_assignment_sha256="a" * 64,
+    )
+    official_test = dict(
+        compute_spherical_state(_bundle("official-test")),
+        representation_split="official_test",
+        split_assignment_sha256="a" * 64,
+    )
+
+    result = calibrate_registered_aligned_thresholds(
+        [relation_val, calibration, official_test]
+    )
+
+    assert result["aligned_count"] == 1
+    assert result["registered_calibration_count"] == 1
+    assert result["input_count"] == 3
+    assert result["split_assignment_sha256"] == "a" * 64
+
+
+def test_sdr_score_export_preserves_registered_split_for_calibration(tmp_path) -> None:
+    bundle = _bundle("calibration-export")
+    bundle.update(
+        model_key="qwen3_vl_8b",
+        protocol="VT",
+        prompt_set_key="p8",
+        repr_key="tme_proxy_anchor_v1",
+        representation_split="aligned_calibration",
+        split_group_id="group-calibration",
+        split_assignment_sha256="b" * 64,
+    )
+    source = write_jsonl(tmp_path / "embeddings.jsonl", [bundle])
+
+    result = compute_sdr_scores(embedding_manifest_path=source, output_dir=tmp_path / "scores")
+    row = json.loads(result.scores_path.read_text().strip())
+
+    assert row["representation_split"] == "aligned_calibration"
+    assert row["split_group_id"] == "group-calibration"
+    assert row["split_assignment_sha256"] == "b" * 64

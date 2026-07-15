@@ -44,6 +44,11 @@ def _state_row(sample_id: str) -> dict[str, object]:
         "sample_type": "Conflict",
         "source_dataset": "ch_sims_v2",
         "split_group_id": sample_id,
+        "master_split": "train",
+        "representation_split": "relation_train",
+        "calibration_split": "",
+        "split_assignment_key": "fixture_v1",
+        "split_assignment_sha256": "a" * 64,
         "protocol": "VT",
         "model_key": "qwen3_vl_8b",
         "target_label": "negative",
@@ -170,6 +175,11 @@ def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_
     assert rows[0]["sample_id"] == "sample-ok"
     assert rows[0]["prompt_set_key"] == "vt_primary_v1"
     assert rows[0]["metadata"]["split_group_id"] == "sample-ok"
+    assert rows[0]["metadata"]["master_split"] == "train"
+    assert rows[0]["metadata"]["representation_split"] == "relation_train"
+    assert rows[0]["metadata"]["calibration_split"] == ""
+    assert rows[0]["metadata"]["split_assignment_key"] == "fixture_v1"
+    assert rows[0]["metadata"]["split_assignment_sha256"] == "a" * 64
     assert rows[0]["view_labels"] == _view_labels()
     assert [prompt["prompt_id"] for prompt in rows[0]["prompts"]] == [
         "vt_primary_v1_t01",
@@ -198,7 +208,10 @@ def test_build_state_bundles_records_missing_prompt_cache_rows_per_sample(tmp_pa
     write_jsonl(state_manifest, [_state_row("sample-a"), _state_row("sample-b")])
     _prompt_set(prompt_set)
     write_jsonl(prompt_cache_manifest, [_prompt_cache_row("vt_primary_v1_t01")])
-    write_jsonl(prompted_manifest, _prompted_state_rows("sample-a") + _prompted_state_rows("sample-b"))
+    write_jsonl(
+        prompted_manifest,
+        _prompted_state_rows("sample-a") + _prompted_state_rows("sample-b"),
+    )
 
     result = build_state_bundles(
         state_dataset_manifest_path=state_manifest,

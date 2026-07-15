@@ -58,6 +58,7 @@ def run_core_sdr_pipeline(
     prompt_cache_manifest: str | Path,
     prompt_conditioned_cache_manifest: str | Path,
     prompt_set: str | Path,
+    split_assignment: str | Path,
     output_root: str | Path = ".",
     thresholds: dict[str, Any] | str | Path | None = None,
     checkpoint: str | Path | None = None,
@@ -74,6 +75,7 @@ def run_core_sdr_pipeline(
         cache_root=full_cache_root,
         model_key=model_key,
         protocol=normalized_protocol,
+        split_assignment_path=split_assignment,
         output_dir=output_base / "state_data" / model_key / normalized_protocol,
     )
     bundle_result = build_state_bundles(
@@ -281,6 +283,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--prompt-cache-manifest", required=True)
     parser.add_argument("--prompt-conditioned-cache-manifest", required=True)
     parser.add_argument("--prompt-set", required=True)
+    parser.add_argument("--split-assignment", required=True)
     parser.add_argument("--output-root", default=".")
     parser.add_argument(
         "--thresholds",
@@ -303,6 +306,7 @@ def main(argv: list[str] | None = None) -> int:
         prompt_cache_manifest=Path(args.prompt_cache_manifest),
         prompt_conditioned_cache_manifest=Path(args.prompt_conditioned_cache_manifest),
         prompt_set=Path(args.prompt_set),
+        split_assignment=Path(args.split_assignment),
         output_root=Path(args.output_root),
         thresholds=args.thresholds,
         checkpoint=Path(args.checkpoint) if args.checkpoint else None,

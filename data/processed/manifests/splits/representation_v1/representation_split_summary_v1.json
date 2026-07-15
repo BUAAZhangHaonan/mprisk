@@ -1,0 +1,56 @@
+{
+  "schema": "mprisk_representation_split_summary_v1",
+  "config_key": "representation_split_seed20260716_v1",
+  "config_path": "configs/splits/representation_split_v1.yaml",
+  "config_sha256": "47170e6ea497e1bae3c50db0783d141fb64eaf118b26c032c2fdba86fe2919a9",
+  "sources": [
+    {
+      "path": "../../data/processed/manifests/protocol_manifests/vt_primary.jsonl",
+      "sha256": "6d89bdec32763f9263962d38e3695ebdd5d37b61bb77aa89cbef2265dc115311"
+    },
+    {
+      "path": "../../data/processed/manifests/protocol_manifests/va_aux.jsonl",
+      "sha256": "f614cffd2c233aa3b2e1cc3b3b163070a6c551a68dcc4533120bbeb8aab3d0a5"
+    }
+  ],
+  "seed": 20260716,
+  "ranking_rule": "sha256(seed:split_group_id)",
+  "calibration_fraction": 0.5,
+  "calibration_rounding": "floor",
+  "use_in_main_only": true,
+  "selection_policy": "official val groups containing only Aligned samples; fixed seeded hash rank",
+  "group_counts": {
+    "aligned_calibration": 175,
+    "official_test": 447,
+    "relation_train": 2046,
+    "relation_val": 230
+  },
+  "sample_counts": {
+    "aligned_calibration": 289,
+    "official_test": 706,
+    "relation_train": 3208,
+    "relation_val": 346
+  },
+  "label_counts": {
+    "aligned_calibration": {
+      "Aligned": 289
+    },
+    "official_test": {
+      "Aligned": 625,
+      "Conflict": 81
+    },
+    "relation_train": {
+      "Aligned": 2884,
+      "Conflict": 324
+    },
+    "relation_val": {
+      "Aligned": 291,
+      "Conflict": 55
+    }
+  },
+  "group_count": 2898,
+  "sample_count": 4549,
+  "manifest_path": "data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl",
+  "manifest_sha256": "f597ed0067c7f643760ce066b03bd8a5af10a59542d89dc467d46824d3070ce7",
+  "assignment_checksum": "cf447cd39f4961572c049e971a6680c44a436b8086e67174d7a16a208a8b76b0"
+}

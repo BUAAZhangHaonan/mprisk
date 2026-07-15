@@ -1,4 +1,4 @@
-schema: mprisk_representation_training_v2
+schema: mprisk_representation_training_v3
 key: qwen3_vl_8b_single_point_v1
 repr_key: single_point_binary_v1
 model_key: qwen3_vl_8b
@@ -14,5 +14,4 @@ proxy_alpha: 32.0
 proxy_margin: 0.1
 patience: 20
 min_delta: 0.0001
-val_fraction: 0.2
 seed: 20260716

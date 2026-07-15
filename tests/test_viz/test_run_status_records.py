@@ -48,6 +48,19 @@ def test_run_status_aggregates_only_machine_readable_runtime_records(tmp_path) -
                 "reason": "recorded failure",
             }
         ],
+        "splits": [
+            {
+                "split_key": "representation_split_seed20260716_v1",
+                "calibration_fraction": 0.5,
+                "seed": 20260716,
+                "ranking_rule": "sha256(seed:split_group_id)",
+                "relation_train": 3208,
+                "relation_val": 346,
+                "aligned_calibration": 289,
+                "official_test": 706,
+                "manifest_sha256": "a" * 64,
+            }
+        ],
         "visual_qa": [
             {
                 "qa_key": "pending_bundle_v1",
@@ -75,5 +88,8 @@ def test_run_status_aggregates_only_machine_readable_runtime_records(tmp_path) -
     assert "2048" in text
     assert "10" in text and "2" in text and "4" in text
     assert "qwen3_tme" in text and "failure" in text
+    assert "representation_split_seed20260716_v1" in text
+    assert "0.5" in text and "20260716" in text
+    assert "3208" in text and "346" in text and "289" in text and "706" in text
     assert "pending_bundle_v1" in text and "manual image inspection complete" in text
     assert "fig01_problem_protocol" in text and "Pending" in text

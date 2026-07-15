@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
+import pytest
 
 from mprisk.data.manifests import write_jsonl
 from mprisk.data.state_dataset import build_state_dataset
 
 
-def _manifest_row(sample_id: str, sample_type: str = "Conflict") -> dict[str, object]:
+def _manifest_row(
+    sample_id: str, sample_type: str = "Conflict", split: str = "train"
+) -> dict[str, object]:
     return {
         "sample_id": sample_id,
         "source_dataset": "ch_sims_v2",
@@ -14,6 +19,7 @@ def _manifest_row(sample_id: str, sample_type: str = "Conflict") -> dict[str, ob
         "protocol": "VT",
         "sample_type": sample_type,
         "split_group_id": sample_id,
+        "split": split,
         "media_paths": {"vision": "video.mp4", "text": "text.txt"},
         "views": {
             "M1": {
@@ -68,6 +74,26 @@ def _write_cache_manifest(root, entries) -> None:
     (manifest.parent / "extraction_ledger.csv").write_text("", encoding="utf-8")
 
 
+def _write_split_assignment(root: Path, assignments: dict[str, tuple[str, str]]) -> Path:
+    path = root / "representation_split_assignment_v1.jsonl"
+    rows = [
+        {
+            "schema": "mprisk_representation_split_assignment_v1",
+            "config_key": "fixture_v1",
+            "split_group_id": sample_id,
+            "master_split": master_split,
+            "representation_split": representation_split,
+            "sample_ids": [sample_id],
+            "sample_count": 1,
+            "protocols": ["VT"],
+            "source_datasets": ["ch_sims_v2"],
+        }
+        for sample_id, (master_split, representation_split) in sorted(assignments.items())
+    ]
+    write_jsonl(path, rows)
+    return path
+
+
 def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_path) -> None:
     labels = tmp_path / "data/processed/manifests/conflict_manifest.jsonl"
     labels.parent.mkdir(parents=True)
@@ -87,6 +113,13 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
         cache_root=tmp_path,
         model_key="qwen3_vl_8b",
         protocol="VT",
+        split_assignment_path=_write_split_assignment(
+            tmp_path,
+            {
+                "sample-ok": ("train", "relation_train"),
+                "sample-missing": ("train", "relation_train"),
+            },
+        ),
         output_dir=tmp_path / "outputs/state_data/qwen3_vl_8b/VT",
     )
 
@@ -107,6 +140,10 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
     assert manifest_rows[0]["sample_id"] == "sample-ok"
     assert manifest_rows[0]["model_key"] == "qwen3_vl_8b"
     assert manifest_rows[0]["split_group_id"] == "sample-ok"
+    assert manifest_rows[0]["master_split"] == "train"
+    assert manifest_rows[0]["representation_split"] == "relation_train"
+    assert manifest_rows[0]["calibration_split"] == ""
+    assert len(manifest_rows[0]["split_assignment_sha256"]) == 64
     assert manifest_rows[0]["target_label"] == "negative"
     assert manifest_rows[0]["view_labels"] == {
         "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},
@@ -121,6 +158,8 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
     }
     assert missing_rows[0]["sample_id"] == "sample-missing"
     assert missing_rows[0]["missing_conditions"] == ["M2", "M12"]
+    assert missing_rows[0]["master_split"] == "train"
+    assert missing_rows[0]["representation_split"] == "relation_train"
     assert summary["resolved_rows"] == 1
     assert summary["missing_cache_rows"] == 1
 
@@ -147,6 +186,9 @@ def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
         cache_root=tmp_path,
         model_key="qwen3_vl_8b",
         protocol="vt",
+        split_assignment_path=_write_split_assignment(
+            tmp_path, {"sample-ok": ("train", "relation_train")}
+        ),
         output_dir=tmp_path / "outputs/state_data/qwen3_vl_8b/VT",
     )
 
@@ -156,3 +198,25 @@ def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
         if line
     ]
     assert [row["sample_id"] for row in rows] == ["sample-ok"]
+
+
+def test_build_state_dataset_rejects_missing_master_split_before_cache_resolution(
+    tmp_path,
+) -> None:
+    labels = tmp_path / "labels.jsonl"
+    row = _manifest_row("sample-missing-split")
+    del row["split"]
+    write_jsonl(labels, [row])
+    _write_cache_manifest(tmp_path, [])
+    assignment = _write_split_assignment(
+        tmp_path, {"sample-missing-split": ("train", "relation_train")}
+    )
+
+    with pytest.raises(ValueError, match="missing a valid master_split"):
+        build_state_dataset(
+            manifest_paths=[labels],
+            cache_root=tmp_path,
+            model_key="qwen3_vl_8b",
+            protocol="VT",
+            split_assignment_path=assignment,
+        )

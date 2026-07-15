@@ -28,9 +28,13 @@ def build_relation_dataset(
     output_dir: str | Path,
 ) -> RelationDatasetBuildResult:
     bundles = _read_jsonl(bundle_manifest_path)
+    if not bundles:
+        raise ValueError("bundle manifest is empty")
     rows: list[dict[str, Any]] = []
     model_keys: set[str] = set()
     sample_ids: set[str] = set()
+    split_assignment_keys: set[str] = set()
+    split_assignment_checksums: set[str] = set()
     for bundle in bundles:
         _reject_forbidden_fields(bundle)
         sample_id = _required_text(bundle, "sample_id")
@@ -43,6 +47,31 @@ def build_relation_dataset(
         metadata = bundle.get("metadata") or {}
         if not isinstance(metadata, dict):
             raise ValueError("bundle metadata must be a JSON object")
+        master_split = _required_metadata_text(metadata, "master_split")
+        representation_split = _required_metadata_text(metadata, "representation_split")
+        split_group_id = _required_metadata_text(metadata, "split_group_id")
+        split_assignment_key = _required_metadata_text(metadata, "split_assignment_key")
+        split_assignment_sha256 = _required_metadata_text(
+            metadata, "split_assignment_sha256"
+        )
+        split_assignment_keys.add(split_assignment_key)
+        split_assignment_checksums.add(split_assignment_sha256)
+        if len(split_assignment_sha256) != 64:
+            raise ValueError("split_assignment_sha256 must be a SHA-256 digest")
+        expected_master = {
+            "relation_train": "train",
+            "relation_val": "val",
+            "aligned_calibration": "val",
+            "official_test": "test",
+        }
+        if expected_master.get(representation_split) != master_split:
+            raise ValueError("representation_split mismatches master_split")
+        calibration_split = str(metadata.get("calibration_split") or "")
+        expected_calibration = (
+            "aligned_calibration" if representation_split == "aligned_calibration" else ""
+        )
+        if calibration_split != expected_calibration:
+            raise ValueError("calibration_split mismatches representation_split")
         prompt_ids = _prompt_ids(bundle)
         _require_synchronized_prompts(bundle, prompt_ids)
         for prompt_id in prompt_ids:
@@ -57,13 +86,12 @@ def build_relation_dataset(
                     "protocol": _required_text(bundle, "protocol"),
                     "prompt_set_key": _required_text(bundle, "prompt_set_key"),
                     "prompt_id": prompt_id,
-                    "split_group_id": str(metadata.get("split_group_id") or sample_id),
-                    "master_split": str(metadata.get("master_split") or ""),
-                    "calibration_split": str(
-                        metadata.get("calibration_split")
-                        or bundle.get("calibration_split")
-                        or ""
-                    ),
+                    "split_group_id": split_group_id,
+                    "master_split": master_split,
+                    "representation_split": representation_split,
+                    "calibration_split": calibration_split,
+                    "split_assignment_key": split_assignment_key,
+                    "split_assignment_sha256": split_assignment_sha256,
                     "conditions": {
                         condition: dict(
                             bundle["views"][condition]["prompts"][prompt_id][
@@ -76,6 +104,8 @@ def build_relation_dataset(
             )
     if len(model_keys) > 1:
         raise ValueError("each relation dataset must contain exactly one backbone model_key")
+    if len(split_assignment_keys) != 1 or len(split_assignment_checksums) != 1:
+        raise ValueError("relation dataset must use one registered split assignment")
     output_root = Path(output_dir)
     dataset_path = write_jsonl(output_root / "relation_dataset.jsonl", rows)
     summary_path = write_json(
@@ -90,6 +120,12 @@ def build_relation_dataset(
                 label: sum(row["sample_type"] == label for row in rows)
                 for label in LABEL_TO_ID
             },
+            "representation_split_counts": {
+                split: sum(row["representation_split"] == split for row in rows)
+                for split in sorted({row["representation_split"] for row in rows})
+            },
+            "split_assignment_key": next(iter(split_assignment_keys)),
+            "split_assignment_sha256": next(iter(split_assignment_checksums)),
         },
     )
     return RelationDatasetBuildResult(dataset_path, summary_path, len(sample_ids), len(rows))
@@ -124,6 +160,13 @@ def _required_text(row: dict[str, Any], field: str) -> str:
     value = row.get(field)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"bundle field {field} must be non-empty text")
+    return value
+
+
+def _required_metadata_text(metadata: dict[str, Any], field: str) -> str:
+    value = metadata.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"bundle metadata {field} must be non-empty text")
     return value
 
 

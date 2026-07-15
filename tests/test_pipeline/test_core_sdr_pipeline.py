@@ -23,6 +23,7 @@ def _manifest_row(sample_id: str, sample_type: str) -> dict[str, object]:
         "protocol": "VT",
         "sample_type": sample_type,
         "split_group_id": sample_id,
+        "split": "train",
         "media_paths": {"vision": "video.mp4", "text": "text.txt"},
         "views": {
             "M1": {
@@ -184,6 +185,27 @@ def _read_jsonl(path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
+def _split_assignment(path, sample_ids: list[str]):
+    write_jsonl(
+        path,
+        [
+            {
+                "schema": "mprisk_representation_split_assignment_v1",
+                "config_key": "fixture_v1",
+                "split_group_id": sample_id,
+                "master_split": "train",
+                "representation_split": "relation_train",
+                "sample_ids": [sample_id],
+                "sample_count": 1,
+                "protocols": ["VT"],
+                "source_datasets": ["fake_dataset"],
+            }
+            for sample_id in sample_ids
+        ],
+    )
+    return path
+
+
 def test_core_sdr_pipeline_rejects_raw_layernorm_as_final_representation(tmp_path) -> None:
     with pytest.raises(ValueError, match="raw_layernorm representations cannot stand in"):
         run_core_sdr_pipeline(
@@ -196,6 +218,7 @@ def test_core_sdr_pipeline_rejects_raw_layernorm_as_final_representation(tmp_pat
             prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
             prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
             prompt_set=tmp_path / "vt_primary_v1.yaml",
+            split_assignment=tmp_path / "missing-split.jsonl",
             output_root=tmp_path,
             thresholds={"kappa": 0.5, "tau": 0.01},
         )
@@ -213,6 +236,7 @@ def test_core_sdr_pipeline_requires_checkpoint_for_tme_repr(tmp_path) -> None:
             prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
             prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
             prompt_set=tmp_path / "vt_primary_v1.yaml",
+            split_assignment=tmp_path / "missing-split.jsonl",
             output_root=tmp_path,
             thresholds={"kappa": 0.5, "tau": 0.01},
         )
@@ -270,6 +294,7 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
         prompt_cache_manifest=prompt_cache_manifest,
         prompt_conditioned_cache_manifest=prompted_manifest,
         prompt_set=prompt_set,
+        split_assignment=_split_assignment(tmp_path / "split.jsonl", sample_ids),
         output_root=tmp_path,
         thresholds={"kappa": 0.5, "tau": 0.01},
         checkpoint=checkpoint,

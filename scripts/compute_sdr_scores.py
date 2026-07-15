@@ -48,7 +48,12 @@ def _score_row(row: dict[str, Any]) -> dict[str, Any]:
         "model_key": row["model_key"],
         "protocol": row.get("protocol", ""),
         "prompt_set_key": row.get("prompt_set_key", ""),
+        "split_group_id": row.get("split_group_id", ""),
+        "master_split": row.get("master_split", ""),
+        "representation_split": row.get("representation_split", ""),
         "calibration_split": row.get("calibration_split", ""),
+        "split_assignment_key": row.get("split_assignment_key", ""),
+        "split_assignment_sha256": row.get("split_assignment_sha256", ""),
         "repr_key": row["repr_key"],
         **{key: value for key, value in state.items() if key not in {"sample_id", "sample_type"}},
     }

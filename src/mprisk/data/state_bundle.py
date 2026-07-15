@@ -3,20 +3,20 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
+from mprisk.cache.prompt_cache import load_prompt_cache_manifest
 from mprisk.cache.prompt_conditioned_cache import (
     PromptConditionedManifest,
     load_prompt_conditioned_manifest,
 )
-from mprisk.cache.prompt_cache import load_prompt_cache_manifest
 from mprisk.data.protocol_views import VIEW_KEYS, normalize_protocol
 from mprisk.data.state_dataset import read_state_dataset_manifest
 from mprisk.prompts.template_bank import EquivPromptSet, PromptTemplate, load_equiv_prompt_set
 from mprisk.utils.io import write_json, write_jsonl
-
 
 DEFAULT_PROMPT_SET_DIR = Path("configs/prompts/equiv_sets")
 DEFAULT_OUTPUT_ROOT = Path("outputs/state_bundles")
@@ -166,6 +166,11 @@ def _validate_state_dataset_row(row: dict[str, Any]) -> None:
         "sample_type",
         "model_key",
         "protocol",
+        "split_group_id",
+        "master_split",
+        "representation_split",
+        "split_assignment_key",
+        "split_assignment_sha256",
         "view_labels",
         "trajectory_meta",
     ):
@@ -283,7 +288,17 @@ def _view_bundle(
 
 def _metadata(row: dict[str, Any]) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
-    for field in ("source_dataset", "split_group_id", "target_label", "dominant_modality"):
+    for field in (
+        "source_dataset",
+        "split_group_id",
+        "master_split",
+        "representation_split",
+        "calibration_split",
+        "split_assignment_key",
+        "split_assignment_sha256",
+        "target_label",
+        "dominant_modality",
+    ):
         if field in row:
             metadata[field] = row[field]
     return metadata

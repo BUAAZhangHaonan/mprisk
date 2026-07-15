@@ -60,7 +60,14 @@ def _bundle(sample_id: str = "sample-1", sample_type: str = "Conflict") -> dict[
             }
             for condition in ("M1", "M2", "M12")
         },
-        "metadata": {"split_group_id": f"group:{sample_id}", "master_split": "train"},
+        "metadata": {
+            "split_group_id": f"group:{sample_id}",
+            "master_split": "train",
+            "representation_split": "relation_train",
+            "calibration_split": "",
+            "split_assignment_key": "fixture_v1",
+            "split_assignment_sha256": "a" * 64,
+        },
     }
 
 
@@ -70,6 +77,7 @@ def test_relation_dataset_uses_one_sample_label_for_all_three_conditions(tmp_pat
 
     result = build_relation_dataset(bundle_manifest_path=source, output_dir=tmp_path / "out")
     rows = [json.loads(line) for line in result.dataset_path.read_text().splitlines()]
+    summary = json.loads(result.summary_path.read_text())
 
     assert len(rows) == 2
     assert {row["sample_type"] for row in rows} == {"Conflict"}
@@ -77,6 +85,20 @@ def test_relation_dataset_uses_one_sample_label_for_all_three_conditions(tmp_pat
     assert all(set(row["conditions"]) == {"M1", "M2", "M12"} for row in rows)
     assert all("view_labels" not in row and "label" not in row for row in rows)
     assert {row["master_split"] for row in rows} == {"train"}
+    assert {row["representation_split"] for row in rows} == {"relation_train"}
+    assert {row["split_assignment_sha256"] for row in rows} == {"a" * 64}
+    assert summary["representation_split_counts"] == {"relation_train": 2}
+    assert summary["split_assignment_sha256"] == "a" * 64
+
+
+def test_relation_dataset_rejects_missing_registered_split(tmp_path) -> None:
+    source = tmp_path / "bundle.jsonl"
+    bundle = _bundle()
+    del bundle["metadata"]["master_split"]
+    source.write_text(json.dumps(bundle) + "\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="master_split"):
+        build_relation_dataset(bundle_manifest_path=source, output_dir=tmp_path / "out")
 
 
 @pytest.mark.parametrize("field", ["misread", "MISREAD", "binary_label", "final_decision"])
@@ -166,7 +188,7 @@ def test_proxy_anchor_is_two_proxy_tme_objective() -> None:
 
 def test_tme_training_config_rejects_architecture_version_drift(tmp_path) -> None:
     config = {
-        "schema": "mprisk_representation_training_v2",
+        "schema": "mprisk_representation_training_v3",
         "key": "qwen3-vl-test",
         "architecture_version": "unversioned_gru",
         "repr_key": TME_PROXY_ANCHOR_V1,

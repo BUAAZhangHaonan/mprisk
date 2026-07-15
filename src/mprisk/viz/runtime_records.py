@@ -162,6 +162,34 @@ def snapshot_cache_summary(
     return row
 
 
+def snapshot_representation_split(
+    path: str | Path,
+    *,
+    summary_path: str | Path,
+) -> dict[str, Any]:
+    source = Path(summary_path)
+    summary = json.loads(source.read_text(encoding="utf-8"))
+    if summary.get("schema") != "mprisk_representation_split_summary_v1":
+        raise ValueError("representation split summary schema mismatch")
+    sample_counts = summary.get("sample_counts")
+    if not isinstance(sample_counts, dict):
+        raise ValueError("representation split summary requires sample_counts")
+    row = {
+        "split_key": summary["config_key"],
+        "seed": int(summary["seed"]),
+        "calibration_fraction": float(summary["calibration_fraction"]),
+        "ranking_rule": str(summary["ranking_rule"]),
+        "relation_train": int(sample_counts["relation_train"]),
+        "relation_val": int(sample_counts["relation_val"]),
+        "aligned_calibration": int(sample_counts["aligned_calibration"]),
+        "official_test": int(sample_counts["official_test"]),
+        "manifest_sha256": str(summary["manifest_sha256"]),
+        "source": str(source),
+    }
+    _replace_keyed_record(path, "splits", "split_key", row)
+    return row
+
+
 def load_run_records(path: str | Path) -> dict[str, Any]:
     target = Path(path)
     if not target.is_file():
@@ -171,12 +199,13 @@ def load_run_records(path: str | Path) -> dict[str, Any]:
             "gpus": [],
             "caches": [],
             "experiments": [],
+            "splits": [],
             "visual_qa": [],
         }
     payload = json.loads(target.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema") != RUN_RECORDS_SCHEMA:
         raise ValueError(f"run records schema must be {RUN_RECORDS_SCHEMA}")
-    for key in ("commands", "gpus", "caches", "experiments", "visual_qa"):
+    for key in ("commands", "gpus", "caches", "splits", "experiments", "visual_qa"):
         payload.setdefault(key, [])
         if not isinstance(payload[key], list):
             raise ValueError(f"run records {key} must be a list")

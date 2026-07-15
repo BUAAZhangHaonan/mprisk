@@ -30,6 +30,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model-key", required=True)
     parser.add_argument("--protocol", required=True)
+    parser.add_argument("--split-assignment", required=True)
     parser.add_argument("--output-dir", default=None)
     return parser.parse_args()
 
@@ -43,6 +44,7 @@ def main() -> int:
         ledger_path=args.ledger,
         model_key=args.model_key,
         protocol=args.protocol,
+        split_assignment_path=args.split_assignment,
         output_dir=args.output_dir,
     )
     print(f"state_dataset_manifest={result.manifest_path}")

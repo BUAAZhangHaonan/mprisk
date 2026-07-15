@@ -28,7 +28,10 @@ from mprisk.representation.relation_models import (
 )
 from mprisk.utils.io import write_json
 
-TRAINING_CONFIG_SCHEMA = "mprisk_representation_training_v2"
+TRAINING_CONFIG_SCHEMA = "mprisk_representation_training_v3"
+REGISTERED_SPLITS = frozenset(
+    {"relation_train", "relation_val", "aligned_calibration", "official_test"}
+)
 
 
 @dataclass(frozen=True)
@@ -47,7 +50,6 @@ class TrainingConfig:
     proxy_margin: float = 0.1
     patience: int = 10
     min_delta: float = 1e-4
-    val_fraction: float = 0.2
     seed: int = 0
 
 
@@ -82,7 +84,10 @@ class _Sample:
     label_id: int
     split_group_id: str
     master_split: str
+    representation_split: str
     calibration_split: str
+    split_assignment_key: str
+    split_assignment_sha256: str
     protocol: str
     prompt_set_key: str
     prompt_id: str
@@ -135,8 +140,14 @@ def train_trajectory_encoder(
         if resume_payload.get("training_signature") != signature:
             raise ValueError("resume signature mismatch")
     rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
-    samples = _rows_to_samples(rows)
-    train_samples, val_samples = _master_group_split(samples, config=config)
+    split_contract = _validate_registered_splits(rows)
+    training_rows = [
+        row
+        for row in rows
+        if row["representation_split"] in {"relation_train", "relation_val"}
+    ]
+    samples = _rows_to_samples(training_rows)
+    train_samples, val_samples = _registered_group_split(samples)
     layer_count, input_dim = _trajectory_shape(samples)
     torch_device = _resolve_device(device)
     model = build_representation_model(
@@ -254,6 +265,16 @@ def train_trajectory_encoder(
         "stop_reason": stop_reason,
         "train_rows": len(train_samples),
         "val_rows": len(val_samples),
+        "train_group_count": len({sample.split_group_id for sample in train_samples}),
+        "val_group_count": len({sample.split_group_id for sample in val_samples}),
+        "train_groups_sha256": _group_checksum(train_samples),
+        "val_groups_sha256": _group_checksum(val_samples),
+        "split_assignment_key": split_contract["split_assignment_key"],
+        "split_assignment_sha256": split_contract["split_assignment_sha256"],
+        "excluded_rows": {
+            split: sum(row["representation_split"] == split for row in rows)
+            for split in ("aligned_calibration", "official_test")
+        },
         "training_signature": signature,
         "resumed_from": str(resumed_from_path) if resumed_from_path else None,
         "device": str(torch_device),
@@ -309,6 +330,11 @@ def export_frozen_representations(
                     "protocol": sample.protocol,
                     "prompt_set_key": sample.prompt_set_key,
                     "calibration_split": sample.calibration_split,
+                    "master_split": sample.master_split,
+                    "representation_split": sample.representation_split,
+                    "split_group_id": sample.split_group_id,
+                    "split_assignment_key": sample.split_assignment_key,
+                    "split_assignment_sha256": sample.split_assignment_sha256,
                     "prompt_id": sample.prompt_id,
                     "repr_key": config.repr_key,
                     "condition_z": {
@@ -356,6 +382,11 @@ def _frozen_bundle_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "protocol": row["protocol"],
                 "prompt_set_key": row["prompt_set_key"],
                 "calibration_split": row["calibration_split"],
+                "master_split": row["master_split"],
+                "representation_split": row["representation_split"],
+                "split_group_id": row["split_group_id"],
+                "split_assignment_key": row["split_assignment_key"],
+                "split_assignment_sha256": row["split_assignment_sha256"],
                 "repr_key": row["repr_key"],
                 "embeddings": {condition: {} for condition in CONDITIONS},
                 "relations": {},
@@ -427,7 +458,10 @@ def _rows_to_samples(rows: list[dict[str, Any]]) -> list[_Sample]:
                 label_id=int(row["label_id"]),
                 split_group_id=str(row["split_group_id"]),
                 master_split=str(row.get("master_split", "")),
+                representation_split=str(row.get("representation_split", "")),
                 calibration_split=str(row.get("calibration_split", "")),
+                split_assignment_key=str(row.get("split_assignment_key", "")),
+                split_assignment_sha256=str(row.get("split_assignment_sha256", "")),
                 protocol=str(row["protocol"]),
                 prompt_set_key=str(row["prompt_set_key"]),
                 prompt_id=str(row["prompt_id"]),
@@ -437,50 +471,71 @@ def _rows_to_samples(rows: list[dict[str, Any]]) -> list[_Sample]:
     return samples
 
 
-def _master_group_split(
-    samples: list[_Sample], *, config: TrainingConfig
-) -> tuple[list[_Sample], list[_Sample]]:
+def _registered_group_split(samples: list[_Sample]) -> tuple[list[_Sample], list[_Sample]]:
     groups: dict[str, list[_Sample]] = {}
     for sample in samples:
         groups.setdefault(sample.split_group_id, []).append(sample)
     for group_samples in groups.values():
-        if len({sample.label_id for sample in group_samples}) != 1:
-            raise ValueError("split_group_id must not cross A/C labels")
-        splits = {sample.master_split for sample in group_samples if sample.master_split}
-        if len(splits) > 1:
-            raise ValueError("split_group_id must not cross master splits")
-    explicit = {sample.master_split for sample in samples if sample.master_split}
-    if explicit:
-        if not explicit <= {"train", "val"} or explicit != {"train", "val"}:
-            raise ValueError("master_split must provide both train and val only")
-        train = [sample for sample in samples if sample.master_split == "train"]
-        val = [sample for sample in samples if sample.master_split == "val"]
-    else:
-        val_groups: set[str] = set()
-        for label_id in (0, 1):
-            label_groups = sorted(
-                group
-                for group, values in groups.items()
-                if values[0].label_id == label_id
-            )
-            if len(label_groups) < 2:
-                raise ValueError("each A/C class needs at least two split groups")
-            count = max(1, round(len(label_groups) * config.val_fraction))
-            ranked = sorted(
-                label_groups,
-                key=lambda group: hashlib.sha256(
-                    f"{config.seed}:{group}".encode()
-                ).hexdigest(),
-            )
-            val_groups.update(ranked[:count])
-        train = [sample for sample in samples if sample.split_group_id not in val_groups]
-        val = [sample for sample in samples if sample.split_group_id in val_groups]
+        splits = {sample.representation_split for sample in group_samples}
+        if len(splits) != 1:
+            raise ValueError("split_group_id crosses registered representation splits")
+    train = [sample for sample in samples if sample.representation_split == "relation_train"]
+    val = [sample for sample in samples if sample.representation_split == "relation_val"]
+    if not train or not val:
+        raise ValueError("registered relation_train and relation_val splits are both required")
     if {sample.label_id for sample in train} != {0, 1} or {sample.label_id for sample in val} != {
         0,
         1,
     }:
         raise ValueError("train and val must both contain Aligned and Conflict samples")
     return train, val
+
+
+def _validate_registered_splits(rows: list[dict[str, Any]]) -> dict[str, str]:
+    expected_master = {
+        "relation_train": "train",
+        "relation_val": "val",
+        "aligned_calibration": "val",
+        "official_test": "test",
+    }
+    group_splits: dict[str, set[str]] = {}
+    keys: set[str] = set()
+    checksums: set[str] = set()
+    for row in rows:
+        for field in (
+            "split_group_id",
+            "master_split",
+            "representation_split",
+            "split_assignment_key",
+            "split_assignment_sha256",
+        ):
+            if not isinstance(row.get(field), str) or not row[field].strip():
+                raise ValueError(f"relation row requires non-empty {field}")
+        split = row["representation_split"]
+        if split not in REGISTERED_SPLITS:
+            raise ValueError(f"unknown representation_split: {split}")
+        if row["master_split"] != expected_master[split]:
+            raise ValueError(f"{split} mismatches official master_split")
+        expected_calibration = "aligned_calibration" if split == "aligned_calibration" else ""
+        if str(row.get("calibration_split", "")) != expected_calibration:
+            raise ValueError(f"{split} has invalid calibration_split")
+        group_splits.setdefault(row["split_group_id"], set()).add(split)
+        keys.add(row["split_assignment_key"])
+        checksums.add(row["split_assignment_sha256"])
+    leaked = [group for group, splits in group_splits.items() if len(splits) != 1]
+    if leaked:
+        raise ValueError(f"split groups cross registered assignments: {leaked[:3]}")
+    if len(keys) != 1 or len(checksums) != 1 or len(next(iter(checksums), "")) != 64:
+        raise ValueError("relation rows require one valid split assignment key/checksum")
+    return {
+        "split_assignment_key": next(iter(keys)),
+        "split_assignment_sha256": next(iter(checksums)),
+    }
+
+
+def _group_checksum(samples: list[_Sample]) -> str:
+    groups = sorted({sample.split_group_id for sample in samples})
+    return hashlib.sha256(json.dumps(groups, separators=(",", ":")).encode()).hexdigest()
 
 
 def _train_epoch(
@@ -629,8 +684,8 @@ def _validate_config(config: TrainingConfig) -> None:
     )
     if any(value <= 0 for value in integer_fields):
         raise ValueError("training dimensions/counts must be positive")
-    if not 0.0 <= config.dropout < 1.0 or not 0.0 < config.val_fraction < 0.5:
-        raise ValueError("dropout or val_fraction is out of range")
+    if not 0.0 <= config.dropout < 1.0:
+        raise ValueError("dropout is out of range")
     if config.lr <= 0.0 or config.weight_decay < 0.0 or config.min_delta < 0.0:
         raise ValueError("optimizer and stopping values are out of range")
 

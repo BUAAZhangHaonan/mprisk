@@ -92,6 +92,7 @@ Run the exporter:
 python scripts/build_state_dataset.py \
   --manifest data/processed/manifests/conflict_manifest.jsonl \
   --manifest data/processed/manifests/aligned_manifest.jsonl \
+  --split-assignment data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl \
   --model-key qwen3_vl_8b \
   --protocol VT
 ```
@@ -102,6 +103,7 @@ Run the smoke check:
 python scripts/verify_state_data_pipeline.py \
   --manifest data/processed/manifests/conflict_manifest.jsonl \
   --manifest data/processed/manifests/aligned_manifest.jsonl \
+  --split-assignment data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl \
   --model-key qwen3_vl_8b \
   --protocol VT
 ```
@@ -119,7 +121,28 @@ Main artifacts:
 
 All representation supervision is the sample-level `Conflict`/`Aligned` label. View
 labels and all Misread-derived fields are forbidden in relation datasets. Data is split
-by `split_group_id`; an explicit `master_split` is honored when present.
+by the committed group-level assignment
+`data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl`.
+Missing `master_split` or registered `representation_split` fields are fatal; training
+never hashes the full dataset into a new split.
+
+The pre-registered split rule is in
+`configs/splits/representation_split_v1.yaml`. Official train is unchanged and is the
+only encoder-training partition. Official test is unchanged and is reserved for final
+evaluation. Among official-validation source groups containing only Aligned samples,
+groups are ranked without replacement by `sha256(seed:split_group_id)` using seed
+`20260716`; floor 50% are assigned to `aligned_calibration`. Remaining Aligned groups
+and every Conflict validation group form `relation_val`. A group cannot cross
+`relation_train`, `relation_val`, `aligned_calibration`, or `official_test`, and the same
+artifact is shared by all models, protocols, prompts, and representation families.
+
+Rebuild and verify the versioned assignment:
+
+```bash
+python scripts/build_representation_splits.py \
+  --config configs/splits/representation_split_v1.yaml \
+  --output-dir data/processed/manifests/splits/representation_v1
+```
 
 The three independent backbone-specific interfaces are:
 
@@ -258,6 +281,7 @@ python scripts/run_core_sdr_pipeline.py \
   --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
   --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
   --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
+  --split-assignment data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl \
   --output-root . \
   --checkpoint outputs/representation_train/qwen3_vl_8b/VT/vt_primary_v1/tme_proxy_anchor_v1/best_checkpoint.pt \
   --thresholds outputs/states/calibration/qwen3_vl_8b_vt_thresholds.json

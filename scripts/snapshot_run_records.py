@@ -7,6 +7,7 @@ from mprisk.viz.runtime_records import (
     snapshot_cache_manifest,
     snapshot_cache_summary,
     snapshot_gpu_records,
+    snapshot_representation_split,
 )
 
 
@@ -20,6 +21,7 @@ def main() -> int:
         default=[],
         metavar=("KEY", "PATH"),
     )
+    parser.add_argument("--split-summary", action="append", default=[])
     parser.add_argument(
         "--cache-summary",
         nargs=2,
@@ -33,6 +35,8 @@ def main() -> int:
         snapshot_cache_manifest(args.output, cache_key=key, manifest_path=path)
     for key, path in args.cache_summary:
         snapshot_cache_summary(args.output, cache_key=key, summary_path=path)
+    for path in args.split_summary:
+        snapshot_representation_split(args.output, summary_path=path)
     print(args.output)
     return 0
 
