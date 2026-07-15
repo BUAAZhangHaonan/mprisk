@@ -177,10 +177,16 @@ Main artifacts:
 ## 6. State Analysis
 
 For each condition, the spherical center is the normalized mean across synchronized
-prompts. `S` is mean prompt-to-center cosine distance, `D=1-c1.c2`, and signed
-`R=(d(c12,c2)-d(c12,c1))/(d(c12,c1)+d(c12,c2))`. Therefore `R>0` is V lean and
-`R<0` is T/A lean. Each sample uses `delta_i=1.96*SE` from its synchronized
-prompt-level R values.
+prompts. Let `d_g(a,b)=acos(clip(a^T b,-1,1))` and
+`mu_c=normalize(sum_p z_cp)`. Per-condition dispersion is
+`s_c=(1/P) sum_p d_g(z_cp,mu_c)^2`, with `S=(s_1+s_2+s_12)/3`.
+The normalized modality split is
+`D=d_g(mu_1,mu_2)/(sqrt(s_1+s_2)+eps)`, and signed arbitration is
+`R=(d_g(mu_12,mu_2)-d_g(mu_12,mu_1))/(d_g(mu_1,mu_2)+eps)`.
+Therefore `R>0` is V lean and `R<0` is T/A lean. Each sample uses
+`delta_i=1.96*SE` from a synchronous prompt bootstrap: every replicate resamples
+one shared prompt-index vector for all three conditions and recomputes the same
+center-based R formula.
 
 Thresholds are calibrated on a separate `aligned_calibration` split only. `kappa` is
 the q95 Aligned S value; `tau` is the q95 D value among stable Aligned rows where

@@ -15,12 +15,15 @@ CONDITIONS = ("M1", "M2", "M12")
 UNIT_TOLERANCE = 1e-5
 BOOTSTRAP_REPLICATES = 2000
 DELTA_METHOD = "synchronous_prompt_bootstrap_1.96se_v1"
+SDR_SCHEMA = "mprisk_spherical_sdr_v2"
+DISTANCE_METRIC = "geodesic_acos_v1"
+EPSILON = 1e-12
 
 
 def spherical_distance(left: Sequence[float], right: Sequence[float]) -> float:
     left_array = _unit_vector(left)
     right_array = _unit_vector(right)
-    return float(1.0 - np.clip(np.dot(left_array, right_array), -1.0, 1.0))
+    return float(np.arccos(np.clip(np.dot(left_array, right_array), -1.0, 1.0)))
 
 
 def spherical_center(vectors: Sequence[Sequence[float]]) -> list[float]:
@@ -32,6 +35,17 @@ def spherical_center(vectors: Sequence[Sequence[float]]) -> list[float]:
     if norm <= 1e-12:
         raise ValueError("spherical center is undefined for antipodal embeddings")
     return (mean / norm).tolist()
+
+
+def require_exact_sdr_rows(rows: Sequence[Mapping[str, Any]]) -> None:
+    if not rows or any(
+        row.get("sdr_schema") != SDR_SCHEMA
+        or row.get("distance_metric") != DISTANCE_METRIC
+        for row in rows
+    ):
+        raise ValueError(
+            "state rows must use exact spherical SDR v2 with geodesic acos distance"
+        )
 
 
 def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
@@ -61,21 +75,25 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     }
     s_by_condition = {
         condition: sum(
-            spherical_distance(normalized[condition][prompt_id], centers[condition])
+            spherical_distance(normalized[condition][prompt_id], centers[condition]) ** 2
             for prompt_id in prompt_ids
         )
         / len(prompt_ids)
         for condition in CONDITIONS
     }
     s_mean = sum(s_by_condition.values()) / len(CONDITIONS)
-    d_score = spherical_distance(centers["M1"], centers["M2"])
-    d_v = spherical_distance(centers["M12"], centers["M1"])
-    d_ta = spherical_distance(centers["M12"], centers["M2"])
-    r_score = _signed_r(d_v, d_ta)
+    m1_m2_distance = spherical_distance(centers["M1"], centers["M2"])
+    d_score = m1_m2_distance / (
+        math.sqrt(s_by_condition["M1"] + s_by_condition["M2"]) + EPSILON
+    )
+    m12_m1_distance = spherical_distance(centers["M12"], centers["M1"])
+    m12_m2_distance = spherical_distance(centers["M12"], centers["M2"])
+    r_score = _signed_r(m12_m1_distance, m12_m2_distance, m1_m2_distance)
     prompt_r = [
         _signed_r(
             spherical_distance(normalized["M12"][prompt_id], normalized["M1"][prompt_id]),
             spherical_distance(normalized["M12"][prompt_id], normalized["M2"][prompt_id]),
+            spherical_distance(normalized["M1"][prompt_id], normalized["M2"][prompt_id]),
         )
         for prompt_id in prompt_ids
     ]
@@ -86,6 +104,8 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
         sample_id=str(bundle.get("sample_id", "")),
     )
     return {
+        "sdr_schema": SDR_SCHEMA,
+        "distance_metric": DISTANCE_METRIC,
         "sample_id": bundle.get("sample_id"),
         "sample_type": bundle.get("sample_type"),
         "calibration_split": bundle.get("calibration_split"),
@@ -106,8 +126,13 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _signed_r(distance_to_v: float, distance_to_ta: float, eps: float = 1e-12) -> float:
-    return (distance_to_ta - distance_to_v) / (distance_to_v + distance_to_ta + eps)
+def _signed_r(
+    distance_to_v: float,
+    distance_to_ta: float,
+    modality_distance: float,
+    eps: float = EPSILON,
+) -> float:
+    return (distance_to_ta - distance_to_v) / (modality_distance + eps)
 
 
 def _synchronous_prompt_bootstrap_se(
@@ -137,7 +162,12 @@ def _synchronous_prompt_bootstrap_se(
         }
         distance_to_v = spherical_distance(centers["M12"], centers["M1"])
         distance_to_ta = spherical_distance(centers["M12"], centers["M2"])
-        estimates[replicate] = _signed_r(distance_to_v, distance_to_ta)
+        modality_distance = spherical_distance(centers["M1"], centers["M2"])
+        estimates[replicate] = _signed_r(
+            distance_to_v,
+            distance_to_ta,
+            modality_distance,
+        )
     return float(estimates.std(ddof=1))
 
 

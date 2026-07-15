@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from mprisk.data.manifests import read_jsonl
+from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 from mprisk.utils.io import write_json
 
 PROVENANCE_SCHEMA = "mprisk_figure_input_provenance_v1"
@@ -88,6 +89,13 @@ def build_state_figure_inputs(
     scores = read_jsonl(scores_file)
     patterns = read_jsonl(patterns_file)
     thresholds = json.loads(thresholds_file.read_text(encoding="utf-8"))
+    require_exact_sdr_rows(scores)
+    if (
+        thresholds.get("schema") != "mprisk_spherical_calibration_v2"
+        or thresholds.get("sdr_schema") != SDR_SCHEMA
+        or thresholds.get("distance_metric") != DISTANCE_METRIC
+    ):
+        raise ValueError("figure thresholds must use exact spherical SDR v2 calibration")
     kappa = float(thresholds["kappa"])
     tau = float(thresholds["tau"])
     _validate_state_rows(scores, patterns)
@@ -117,6 +125,7 @@ def build_state_figure_inputs(
         thresholds={"kappa": kappa, "tau": tau},
         source_sample_count=len(scores),
         included_sample_count=len(scores),
+        sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
     )
     fig05_provenance_path = _write_provenance(
         fig05_path,
@@ -127,6 +136,7 @@ def build_state_figure_inputs(
         thresholds=None,
         source_sample_count=len(patterns),
         included_sample_count=len(patterns),
+        sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
     )
     fig06_provenance_path = _write_provenance(
         fig06_path,
@@ -140,6 +150,7 @@ def build_state_figure_inputs(
         thresholds={"kappa": kappa, "tau": tau},
         source_sample_count=len(scores),
         included_sample_count=len(fig06_rows),
+        sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
     )
     return StateFigureInputResult(
         fig04_path,
@@ -291,6 +302,7 @@ def _write_provenance(
     source_sample_count: int,
     included_sample_count: int,
     status: str = READY,
+    sdr_contract: dict[str, str] | None = None,
 ) -> Path:
     path = provenance_path(csv_path)
     payload: dict[str, Any] = {
@@ -307,6 +319,8 @@ def _write_provenance(
     }
     if thresholds is not None:
         payload["thresholds"] = thresholds
+    if sdr_contract is not None:
+        payload.update(sdr_contract)
     write_json(path, payload)
     return path
 

@@ -6,6 +6,8 @@ import hashlib
 import json
 from typing import Any
 
+from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
+
 
 def quantile(values: list[float], q: float) -> float:
     if not values:
@@ -29,6 +31,7 @@ def calibrate_aligned_thresholds(
         raise ValueError("Aligned calibration must not contain Conflict samples")
     if any(row.get("calibration_split") != "aligned_calibration" for row in rows):
         raise ValueError("Aligned calibration rows require calibration_split=aligned_calibration")
+    require_exact_sdr_rows(rows)
     sample_ids = [str(row.get("sample_id", "")) for row in rows]
     if any(not sample_id for sample_id in sample_ids) or len(set(sample_ids)) != len(sample_ids):
         raise ValueError("Aligned calibration sample IDs must be non-empty and unique")
@@ -39,7 +42,9 @@ def calibrate_aligned_thresholds(
         json.dumps(sorted(sample_ids), separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return {
-        "schema": "mprisk_spherical_calibration_v1",
+        "schema": "mprisk_spherical_calibration_v2",
+        "sdr_schema": SDR_SCHEMA,
+        "distance_metric": DISTANCE_METRIC,
         "sample_type": "Aligned",
         "calibration_split": "aligned_calibration",
         "quantile_level": quantile_level,

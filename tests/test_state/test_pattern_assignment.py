@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 
 import pytest
 
@@ -28,7 +29,7 @@ def _bundle(sample_id: str = "case-1") -> dict[str, object]:
 
 
 def test_compute_state_row_emits_metadata_measures_and_pattern() -> None:
-    thresholds = StateThresholds(kappa=2.0, tau=3.0, delta=0.2)
+    thresholds = StateThresholds(kappa=2.0, tau=2.0e12, delta=0.2)
 
     row = compute_state_row(_bundle(), thresholds)
 
@@ -42,7 +43,7 @@ def test_compute_state_row_emits_metadata_measures_and_pattern() -> None:
     assert row["S_M2"] == pytest.approx(0.0)
     assert row["S_M12"] == pytest.approx(0.0)
     assert row["S_mean"] == pytest.approx(0.0)
-    assert row["D"] == pytest.approx(1.0)
+    assert row["D"] == pytest.approx((math.pi / 2.0) / 1e-12)
     assert row["R"] == pytest.approx(0.0)
     assert row["pattern"] == StatePattern.CONSENSUS.value
 

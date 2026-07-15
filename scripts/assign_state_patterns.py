@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mprisk.data.manifests import read_jsonl
 from mprisk.state.patterns import assign_state, load_thresholds_config
+from mprisk.state.spherical import require_exact_sdr_rows
 from mprisk.utils.io import write_json, write_jsonl
 
 
@@ -29,6 +30,7 @@ def assign_state_patterns(
 ) -> StatePatternResult:
     threshold_values = load_thresholds_config(thresholds)
     score_rows = read_jsonl(sdr_scores_path)
+    require_exact_sdr_rows(score_rows)
     pattern_rows = [
         {
             **row,

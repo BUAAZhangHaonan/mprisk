@@ -17,6 +17,8 @@ def _scores() -> list[dict[str, object]]:
             "sample_id": "a-stable-consensus",
             "sample_type": "Aligned",
             "model_key": "qwen3_vl_8b",
+            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.1,
             "D": 0.2,
             "R": 0.1,
@@ -25,6 +27,8 @@ def _scores() -> list[dict[str, object]]:
             "sample_id": "c-stable-directional",
             "sample_type": "Conflict",
             "model_key": "qwen3_vl_8b",
+            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.2,
             "D": 0.8,
             "R": -0.4,
@@ -33,6 +37,8 @@ def _scores() -> list[dict[str, object]]:
             "sample_id": "c-unstable",
             "sample_type": "Conflict",
             "model_key": "qwen3_vl_8b",
+            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.9,
             "D": 0.7,
             "R": 0.7,
@@ -55,7 +61,13 @@ def test_state_figure_inputs_record_hashes_commands_and_exact_masks(tmp_path) ->
     patterns_path = write_jsonl(tmp_path / "patterns.jsonl", _patterns())
     thresholds_path = write_json(
         tmp_path / "thresholds.json",
-        {"schema": "mprisk_spherical_calibration_v1", "kappa": 0.5, "tau": 0.3},
+        {
+            "schema": "mprisk_spherical_calibration_v2",
+            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "distance_metric": "geodesic_acos_v1",
+            "kappa": 0.5,
+            "tau": 0.3,
+        },
     )
 
     result = build_state_figure_inputs(
@@ -90,12 +102,23 @@ def test_state_figure_inputs_record_hashes_commands_and_exact_masks(tmp_path) ->
         "D": "S<=kappa",
         "abs_R": "S<=kappa and D>tau",
     }
+    assert fig4_provenance["sdr_schema"] == "mprisk_spherical_sdr_v2"
+    assert fig4_provenance["distance_metric"] == "geodesic_acos_v1"
 
 
 def test_fig6_rejects_rows_that_violate_stable_or_direction_mask(tmp_path) -> None:
     scores_path = write_jsonl(tmp_path / "sdr.jsonl", _scores())
     patterns_path = write_jsonl(tmp_path / "patterns.jsonl", _patterns())
-    thresholds_path = write_json(tmp_path / "thresholds.json", {"kappa": 0.5, "tau": 0.3})
+    thresholds_path = write_json(
+        tmp_path / "thresholds.json",
+        {
+            "schema": "mprisk_spherical_calibration_v2",
+            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "distance_metric": "geodesic_acos_v1",
+            "kappa": 0.5,
+            "tau": 0.3,
+        },
+    )
     result = build_state_figure_inputs(
         sdr_scores_path=scores_path,
         state_patterns_path=patterns_path,

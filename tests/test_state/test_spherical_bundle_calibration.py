@@ -49,7 +49,9 @@ def test_aligned_only_calibration_uses_q95_and_stable_aligned_for_tau() -> None:
     rows = [_bundle(f"a{index}") for index in range(1, 6)]
     states = [compute_spherical_state(row) for row in rows]
     calibration = calibrate_aligned_thresholds(states, quantile_level=0.95)
-    assert calibration["schema"] == "mprisk_spherical_calibration_v1"
+    assert calibration["schema"] == "mprisk_spherical_calibration_v2"
+    assert calibration["sdr_schema"] == "mprisk_spherical_sdr_v2"
+    assert calibration["distance_metric"] == "geodesic_acos_v1"
     assert calibration["sample_type"] == "Aligned"
     assert calibration["kappa"] == max(row["S_mean"] for row in states)
     assert calibration["tau"] == max(row["D"] for row in states)
@@ -58,6 +60,10 @@ def test_aligned_only_calibration_uses_q95_and_stable_aligned_for_tau() -> None:
     conflict = dict(states[0], sample_type="Conflict")
     with pytest.raises(ValueError, match="Aligned calibration"):
         calibrate_aligned_thresholds([conflict])
+
+    stale = dict(states[0], sdr_schema="mprisk_spherical_sdr_v1")
+    with pytest.raises(ValueError, match="exact spherical SDR v2"):
+        calibrate_aligned_thresholds([stale])
 
 
 def test_pattern_hierarchy_uses_sample_delta_after_confusion_and_consensus() -> None:
