@@ -10,11 +10,14 @@ import torch
 from safetensors.numpy import save_file
 
 from mprisk.representation import training as training_impl
+from mprisk.representation.losses import ProxyAnchorLoss
 from mprisk.representation.relation_models import TME_ARCHITECTURE_V1, TME_PROXY_ANCHOR_V1
 from mprisk.representation.training import (
     TrainingConfig,
+    _aggregate_sample_outputs,
     _load_trajectory_batch,
     _rows_to_sample_refs,
+    _sample_level_predictions,
     export_frozen_representations,
     train_trajectory_encoder,
 )
@@ -138,6 +141,7 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     assert checkpoint["architecture_version"] == TME_ARCHITECTURE_V1
     assert checkpoint["model_key"] == "qwen3_vl_8b"
     assert checkpoint["selection_metric"] == "val_balanced_accuracy_ac"
+    assert checkpoint["selection_unit"] == "sample_id"
     assert checkpoint["proxy_state_dict"]["proxies"].shape == (2, 3)
     logs = [json.loads(line) for line in result.log_path.read_text().splitlines()]
     assert 1 <= len(logs) <= 3
@@ -163,6 +167,9 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     assert all("misread" not in json.dumps(row).casefold() for row in rows)
     assert result.metrics["train_group_count"] == 6
     assert result.metrics["val_group_count"] == 2
+    assert result.metrics["val_rows"] == 4
+    assert result.metrics["val_sample_count"] == 2
+    assert result.metrics["selection_unit"] == "sample_id"
     assert result.metrics["split_assignment_sha256"] == "a" * 64
 
 
@@ -271,6 +278,41 @@ def test_trajectory_loading_paths_never_convert_full_cache_to_python_lists() -> 
     assert ".tolist(" not in inspect.getsource(prefill_extract)
     assert ".tolist(" not in inspect.getsource(training_impl._load_trajectory_batch)
     assert ".tolist(" not in inspect.getsource(training_impl._stream_frozen_exports)
+
+
+def test_validation_aggregates_eight_prompts_to_one_prediction_per_sample() -> None:
+    class Ref:
+        def __init__(self, sample_id: str, label_id: int) -> None:
+            self.sample_id = sample_id
+            self.label_id = label_id
+
+    samples = [Ref("aligned", 0) for _ in range(8)] + [
+        Ref("conflict", 1) for _ in range(8)
+    ]
+    baseline_outputs = torch.tensor([[3.0, 1.0]] * 8 + [[1.0, 4.0]] * 8)
+
+    sample_ids, labels, aggregate = _aggregate_sample_outputs(
+        samples, baseline_outputs, normalize=False
+    )
+    predicted = _sample_level_predictions(aggregate, objective=None)
+
+    assert sample_ids == ["aligned", "conflict"]
+    assert labels == [0, 1]
+    assert aggregate.shape == (2, 2)
+    assert predicted.cpu().numpy().tolist() == [0, 1]
+
+    relation_outputs = torch.tensor([[2.0, 0.0]] * 8 + [[0.0, 3.0]] * 8)
+    _, relation_labels, aggregate_r = _aggregate_sample_outputs(
+        samples, relation_outputs, normalize=True
+    )
+    objective = ProxyAnchorLoss(embed_dim=2, num_classes=2)
+    with torch.no_grad():
+        objective.proxies.copy_(torch.eye(2))
+    relation_predicted = _sample_level_predictions(aggregate_r, objective=objective)
+
+    assert relation_labels == [0, 1]
+    torch.testing.assert_close(torch.linalg.vector_norm(aggregate_r, dim=-1), torch.ones(2))
+    assert relation_predicted.cpu().numpy().tolist() == [0, 1]
 
 
 def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> None:

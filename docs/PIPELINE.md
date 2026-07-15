@@ -160,7 +160,11 @@ concatenation, activation, or nonlinear branch. Its only objective is standard P
 Anchor with exactly two proxies (`Aligned=0`, `Conflict=1`). SupCon, prompt-consistency,
 and cross-entropy are not part of the TME objective. Checkpoint selection uses only
 validation balanced accuracy over `sample_type.Aligned` and `sample_type.Conflict`, with
-class-code mapping `C=Aligned` and `A=Conflict`.
+class-code mapping `C=Aligned` and `A=Conflict`. Training may use prompt rows as
+augmentation, but validation aggregates all synchronized prompt outputs by `sample_id`
+before making one prediction: TME averages and unit-normalizes `r` before proxy scoring,
+while baseline classifiers average logits. Early stopping therefore counts each held-out
+sample exactly once.
 
 Training indexes only relation metadata in memory. M1/M2/M12 trajectories are sliced
 from safetensors with `safe_open` when each bounded batch is consumed; cache tensors

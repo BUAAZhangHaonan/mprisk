@@ -226,6 +226,7 @@ def train_trajectory_encoder(
             "train_loss": train_loss,
             "val_loss": val_loss,
             "val_balanced_accuracy_ac": val_score,
+            "val_sample_count": len({sample.sample_id for sample in val_samples}),
             "best_epoch": best_epoch,
             "best_val_balanced_accuracy_ac": best_score,
             "stale_epochs": stale_epochs,
@@ -259,12 +260,15 @@ def train_trajectory_encoder(
         "repr_key": config.repr_key,
         "model_key": config.model_key,
         "selection_metric": "val_balanced_accuracy_ac",
+        "selection_unit": "sample_id",
         "best_epoch": best_epoch,
         "best_val_balanced_accuracy_ac": best_score,
         "final_epoch": final_epoch,
         "stop_reason": stop_reason,
         "train_rows": len(train_samples),
         "val_rows": len(val_samples),
+        "train_sample_count": len({sample.sample_id for sample in train_samples}),
+        "val_sample_count": len({sample.sample_id for sample in val_samples}),
         "train_group_count": len({sample.split_group_id for sample in train_samples}),
         "val_group_count": len({sample.split_group_id for sample in val_samples}),
         "train_groups_sha256": _group_checksum(train_samples),
@@ -643,7 +647,7 @@ def _train_epoch(
     losses: list[float] = []
     for batch in _batches(shuffled, config.batch_size):
         optimizer.zero_grad(set_to_none=True)
-        loss, _predictions = _batch_loss_and_predictions(model, objective, batch)
+        loss, _outputs = _batch_loss_and_outputs(model, objective, batch)
         loss.backward()
         optimizer.step()
         losses.append(float(loss.detach()))
@@ -661,18 +665,25 @@ def _evaluate(
     if objective is not None:
         objective.eval()
     losses: list[float] = []
-    labels: list[int] = []
-    predictions: list[int] = []
+    metric_samples: list[_Sample] = []
+    metric_outputs: list[torch.Tensor] = []
     with torch.no_grad():
         for batch in _batches(samples, config.batch_size):
-            loss, predicted = _batch_loss_and_predictions(model, objective, batch)
+            loss, outputs = _batch_loss_and_outputs(model, objective, batch)
             losses.append(float(loss))
-            labels.extend(sample.label_id for sample in batch)
-            predictions.extend(predicted.tolist())
-    return float(np.mean(losses)), _balanced_accuracy(labels, predictions)
+            metric_samples.extend(batch)
+            metric_outputs.append(outputs)
+    _sample_ids, labels, aggregate = _aggregate_sample_outputs(
+        metric_samples,
+        torch.cat(metric_outputs, dim=0),
+        normalize=objective is not None,
+    )
+    predictions = _sample_level_predictions(aggregate, objective=objective)
+    prediction_values = [int(value) for value in predictions.detach().cpu().numpy()]
+    return float(np.mean(losses)), _balanced_accuracy(labels, prediction_values)
 
 
-def _batch_loss_and_predictions(
+def _batch_loss_and_outputs(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
     batch: list[_Sample],
@@ -682,10 +693,59 @@ def _batch_loss_and_predictions(
     if objective is not None:
         _condition_z, relation_r = model(trajectories)
         loss = objective(relation_r, labels)
-        similarities = F.normalize(relation_r, dim=-1) @ F.normalize(objective.proxies, dim=-1).T
-        return loss, similarities.argmax(dim=-1)
+        return loss, relation_r
     logits = model(trajectories)
-    return F.cross_entropy(logits, labels), logits.argmax(dim=-1)
+    return F.cross_entropy(logits, labels), logits
+
+
+def _aggregate_sample_outputs(
+    samples: list[Any],
+    outputs: torch.Tensor,
+    *,
+    normalize: bool,
+) -> tuple[list[str], list[int], torch.Tensor]:
+    if outputs.ndim != 2 or outputs.shape[0] != len(samples):
+        raise ValueError("validation outputs must match prompt rows")
+    order: list[str] = []
+    labels: dict[str, int] = {}
+    sums: dict[str, torch.Tensor] = {}
+    counts: dict[str, int] = {}
+    for sample, output in zip(samples, outputs, strict=True):
+        sample_id = str(sample.sample_id)
+        label_id = int(sample.label_id)
+        if sample_id not in sums:
+            order.append(sample_id)
+            labels[sample_id] = label_id
+            sums[sample_id] = output.clone()
+            counts[sample_id] = 1
+            continue
+        if labels[sample_id] != label_id:
+            raise ValueError("all prompts for a sample_id must share one A/C label")
+        sums[sample_id] = sums[sample_id] + output
+        counts[sample_id] += 1
+    prompt_counts = set(counts.values())
+    if len(prompt_counts) != 1:
+        raise ValueError("validation samples must have synchronized prompt counts")
+    aggregate = torch.stack([sums[sample_id] / counts[sample_id] for sample_id in order])
+    if normalize:
+        norms = torch.linalg.vector_norm(aggregate, dim=-1)
+        if bool((norms <= 1e-12).any()):
+            raise ValueError("sample-level relation aggregate cannot have zero norm")
+        aggregate = F.normalize(aggregate, dim=-1)
+    return order, [labels[sample_id] for sample_id in order], aggregate
+
+
+def _sample_level_predictions(
+    aggregate: torch.Tensor,
+    *,
+    objective: ProxyAnchorLoss | None,
+) -> torch.Tensor:
+    if objective is None:
+        return aggregate.argmax(dim=-1)
+    similarities = F.normalize(aggregate, dim=-1) @ F.normalize(
+        objective.proxies, dim=-1
+    ).T
+    return similarities.argmax(dim=-1)
 
 
 def _balanced_accuracy(labels: list[int], predictions: list[int]) -> float:
@@ -720,6 +780,7 @@ def _checkpoint_payload(
         ),
         "model_key": config.model_key,
         "selection_metric": "val_balanced_accuracy_ac",
+        "selection_unit": "sample_id",
         "model_config": {"input_dim": input_dim, "layer_count": layer_count},
         "training_config": asdict(config),
         "training_signature": signature,
