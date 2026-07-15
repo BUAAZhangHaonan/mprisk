@@ -30,9 +30,7 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class GTConfig(StrictModel):
-    schema_name: Literal["mprisk_deepseek_gt_config_v1"]
-    run_id: Literal["deepseek_gt_v1"]
+class _GTConfigBase(StrictModel):
     model: Literal["deepseek-v4-flash"]
     api_url: str
     env_file: Path
@@ -45,7 +43,6 @@ class GTConfig(StrictModel):
     request_timeout_seconds: float
     min_words: int
     max_words: int
-    input_root: Path
     output_root: Path
     a_prompt_path: Path
     c_prompt_path: Path
@@ -73,6 +70,31 @@ class GTConfig(StrictModel):
         return value
 
 
+class GTConfig(_GTConfigBase):
+    schema_name: Literal["mprisk_deepseek_gt_config_v1"]
+    run_id: Literal["deepseek_gt_v1"]
+    input_root: Path
+
+
+class GTPromptContextV2Config(_GTConfigBase):
+    schema_name: Literal["mprisk_deepseek_gt_config_v2"]
+    run_id: Literal["deepseek_gt_prompt_context_v2_pilot"]
+    protocol_version: Literal["prompt_context_v2"]
+    input_manifest: Path
+    input_manifest_sha256: str
+    expected_count: int
+
+    @field_validator("expected_count")
+    @classmethod
+    def expected_count_must_be_positive(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("expected_count must be positive")
+        return value
+
+
+AnyGTConfig = GTConfig | GTPromptContextV2Config
+
+
 @dataclass(frozen=True)
 class GTTask:
     order: int
@@ -84,6 +106,7 @@ class GTTask:
     system_prompt: str
     model_input: dict[str, Any]
     eligible_row: dict[str, Any]
+    ledger_signature: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -107,11 +130,16 @@ class GTValidationError(ValueError):
     pass
 
 
-def load_config(path: str | Path) -> GTConfig:
-    return GTConfig.model_validate(load_yaml(path))
+def load_config(path: str | Path) -> AnyGTConfig:
+    payload = load_yaml(path)
+    if payload.get("schema_name") == "mprisk_deepseek_gt_config_v1":
+        return GTConfig.model_validate(payload)
+    if payload.get("schema_name") == "mprisk_deepseek_gt_config_v2":
+        return GTPromptContextV2Config.model_validate(payload)
+    raise ValueError(f"Unsupported DeepSeek GT config schema: {payload.get('schema_name')!r}")
 
 
-def load_api_key(config: GTConfig) -> str:
+def load_api_key(config: AnyGTConfig) -> str:
     value = os.environ.get(config.api_key_variable)
     if value:
         return value
@@ -122,7 +150,13 @@ def load_api_key(config: GTConfig) -> str:
     raise ValueError("DEEPSEEK_API_KEY is required for ground-truth generation")
 
 
-def prepare_tasks(repo_root: str | Path, config: GTConfig) -> list[GTTask]:
+def prepare_tasks(repo_root: str | Path, config: AnyGTConfig) -> list[GTTask]:
+    if isinstance(config, GTPromptContextV2Config):
+        return _prepare_prompt_context_v2_tasks(repo_root, config)
+    return _prepare_v1_tasks(repo_root, config)
+
+
+def _prepare_v1_tasks(repo_root: str | Path, config: GTConfig) -> list[GTTask]:
     root = Path(repo_root).resolve()
     input_root = (root / config.input_root).resolve()
     eligible = _read_jsonl(input_root / "gt_eligible.jsonl")
@@ -184,6 +218,76 @@ def prepare_tasks(repo_root: str | Path, config: GTConfig) -> list[GTTask]:
     return tasks
 
 
+def _prepare_prompt_context_v2_tasks(
+    repo_root: str | Path,
+    config: GTPromptContextV2Config,
+) -> list[GTTask]:
+    root = Path(repo_root).resolve()
+    manifest_path = (root / config.input_manifest).resolve()
+    if _sha256(manifest_path) != config.input_manifest_sha256:
+        raise ValueError("Prompt-context v2 input manifest hash mismatch")
+    rows = _read_jsonl(manifest_path)
+    if len(rows) != config.expected_count:
+        raise ValueError(
+            f"Prompt-context v2 manifest count mismatch: expected {config.expected_count}, "
+            f"got {len(rows)}"
+        )
+    prompts = {
+        "A": (root / config.a_prompt_path).read_text(encoding="utf-8"),
+        "C": (root / config.c_prompt_path).read_text(encoding="utf-8"),
+    }
+    ledger_signature = {
+        "schema_name": config.schema_name,
+        "run_id": config.run_id,
+        "protocol_version": config.protocol_version,
+        "input_manifest_sha256": config.input_manifest_sha256,
+        "expected_count": config.expected_count,
+    }
+    tasks: list[GTTask] = []
+    seen_ids: set[str] = set()
+    for order, row in enumerate(rows):
+        _validate_prompt_context_v2_row(row)
+        sample_id = _text(row, "sample_id")
+        if sample_id in seen_ids:
+            raise ValueError(f"Duplicate prompt-context v2 sample_id: {sample_id}")
+        seen_ids.add(sample_id)
+        data_type = _text(row, "data_type")
+        model_input = {
+            "archetype": dict(row["archetype"]),
+            "dialogue": row["dialogue"],
+            "context": row["context_text"],
+            "surface_emotion": row["surface_emotion"],
+        }
+        _validate_model_input(model_input)
+        prompt = prompts[data_type]
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
+        input_hash = hashlib.sha256(
+            _canonical_json(
+                {
+                    "model": config.model,
+                    "prompt_hash": prompt_hash,
+                    "input": model_input,
+                    "ledger_signature": ledger_signature,
+                }
+            ).encode()
+        ).hexdigest()
+        tasks.append(
+            GTTask(
+                order=order,
+                sample_id=sample_id,
+                source_archive=_text(row, "source_archive"),
+                data_type=data_type,
+                input_hash=input_hash,
+                prompt_hash=prompt_hash,
+                system_prompt=prompt,
+                model_input=model_input,
+                eligible_row=row,
+                ledger_signature=dict(ledger_signature),
+            )
+        )
+    return tasks
+
+
 def select_pilot(tasks: list[GTTask], per_archive: int = 4) -> list[GTTask]:
     selected: list[GTTask] = []
     for archive in ARCHIVE_ORDER:
@@ -197,7 +301,7 @@ def select_pilot(tasks: list[GTTask], per_archive: int = 4) -> list[GTTask]:
 class DeepSeekClient:
     def __init__(
         self,
-        config: GTConfig,
+        config: AnyGTConfig,
         api_key: str,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
@@ -267,9 +371,13 @@ class Ledger:
     def prepare(self, tasks: list[GTTask]) -> None:
         now = _now()
         for task in tasks:
-            request_json = _canonical_json(
-                {"system_prompt": task.system_prompt, "model_input": task.model_input}
-            )
+            request_payload = {
+                "system_prompt": task.system_prompt,
+                "model_input": task.model_input,
+            }
+            if task.ledger_signature is not None:
+                request_payload["ledger_signature"] = task.ledger_signature
+            request_json = _canonical_json(request_payload)
             existing = self.db.execute(
                 """select input_hash,prompt_hash,request_json,eligible_json
                    from tasks where sample_id=?""",
@@ -410,7 +518,12 @@ async def run_batch(
     config_file = Path(config_path).resolve()
     config = load_config(config_file)
     tasks = prepare_tasks(root, config)
-    selected = select_pilot(tasks) if mode == "pilot" else tasks
+    if isinstance(config, GTPromptContextV2Config):
+        if mode != "pilot":
+            raise ValueError("Prompt-context v2 pilot config only supports --mode pilot")
+        selected = tasks
+    else:
+        selected = select_pilot(tasks) if mode == "pilot" else tasks
     task_by_id = {task.sample_id: task for task in tasks}
     output_root = (root / config.output_root).resolve()
     ledger = Ledger(output_root / "batch_state.sqlite3")
@@ -512,8 +625,13 @@ def verify_outputs(
     failures = _read_jsonl(output_root / "failures.jsonl")
     provenance = json.loads((output_root / "provenance.json").read_text(encoding="utf-8"))
     completed = len(manifest)
-    if require_complete and (completed != 162 or failures or len(sidecar) != 162):
-        raise ValueError("Full GT export must contain 162 completed rows and no failures")
+    expected_count = _expected_count(config)
+    if require_complete and (
+        completed != expected_count or failures or len(sidecar) != expected_count
+    ):
+        raise ValueError(
+            f"Complete GT export must contain {expected_count} completed rows and no failures"
+        )
     eligible_by_id = {task.sample_id: task.eligible_row for task in tasks}
     task_ids = set(eligible_by_id)
     manifest_ids = [_text(row, "sample_id") for row in manifest]
@@ -551,7 +669,12 @@ def verify_outputs(
             raise ValueError(f"Unexpected annotation status: {row['sample_id']}")
         if row["human_review_status"] != "pending_human":
             raise ValueError(f"Unexpected human review status: {row['sample_id']}")
-    if provenance.get("schema_name") != "mprisk_deepseek_gt_provenance_v1":
+    expected_provenance_schema = (
+        "mprisk_deepseek_gt_provenance_v2"
+        if isinstance(config, GTPromptContextV2Config)
+        else "mprisk_deepseek_gt_provenance_v1"
+    )
+    if provenance.get("schema_name") != expected_provenance_schema:
         raise ValueError("Unexpected GT provenance schema")
     if provenance.get("run_id") != config.run_id or provenance.get("model") != config.model:
         raise ValueError("GT provenance run identity mismatch")
@@ -560,15 +683,20 @@ def verify_outputs(
         if _sha256(path) != artifact["sha256"]:
             raise ValueError(f"GT artifact hash mismatch: {path}")
     return RunResult(
-        total=162,
+        total=expected_count,
         completed=completed,
         failed=len(failures),
-        pending=162 - completed - len(failures),
+        pending=expected_count - completed - len(failures),
         output_root=output_root,
     )
 
 
-def _export(output_root: Path, ledger: Ledger, config: GTConfig, config_file: Path) -> None:
+def _export(
+    output_root: Path,
+    ledger: Ledger,
+    config: AnyGTConfig,
+    config_file: Path,
+) -> None:
     rows = ledger.rows()
     manifest: list[dict[str, Any]] = []
     raw: list[dict[str, Any]] = []
@@ -631,8 +759,12 @@ def _export(output_root: Path, ledger: Ledger, config: GTConfig, config_file: Pa
         }
         for name, content in payloads.items()
     }
-    provenance = {
-        "schema_name": "mprisk_deepseek_gt_provenance_v1",
+    provenance: dict[str, Any] = {
+        "schema_name": (
+            "mprisk_deepseek_gt_provenance_v2"
+            if isinstance(config, GTPromptContextV2Config)
+            else "mprisk_deepseek_gt_provenance_v1"
+        ),
         "run_id": config.run_id,
         "model": config.model,
         "thinking": config.thinking,
@@ -642,6 +774,11 @@ def _export(output_root: Path, ledger: Ledger, config: GTConfig, config_file: Pa
         "counts": dict(Counter(row["status"] for row in rows)),
         "artifacts": artifacts,
     }
+    if isinstance(config, GTPromptContextV2Config):
+        provenance["protocol_version"] = config.protocol_version
+        provenance["input_manifest"] = config.input_manifest.as_posix()
+        provenance["input_manifest_sha256"] = config.input_manifest_sha256
+        provenance["expected_count"] = config.expected_count
     provenance_json = json.dumps(
         provenance, ensure_ascii=False, sort_keys=True, indent=2
     )
@@ -674,12 +811,94 @@ def _validate_response_envelope(payload: Any, model: str) -> dict[str, Any]:
 
 
 def _validate_model_input(payload: dict[str, Any]) -> None:
-    if set(payload) != {"archetype", "trigger_context", "dialogue", "surface_emotion"}:
+    allowed_fields = (
+        {"archetype", "trigger_context", "dialogue", "surface_emotion"},
+        {"archetype", "context", "dialogue", "surface_emotion"},
+    )
+    if set(payload) not in allowed_fields:
         raise ValueError("Model input contains forbidden fields")
     if set(payload["archetype"]) != {"id", "name", "canonical_meaning"}:
         raise ValueError("Archetype model input contains forbidden fields")
+    for key in set(payload) - {"archetype", "surface_emotion"}:
+        if not isinstance(payload[key], str) or not payload[key].strip():
+            raise ValueError(f"{key} must be a non-empty string")
     if payload["surface_emotion"] is not None and not isinstance(payload["surface_emotion"], str):
         raise TypeError("surface_emotion must be a string or null")
+
+
+def _validate_prompt_context_v2_row(row: dict[str, Any]) -> None:
+    expected_fields = {
+        "schema_name",
+        "protocol_version",
+        "sample_id",
+        "source_archive",
+        "data_type",
+        "protocol",
+        "archetype",
+        "dialogue",
+        "context_text",
+        "context_source",
+        "surface_emotion",
+        "media",
+        "source_assignment",
+        "source_row_sha256",
+    }
+    if set(row) != expected_fields:
+        raise ValueError("Prompt-context v2 manifest fields are not strict")
+    if row.get("schema_name") != "mprisk_gt_prompt_context_v2_pilot_row":
+        raise ValueError("Prompt-context v2 row schema mismatch")
+    if row.get("protocol_version") != "prompt_context_v2":
+        raise ValueError("Prompt-context v2 protocol version mismatch")
+    if row.get("context_source") not in {"setting", "trigger", "ltx2_prompt"}:
+        raise ValueError("Prompt-context v2 context_source is invalid")
+    data_type = _text(row, "data_type")
+    protocol = _text(row, "protocol")
+    source_archive = _text(row, "source_archive")
+    expected_archive = {
+        ("A", "VT"): "accept_a_svt",
+        ("A", "VA"): "accept_a_va",
+        ("C", "VT"): "accept_c_svt",
+        ("C", "VA"): "accept_c_va",
+    }.get((data_type, protocol))
+    if expected_archive != source_archive:
+        raise ValueError("Prompt-context v2 archive/data_type/protocol mismatch")
+    if not isinstance(row.get("archetype"), dict) or set(row["archetype"]) != {
+        "id",
+        "name",
+        "canonical_meaning",
+    }:
+        raise ValueError("Prompt-context v2 archetype fields are not strict")
+    for key in ("id", "name", "canonical_meaning"):
+        _text(row["archetype"], key)
+    for key in ("sample_id", "dialogue", "context_text", "source_row_sha256"):
+        _text(row, key)
+    media = row.get("media")
+    if not isinstance(media, dict) or set(media) != {"path", "sha256"}:
+        raise ValueError("Prompt-context v2 media fields are not strict")
+    media_path = Path(_text(media, "path"))
+    if not media_path.is_file() or _sha256(media_path) != _text(media, "sha256"):
+        raise ValueError(f"Prompt-context v2 media hash mismatch: {row['sample_id']}")
+    assignment = row.get("source_assignment")
+    assignment_fields = {
+        "path",
+        "schema_name",
+        "dictionary_id",
+        "assignment_source",
+        "source_row_sha256",
+        "assignment_sha256",
+    }
+    if not isinstance(assignment, dict) or set(assignment) != assignment_fields:
+        raise ValueError("Prompt-context v2 source assignment fields are not strict")
+    if assignment.get("source_row_sha256") != row["source_row_sha256"]:
+        raise ValueError("Prompt-context v2 source assignment hash mismatch")
+    for key in assignment_fields:
+        _text(assignment, key)
+    if row["surface_emotion"] is not None and not isinstance(row["surface_emotion"], str):
+        raise TypeError("Prompt-context v2 surface_emotion must be a string or null")
+
+
+def _expected_count(config: AnyGTConfig) -> int:
+    return config.expected_count if isinstance(config, GTPromptContextV2Config) else 162
 
 
 def _read_env_file(path: Path) -> dict[str, str]:

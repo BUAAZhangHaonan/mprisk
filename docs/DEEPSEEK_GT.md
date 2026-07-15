@@ -24,3 +24,23 @@ python scripts/verify_deepseek_gt.py --require-complete
 
 Resume is strict: the default run processes only `pending` rows. A failed row is
 never retried implicitly; use `--retry-failed` after reviewing its recorded error.
+
+## Prompt-context v2 pilot
+
+The versioned v2 context resolver records one of three explicit sources in order:
+`setting`, then a natural non-template `trigger`, then `source_row.ltx2_prompt`.
+The source name is retained in the frozen input manifest and raw prompt text is
+never relabeled as a setting or trigger. The deterministic pilot contains two
+rows per A/C by VT/VA cell and has its own config, expected count, manifest hash,
+output root, and ledger signature. The v1 162-row path is unchanged.
+
+```bash
+python scripts/build_prompt_context_v2_pilot.py
+python scripts/run_deepseek_gt.py \
+  --config configs/ground_truth/deepseek_gt_prompt_context_v2_pilot.yaml \
+  --mode pilot
+```
+
+The v2 request sends only `archetype` (including canonical meaning), `dialogue`,
+`context`, and nullable `surface_emotion`. `context_source`, protocol, media,
+assignments, labels, and future model outputs remain outside the request body.
