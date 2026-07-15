@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
+from mprisk.experiments import downstream
 from mprisk.experiments.downstream import (
     CacheJob,
     _retained_conflict_rows,
@@ -160,3 +162,17 @@ def test_conflict_retention_changes_training_groups_only() -> None:
     retained, metadata = _retained_conflict_rows(rows + protected, fraction=0.1, seed=7)
     assert metadata["retained_relation_train_conflict_groups"] == 1
     assert {row["row_id"] for row in protected} <= {row["row_id"] for row in retained}
+
+
+def test_live_cache_producer_guard_prevents_gpu_check_start_race(monkeypatch) -> None:
+    plan = SimpleNamespace(
+        producer_tmux_sessions=("producer",),
+        producer_command_substrings=("extract_prefill_batch.py",),
+    )
+
+    def fake_run(command, **_kwargs):
+        assert command[:3] == ["tmux", "has-session", "-t"]
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(downstream.subprocess, "run", fake_run)
+    assert downstream._cache_producer_can_launch_gpu_work(plan) is True

@@ -88,6 +88,8 @@ class DownstreamPlan:
     lock_path: Path
     retention_seed: int
     retention_fractions: tuple[float, ...]
+    producer_tmux_sessions: tuple[str, ...]
+    producer_command_substrings: tuple[str, ...]
 
 
 def load_plan(path: str | Path) -> DownstreamPlan:
@@ -130,6 +132,12 @@ def load_plan(path: str | Path) -> DownstreamPlan:
         retention_seed=int(payload.get("retention_seed", 20260717)),
         retention_fractions=tuple(
             float(value) for value in payload.get("retention_fractions", [0.1, 0.25, 0.5, 1.0])
+        ),
+        producer_tmux_sessions=tuple(
+            str(value) for value in resource.get("producer_tmux_sessions", [])
+        ),
+        producer_command_substrings=tuple(
+            str(value) for value in resource.get("producer_command_substrings", [])
         ),
     )
 
@@ -849,6 +857,8 @@ def _aggregate_ready_models(plan: DownstreamPlan) -> bool:
 
 
 def _gpu_available(plan: DownstreamPlan) -> bool:
+    if _cache_producer_can_launch_gpu_work(plan):
+        return False
     query = subprocess.run(
         [
             "nvidia-smi",
@@ -878,6 +888,31 @@ def _gpu_available(plan: DownstreamPlan) -> bool:
         int(line.strip()) for line in process_output.splitlines() if line.strip().isdigit()
     }
     return processes <= {os.getpid()}
+
+
+def _cache_producer_can_launch_gpu_work(plan: DownstreamPlan) -> bool:
+    for session in plan.producer_tmux_sessions:
+        result = subprocess.run(
+            ["tmux", "has-session", "-t", session],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return True
+    process_rows = subprocess.run(
+        ["ps", "-eo", "pid=,args="],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    for row in process_rows:
+        fields = row.strip().split(maxsplit=1)
+        if len(fields) != 2 or not fields[0].isdigit() or int(fields[0]) == os.getpid():
+            continue
+        if any(token in fields[1] for token in plan.producer_command_substrings):
+            return True
+    return False
 
 
 def _write_runtime_status(plan: DownstreamPlan, ready: list[tuple[CacheJob, Path]]) -> None:
