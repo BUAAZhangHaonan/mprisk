@@ -1,4 +1,4 @@
-"""Resumable Qwen2.5-Omni Thinker-only M12 diagnostic descriptions."""
+"""Resumable model-independent Diagnostic Affect Description generation."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import sqlite3
 import tempfile
 import time
 import traceback
-from collections import Counter
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,22 +19,24 @@ from typing import Any
 
 import yaml
 
+from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.models.base_wrapper import GenerationRequest, GenerationResult
 from mprisk.models.wrapper_registry import get_wrapper
 
-CANONICAL_PROMPT = (
+CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
-CONFIG_SCHEMA = "mprisk_diagnostic_description_qwen_omni_m12_config_v1"
-OUTPUT_SCHEMA = "mprisk_qwen_omni_m12_description_v1"
-PROVENANCE_SCHEMA = "mprisk_qwen_omni_m12_description_provenance_v1"
-EXPECTED_COUNTS = {"VT": 141, "VA": 21}
+CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v1"
+OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v1"
+PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v1"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+_SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
+_SUPPORTED_CONDITIONS = frozenset({"M12"})
 
 
 @dataclass(frozen=True)
-class DescriptionTask:
+class DiagnosticAffectDescriptionTask:
     task_id: str
     request: GenerationRequest
     input_sha256: str
@@ -44,66 +45,91 @@ class DescriptionTask:
 
 
 @dataclass(frozen=True)
-class DescriptionPlan:
-    tasks: list[DescriptionTask]
+class DiagnosticAffectDescriptionPlan:
+    tasks: list[DiagnosticAffectDescriptionTask]
     signature: dict[str, Any]
     counts: dict[str, int]
 
 
-def build_description_plan(
+def build_diagnostic_affect_description_plan(
     *,
-    eligible_path: Path,
+    manifest_path: Path,
+    subject_model_key: str,
+    model_family: str,
     model_path: Path,
+    protocol: str,
+    condition: str,
+    dataset: str,
+    split: str,
     max_new_tokens: int,
     video_fps: float = 1.0,
+    asset_config_sha256: str = "test-asset-config",
     config_sha256: str = "test-config",
     selected_sample_ids: Iterable[str] | None = None,
-) -> DescriptionPlan:
-    """Build only M12 descriptions from frozen eligible inputs without label leakage."""
+) -> DiagnosticAffectDescriptionPlan:
+    """Build a strict sample-level plan from one explicit dataset/protocol/split."""
     if max_new_tokens <= 0:
         raise ValueError("max_new_tokens must be positive")
     if video_fps <= 0:
         raise ValueError("video_fps must be positive")
+    protocol = protocol.upper()
+    condition = condition.upper()
+    if protocol not in _SUPPORTED_PROTOCOLS:
+        raise ValueError(f"Unsupported Diagnostic Affect Description protocol: {protocol!r}")
+    if condition not in _SUPPORTED_CONDITIONS:
+        raise ValueError(f"Unsupported Diagnostic Affect Description condition: {condition!r}")
+    for field_name, value in (
+        ("subject_model_key", subject_model_key),
+        ("model_family", model_family),
+        ("dataset", dataset),
+        ("split", split),
+    ):
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"{field_name} must be a non-empty string")
     selected = None if selected_sample_ids is None else set(selected_sample_ids)
-    rows = _read_jsonl(eligible_path)
-    tasks: list[DescriptionTask] = []
-    all_counts = Counter()
+    source_rows = _read_jsonl(manifest_path)
+    rows = [
+        row
+        for row in source_rows
+        if str(row.get("source_dataset", "")) == dataset
+        and str(row.get("split", "")) == split
+        and str(row.get("protocol", "")).upper() == protocol
+    ]
+    if not rows:
+        raise ValueError(
+            "Manifest contains no rows for "
+            f"dataset={dataset!r}, split={split!r}, protocol={protocol!r}"
+        )
+    tasks: list[DiagnosticAffectDescriptionTask] = []
     for row in rows:
-        protocol = str(row.get("protocol", "")).upper()
-        if protocol not in {"VT", "VA"}:
-            raise ValueError(f"Unsupported eligible protocol: {protocol!r}")
-        all_counts[protocol] += 1
         sample_id = _required_string(row, "sample_id")
         if selected is not None and sample_id not in selected:
             continue
-        media_path = Path(_required_string(row, "model_input_path")).expanduser().resolve()
-        if not media_path.is_file():
-            raise FileNotFoundError(f"Model input media is missing: {media_path}")
-        expected_media_hash = _required_string(row, "model_input_sha256")
-        actual_media_hash = _sha256(media_path)
-        if actual_media_hash != expected_media_hash:
-            raise ValueError(f"Model input media hash mismatch: {sample_id}")
+        media_paths = _required_media_paths(row, protocol=protocol)
+        media_hashes = {name: _sha256(path) for name, path in media_paths.items()}
+        vision_path = media_paths["vision"]
         content: list[dict[str, Any]] = [
-            {"type": "video", "video": str(media_path), "fps": video_fps}
+            {"type": "video", "video": str(vision_path), "fps": video_fps}
         ]
         if protocol == "VT":
-            dialogue = _required_string(row, "dialogue_text")
-            content.append({"type": "text", "text": f"{dialogue}\n\n{CANONICAL_PROMPT}"})
+            dialogue = _required_string(row, "text_content")
+            content.append(
+                {
+                    "type": "text",
+                    "text": f"{dialogue}\n\n{CANONICAL_DIAGNOSTIC_AFFECT_PROMPT}",
+                }
+            )
             use_audio_in_video = False
         else:
-            content.append({"type": "text", "text": CANONICAL_PROMPT})
+            content.append({"type": "text", "text": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT})
             use_audio_in_video = True
         request = GenerationRequest(
             sample_id=sample_id,
-            model_key="qwen2_5_omni_7b",
+            model_key=subject_model_key,
             protocol=protocol.lower(),
-            condition="M12",
+            condition=condition,
             messages=({"role": "user", "content": content},),
-            media_paths=(
-                {"vision": str(media_path)}
-                if protocol == "VT"
-                else {"vision": str(media_path), "audio": str(media_path)}
-            ),
+            media_paths={name: str(path) for name, path in media_paths.items()},
             use_audio_in_video=use_audio_in_video,
             generation_kwargs={
                 "do_sample": False,
@@ -113,40 +139,49 @@ def build_description_plan(
         )
         input_payload = {
             "sample_id": sample_id,
+            "subject_model_key": subject_model_key,
             "protocol": protocol,
+            "condition": condition,
+            "dataset": dataset,
+            "split": split,
             "messages": list(request.messages),
-            "media_sha256": actual_media_hash,
+            "media_sha256": media_hashes,
         }
         input_sha256 = _hash_text(_canonical_json(input_payload))
         task_id = _hash_text(
             _canonical_json({"sample_id": sample_id, "input_sha256": input_sha256})
         )
         tasks.append(
-            DescriptionTask(
+            DiagnosticAffectDescriptionTask(
                 task_id=task_id,
                 request=request,
                 input_sha256=input_sha256,
-                media_sha256=actual_media_hash,
-                prompt_sha256=_hash_text(CANONICAL_PROMPT),
+                media_sha256=_hash_text(_canonical_json(media_hashes)),
+                prompt_sha256=_hash_text(CANONICAL_DIAGNOSTIC_AFFECT_PROMPT),
             )
         )
-    if dict(all_counts) != EXPECTED_COUNTS or len(rows) != sum(EXPECTED_COUNTS.values()):
-        raise ValueError(f"Frozen eligible set must be exactly VT141/VA21, got {dict(all_counts)}")
     if selected is not None and {task.request.sample_id for task in tasks} != selected:
-        raise ValueError("One or more selected sample IDs are absent from frozen eligibility input")
+        raise ValueError(
+            "One or more selected sample IDs are absent from the selected manifest rows"
+        )
     if len({task.request.sample_id for task in tasks}) != len(tasks):
-        raise ValueError("Frozen eligible set contains duplicate sample_id values")
-    counts = dict(Counter(task.request.protocol.upper() for task in tasks))
-    if selected is not None and counts != {"VT": 1, "VA": 1}:
-        raise ValueError("A diagnostic smoke selection must contain exactly one VT and one VA task")
+        raise ValueError("Selected manifest rows contain duplicate sample_id values")
+    counts = {protocol: len(tasks)}
     model_path = model_path.expanduser().resolve()
     signature = {
-        "schema": "mprisk_qwen_omni_m12_description_signature_v1",
-        "eligible_sha256": _sha256(eligible_path),
+        "schema": "mprisk_diagnostic_affect_description_signature_v1",
+        "manifest_sha256": _sha256(manifest_path),
+        "asset_config_sha256": asset_config_sha256,
+        "subject_model_key": subject_model_key,
+        "model_family": model_family,
         "model_path": str(model_path),
         "model_config_sha256": _sha256(model_path / "config.json"),
-        "weight_index_sha256": _sha256(model_path / "model.safetensors.index.json"),
-        "prompt_sha256": _hash_text(CANONICAL_PROMPT),
+        "model_weight_map_sha256": _model_weight_map_sha256(model_path),
+        "protocol": protocol,
+        "condition": condition,
+        "dataset": dataset,
+        "split": split,
+        "prompt_sha256": _hash_text(CANONICAL_DIAGNOSTIC_AFFECT_PROMPT),
         "config_sha256": config_sha256,
         "max_new_tokens": max_new_tokens,
         "video_fps": video_fps,
@@ -154,10 +189,10 @@ def build_description_plan(
         "task_count": len(tasks),
         "counts": counts,
     }
-    return DescriptionPlan(tasks=tasks, signature=signature, counts=counts)
+    return DiagnosticAffectDescriptionPlan(tasks=tasks, signature=signature, counts=counts)
 
 
-def validate_description_result(result: GenerationResult) -> None:
+def validate_diagnostic_affect_description(result: GenerationResult) -> None:
     """Reject invalid model output; never rewrite, truncate, or replace it."""
     text = result.text
     if result.request.condition != "M12":
@@ -169,7 +204,7 @@ def validate_description_result(result: GenerationResult) -> None:
         raise ValueError("Generated description must contain exactly one sentence")
 
 
-class DescriptionLedger:
+class DiagnosticAffectDescriptionLedger:
     """SQLite resume state with an immutable per-run signature."""
 
     def __init__(self, path: Path) -> None:
@@ -220,7 +255,7 @@ class DescriptionLedger:
                     "traceback=NULL WHERE status='failed'"
                 )
 
-    def add_tasks(self, tasks: Sequence[DescriptionTask]) -> None:
+    def add_tasks(self, tasks: Sequence[DiagnosticAffectDescriptionTask]) -> None:
         with self.connection:
             self.connection.executemany(
                 """INSERT OR IGNORE INTO tasks(
@@ -243,7 +278,7 @@ class DescriptionLedger:
             if count != len(tasks):
                 raise ValueError("Existing description ledger task set does not match this run")
 
-    def validate_completed(self, tasks: Sequence[DescriptionTask]) -> None:
+    def validate_completed(self, tasks: Sequence[DiagnosticAffectDescriptionTask]) -> None:
         """Verify resumed completed rows against the immutable task input before reuse."""
         by_id = {task.task_id: task for task in tasks}
         rows = self.connection.execute(
@@ -263,7 +298,7 @@ class DescriptionLedger:
             if json.loads(row["request_json"]) != _request_payload(task.request):
                 raise ValueError(f"Completed task request mismatch: {task.request.sample_id}")
             result = json.loads(row["result_json"])
-            validate_description_result(
+            validate_diagnostic_affect_description(
                 GenerationResult(
                     request=task.request,
                     text=str(result["text"]),
@@ -275,8 +310,8 @@ class DescriptionLedger:
             )
 
     def pending_tasks(
-        self, tasks: Sequence[DescriptionTask]
-    ) -> Iterable[tuple[DescriptionTask, int]]:
+        self, tasks: Sequence[DiagnosticAffectDescriptionTask]
+    ) -> Iterable[tuple[DiagnosticAffectDescriptionTask, int]]:
         by_id = {task.task_id: task for task in tasks}
         for row in self.connection.execute(
             "SELECT task_id,attempts FROM tasks WHERE status='pending' ORDER BY rowid"
@@ -304,7 +339,7 @@ class DescriptionLedger:
         result: GenerationResult,
         provenance: dict[str, Any],
     ) -> None:
-        validate_description_result(result)
+        validate_diagnostic_affect_description(result)
         with self.connection:
             self.connection.execute(
                 """UPDATE tasks SET status='completed',result_json=?,provenance_json=?,
@@ -347,17 +382,19 @@ class DescriptionLedger:
         records = []
         for row in self.connection.execute(
             """SELECT sample_id,protocol,input_sha256,media_sha256,prompt_sha256,result_json,
-            provenance_json
+            provenance_json,request_json
             FROM tasks WHERE status='completed' ORDER BY sample_id"""
         ):
             result = json.loads(row["result_json"])
+            request = json.loads(row["request_json"])
             records.append(
                 {
                     "schema": OUTPUT_SCHEMA,
                     "sample_id": row["sample_id"],
+                    "subject_model_key": request["model_key"],
                     "protocol": row["protocol"].upper(),
-                    "condition": "M12",
-                    "text": result["text"],
+                    "condition": request["condition"],
+                    "DIAGNOSTIC_AFFECT_DESCRIPTION": result["text"],
                     "token_ids": result["token_ids"],
                     "eos_token_ids": result["eos_token_ids"],
                     "finish_reason": result["finish_reason"],
@@ -403,7 +440,9 @@ class DescriptionLedger:
         self.connection.close()
 
 
-def export_description_jsonl(records: Sequence[dict[str, Any]], destination: Path) -> None:
+def export_diagnostic_affect_descriptions(
+    records: Sequence[dict[str, Any]], destination: Path
+) -> None:
     """Write a deterministic manifest only after complete records have been validated."""
     sample_ids = [str(record["sample_id"]) for record in records]
     if len(sample_ids) != len(set(sample_ids)):
@@ -411,18 +450,25 @@ def export_description_jsonl(records: Sequence[dict[str, Any]], destination: Pat
     for record in records:
         request = GenerationRequest(
             sample_id=str(record["sample_id"]),
-            model_key="qwen2_5_omni_7b",
+            model_key=str(record["subject_model_key"]),
             protocol=str(record["protocol"]),
-            condition="M12",
-            messages=({"role": "user", "content": [{"type": "text", "text": CANONICAL_PROMPT}]},),
+            condition=str(record["condition"]),
+            messages=(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT}
+                    ],
+                },
+            ),
             media_paths={},
-            use_audio_in_video=record["protocol"] == "VA",
+            use_audio_in_video=str(record["protocol"]).upper() == "VA",
             generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 1},
         )
-        validate_description_result(
+        validate_diagnostic_affect_description(
             GenerationResult(
                 request=request,
-                text=str(record["text"]),
+                text=str(record["DIAGNOSTIC_AFFECT_DESCRIPTION"]),
                 token_ids=record["token_ids"],
                 eos_token_ids=record["eos_token_ids"],
                 finish_reason=str(record["finish_reason"]),
@@ -432,28 +478,35 @@ def export_description_jsonl(records: Sequence[dict[str, Any]], destination: Pat
     _atomic_text(destination, "".join(_canonical_json(record) + "\n" for record in records))
 
 
-def run_generation(
-    plan: DescriptionPlan,
+def generate_diagnostic_affect_descriptions(
+    plan: DiagnosticAffectDescriptionPlan,
     *,
     output_root: Path,
+    subject_model_key: str,
+    model_family: str,
     model_path: Path,
     device: str,
+    dtype: str,
     attn_implementation: str,
     retry_failed: bool = False,
     wrapper_factory: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     """Run one model process serially; resume only an identical immutable plan."""
     output_root = output_root.expanduser().resolve()
-    ledger = DescriptionLedger(output_root / "batch_state.sqlite3")
+    ledger = DiagnosticAffectDescriptionLedger(output_root / "batch_state.sqlite3")
     ledger.prepare(plan.signature, retry_failed=retry_failed)
     ledger.add_tasks(plan.tasks)
     ledger.validate_completed(plan.tasks)
-    factory = wrapper_factory or get_wrapper("qwen_omni")
+    if plan.signature.get("subject_model_key") != subject_model_key:
+        raise ValueError("subject_model_key does not match the immutable plan")
+    if plan.signature.get("model_family") != model_family:
+        raise ValueError("model_family does not match the immutable plan")
+    factory = wrapper_factory or get_wrapper(model_family)
     wrapper = factory(
-        model_key="qwen2_5_omni_7b",
+        model_key=subject_model_key,
         model_path=model_path,
         device=device,
-        dtype="bfloat16",
+        dtype=dtype,
         attn_implementation=attn_implementation,
     )
     try:
@@ -465,9 +518,8 @@ def run_generation(
                 provenance = {
                     "model_path": str(model_path.expanduser().resolve()),
                     "model_config_sha256": plan.signature["model_config_sha256"],
-                    "weight_index_sha256": plan.signature["weight_index_sha256"],
+                    "model_weight_map_sha256": plan.signature["model_weight_map_sha256"],
                     "elapsed_seconds": time.perf_counter() - started,
-                    "talker_loaded": False,
                     "generation": dict(result.provenance),
                 }
                 ledger.complete(task.task_id, attempt, result, provenance)
@@ -482,48 +534,73 @@ def run_generation(
     return summary
 
 
-def verify_description_artifacts(
+def verify_diagnostic_affect_descriptions(
     *,
-    eligible_path: Path,
+    manifest_path: Path,
     output_root: Path,
+    subject_model_key: str,
+    protocol: str,
+    condition: str,
+    dataset: str,
+    split: str,
     strict_full: bool = True,
 ) -> dict[str, Any]:
     records = _read_jsonl(output_root / "manifest.jsonl")
-    eligible = _read_jsonl(eligible_path)
-    expected = {str(row["sample_id"]): str(row["protocol"]).upper() for row in eligible}
+    protocol = protocol.upper()
+    condition = condition.upper()
+    selected_rows = [
+        row
+        for row in _read_jsonl(manifest_path)
+        if str(row.get("source_dataset", "")) == dataset
+        and str(row.get("split", "")) == split
+        and str(row.get("protocol", "")).upper() == protocol
+    ]
+    expected = {str(row["sample_id"]): protocol for row in selected_rows}
     observed = {str(row.get("sample_id")): str(row.get("protocol")).upper() for row in records}
     if len(observed) != len(records):
         raise ValueError("Description manifest contains duplicate sample IDs")
     if strict_full and set(observed) != set(expected):
-        raise ValueError("Description manifest does not match frozen eligible sample IDs")
+        raise ValueError("Description manifest does not match selected manifest sample IDs")
     if not strict_full and not set(observed).issubset(expected):
         raise ValueError("Description smoke manifest contains unknown sample IDs")
     expected_fields = {
-        "schema", "sample_id", "protocol", "condition", "text", "token_ids", "eos_token_ids",
-        "finish_reason", "input_token_count", "input_sha256", "media_sha256", "prompt_sha256",
-        "provenance",
+        "schema", "sample_id", "subject_model_key", "protocol", "condition",
+        "DIAGNOSTIC_AFFECT_DESCRIPTION", "token_ids", "eos_token_ids", "finish_reason",
+        "input_token_count", "input_sha256", "media_sha256", "prompt_sha256", "provenance",
     }
     for record in records:
         if set(record) != expected_fields:
             raise ValueError("Description manifest fields are not strict")
-        if record.get("schema") != OUTPUT_SCHEMA or record.get("condition") != "M12":
+        if (
+            record.get("schema") != OUTPUT_SCHEMA
+            or record.get("subject_model_key") != subject_model_key
+            or record.get("protocol") != protocol
+            or record.get("condition") != condition
+        ):
             raise ValueError("Description manifest schema or condition mismatch")
         if observed[str(record["sample_id"])] != expected[str(record["sample_id"])]:
             raise ValueError("Description protocol does not match frozen eligibility input")
         request = GenerationRequest(
             sample_id=str(record["sample_id"]),
-            model_key="qwen2_5_omni_7b",
+            model_key=subject_model_key,
             protocol=str(record["protocol"]),
-            condition="M12",
-            messages=({"role": "user", "content": [{"type": "text", "text": CANONICAL_PROMPT}]},),
+            condition=condition,
+            messages=(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT}
+                    ],
+                },
+            ),
             media_paths={},
             use_audio_in_video=str(record["protocol"]).upper() == "VA",
             generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 1},
         )
-        validate_description_result(
+        validate_diagnostic_affect_description(
             GenerationResult(
                 request=request,
-                text=str(record["text"]),
+                text=str(record["DIAGNOSTIC_AFFECT_DESCRIPTION"]),
                 token_ids=record["token_ids"],
                 eos_token_ids=record["eos_token_ids"],
                 finish_reason=str(record["finish_reason"]),
@@ -538,15 +615,24 @@ def verify_description_artifacts(
         or summary.get("completed") != len(records)
     ):
         raise ValueError("Description ledger summary is incomplete or contains failures")
-    counts = dict(Counter(observed.values()))
-    expected_counts = EXPECTED_COUNTS if strict_full else {"VT": 1, "VA": 1}
-    if counts != expected_counts:
-        raise ValueError(f"Description protocol counts must be VT141/VA21, got {counts}")
+    counts = {protocol: len(records)}
     provenance = _read_json(output_root / "provenance.json")
     if provenance.get("schema") != PROVENANCE_SCHEMA:
         raise ValueError("Description provenance schema mismatch")
-    if provenance.get("canonical_prompt") != CANONICAL_PROMPT:
+    if provenance.get("canonical_prompt") != CANONICAL_DIAGNOSTIC_AFFECT_PROMPT:
         raise ValueError("Description provenance prompt mismatch")
+    signature = provenance.get("signature")
+    expected_identity = {
+        "subject_model_key": subject_model_key,
+        "protocol": protocol,
+        "condition": condition,
+        "dataset": dataset,
+        "split": split,
+    }
+    if not isinstance(signature, dict) or any(
+        signature.get(key) != value for key, value in expected_identity.items()
+    ):
+        raise ValueError("Description provenance identity mismatch")
     artifacts = provenance.get("artifacts")
     if not isinstance(artifacts, dict):
         raise ValueError("Description provenance artifacts are missing")
@@ -566,14 +652,14 @@ def verify_description_artifacts(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate strict Qwen2.5-Omni M12 diagnostic descriptions."
+        description="Generate strict model-independent Diagnostic Affect Descriptions."
     )
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/experiments/qwen2_5_omni_m12_diagnostic_descriptions_v1.yaml"),
+        default=Path("configs/experiments/diagnostic_affect_description_v1.yaml"),
     )
-    parser.add_argument("--eligible-path", type=Path)
+    parser.add_argument("--manifest-path", type=Path)
     parser.add_argument("--output-root", type=Path)
     parser.add_argument("--device")
     parser.add_argument("--sample-id", action="append")
@@ -585,9 +671,23 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = _read_config(args.config)
-    eligible_path = args.eligible_path or Path(config["eligible_path"])
+    manifest_path = args.manifest_path or Path(config["manifest_path"])
     output_root = args.output_root or Path(config["output_root"])
-    model_path = Path(config["model_path"])
+    asset_config = Path(config["asset_config"])
+    subject_model_key = str(config["subject_model_key"])
+    assets = index_assets(load_model_assets(asset_config, require_local_paths=False))
+    if subject_model_key not in assets:
+        raise ValueError(f"Unknown subject_model_key: {subject_model_key!r}")
+    asset = assets[subject_model_key]
+    model_path = Path(config["model_path"]).expanduser().resolve()
+    if model_path != asset.local_model_path.expanduser().resolve():
+        raise ValueError("model_path does not match subject_model_key in asset_config")
+    protocol = str(config["protocol"]).upper()
+    condition = str(config["condition"]).upper()
+    dataset = str(config["dataset"])
+    split = str(config["split"])
+    if protocol.lower() not in asset.protocols:
+        raise ValueError(f"Subject model {subject_model_key!r} does not support {protocol!r}")
     max_new_tokens = int(config["max_new_tokens"])
     video_fps = float(config["video_fps"])
     device = args.device or str(config["device"])
@@ -596,28 +696,48 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--sample-id is only valid with --smoke")
     selected_sample_ids = args.sample_id
     if args.smoke and not selected_sample_ids:
-        selected_sample_ids = _select_smoke_sample_ids(eligible_path)
-    plan = build_description_plan(
-        eligible_path=eligible_path,
+        selected_sample_ids = _select_smoke_sample_ids(
+            manifest_path,
+            dataset=dataset,
+            split=split,
+            protocol=protocol,
+        )
+    plan = build_diagnostic_affect_description_plan(
+        manifest_path=manifest_path,
+        subject_model_key=subject_model_key,
+        model_family=asset.family,
         model_path=model_path,
+        protocol=protocol,
+        condition=condition,
+        dataset=dataset,
+        split=split,
         max_new_tokens=max_new_tokens,
         video_fps=video_fps,
+        asset_config_sha256=_sha256(asset_config),
         config_sha256=_sha256(args.config),
         selected_sample_ids=selected_sample_ids,
     )
-    summary = run_generation(
+    summary = generate_diagnostic_affect_descriptions(
         plan,
         output_root=output_root,
+        subject_model_key=subject_model_key,
+        model_family=asset.family,
         model_path=model_path,
         device=device,
+        dtype=str(config["dtype"]),
         attn_implementation=attn_implementation,
         retry_failed=args.retry_failed,
     )
     if summary["failed"] or summary["pending"] or summary["running"]:
         raise RuntimeError(f"Generation did not complete cleanly: {summary}")
-    verification = verify_description_artifacts(
-        eligible_path=eligible_path,
+    verification = verify_diagnostic_affect_descriptions(
+        manifest_path=manifest_path,
         output_root=output_root,
+        subject_model_key=subject_model_key,
+        protocol=protocol,
+        condition=condition,
+        dataset=dataset,
+        split=split,
         strict_full=not args.smoke,
     )
     print(
@@ -632,9 +752,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _materialize(ledger: DescriptionLedger, output_root: Path, signature: dict[str, Any]) -> None:
+def _materialize(
+    ledger: DiagnosticAffectDescriptionLedger,
+    output_root: Path,
+    signature: dict[str, Any],
+) -> None:
     records = ledger.completed_records()
-    export_description_jsonl(records, output_root / "manifest.jsonl")
+    export_diagnostic_affect_descriptions(records, output_root / "manifest.jsonl")
     _atomic_text(
         output_root / "failures.jsonl",
         "".join(_canonical_json(row) + "\n" for row in ledger.failures()),
@@ -648,7 +772,7 @@ def _materialize(ledger: DescriptionLedger, output_root: Path, signature: dict[s
         output_root / "provenance.json",
         {
             "schema": PROVENANCE_SCHEMA,
-            "canonical_prompt": CANONICAL_PROMPT,
+            "canonical_prompt": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
             "signature": signature,
             "artifacts": {
                 name: {"path": filename, "sha256": _sha256(output_root / filename)}
@@ -670,10 +794,17 @@ def _read_config(path: Path) -> dict[str, Any]:
     required = {
         "schema_name",
         "run_name",
-        "eligible_path",
+        "asset_config",
+        "manifest_path",
         "output_root",
+        "subject_model_key",
         "model_path",
+        "protocol",
+        "condition",
+        "dataset",
+        "split",
         "device",
+        "dtype",
         "max_new_tokens",
         "video_fps",
         "attn_implementation",
@@ -712,8 +843,41 @@ def _result_payload(result: GenerationResult) -> dict[str, Any]:
 def _required_string(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"Eligible row has no non-empty {key}: {row.get('sample_id')}")
+        raise ValueError(f"Manifest row has no non-empty {key}: {row.get('sample_id')}")
     return value
+
+
+def _required_media_paths(row: dict[str, Any], *, protocol: str) -> dict[str, Path]:
+    raw = row.get("media_paths")
+    if not isinstance(raw, dict):
+        raise ValueError(f"Manifest row has no media_paths object: {row.get('sample_id')}")
+    required_modalities = ("vision",) if protocol == "VT" else ("vision", "audio")
+    paths: dict[str, Path] = {}
+    for modality in required_modalities:
+        value = raw.get(modality)
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"Manifest row has no {modality} media path: {row.get('sample_id')}"
+            )
+        path = Path(value).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"Model input media is missing: {path}")
+        paths[modality] = path
+    return paths
+
+
+def _model_weight_map_sha256(model_path: Path) -> str:
+    index_files = sorted(model_path.glob("*.index.json"))
+    if index_files:
+        entries = {path.name: _sha256(path) for path in index_files}
+    else:
+        weight_files = sorted(model_path.glob("*.safetensors")) + sorted(
+            model_path.glob("*.bin")
+        )
+        if not weight_files:
+            raise FileNotFoundError(f"No model weight files or index found in {model_path}")
+        entries = {path.name: _sha256(path) for path in weight_files}
+    return _hash_text(_canonical_json(entries))
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -760,15 +924,27 @@ def _atomic_json(path: Path, value: Any) -> None:
     _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
-def _select_smoke_sample_ids(eligible_path: Path) -> list[str]:
+def _select_smoke_sample_ids(
+    manifest_path: Path,
+    *,
+    dataset: str,
+    split: str,
+    protocol: str,
+) -> list[str]:
     selected: dict[str, str] = {}
-    for row in _read_jsonl(eligible_path):
-        protocol = _required_string(row, "protocol").upper()
-        if protocol in EXPECTED_COUNTS and protocol not in selected:
-            selected[protocol] = _required_string(row, "sample_id")
-    if set(selected) != set(EXPECTED_COUNTS):
-        raise ValueError("Frozen eligible input cannot provide one VT and one VA smoke task")
-    return [selected["VT"], selected["VA"]]
+    for row in _read_jsonl(manifest_path):
+        if (
+            str(row.get("source_dataset", "")) != dataset
+            or str(row.get("split", "")) != split
+            or str(row.get("protocol", "")).upper() != protocol.upper()
+        ):
+            continue
+        sample_type = _required_string(row, "sample_type")
+        if sample_type in {"Conflict", "Aligned"} and sample_type not in selected:
+            selected[sample_type] = _required_string(row, "sample_id")
+    if set(selected) != {"Conflict", "Aligned"}:
+        raise ValueError("Smoke selection requires one Conflict and one Aligned sample")
+    return [selected["Conflict"], selected["Aligned"]]
 
 
 def _now() -> str:

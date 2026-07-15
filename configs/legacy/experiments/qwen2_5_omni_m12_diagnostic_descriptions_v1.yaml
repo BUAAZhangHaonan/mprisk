@@ -1,3 +1,5 @@
+# LEGACY READ-ONLY RECORD. The active Diagnostic Affect Description runner rejects this schema.
+# It documents the frozen 162-row artifact and must never be used as a resume target.
 schema_name: mprisk_diagnostic_description_qwen_omni_m12_config_v1
 run_name: qwen2_5_omni_7b_m12_v1
 eligible_path: data/frozen/generated_round1_v1/gt_eligible.jsonl

@@ -1,0 +1,16 @@
+schema_name: mprisk_diagnostic_affect_description_config_v1
+run_name: qwen2_5_omni_7b_ch_sims_v2_test_va_m12_v1
+asset_config: configs/assets/model_assets.yaml
+manifest_path: data/processed/manifests/protocol_manifests/va_aux.jsonl
+output_root: outputs/diagnostic_affect/qwen2_5_omni_7b/ch_sims_v2/test/va/m12/v1
+subject_model_key: qwen2_5_omni_7b
+model_path: /home/team/lvshuyang/Models/Qwen/Qwen2.5-Omni-7B
+protocol: VA
+condition: M12
+dataset: ch_sims_v2
+split: test
+device: cuda:0
+dtype: bfloat16
+max_new_tokens: 32
+video_fps: 1.0
+attn_implementation: sdpa
