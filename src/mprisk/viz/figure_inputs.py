@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ from typing import Any
 import yaml
 
 from mprisk.data.manifests import read_jsonl
+from mprisk.state.identity import CALIBRATION_IDENTITY_FIELDS, require_matching_identity
 from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 from mprisk.utils.io import write_json
 
@@ -52,11 +54,26 @@ FIGURE_CSV_FIELDS = {
         "direction_emphasized",
         "lean",
     ],
-    "fig07_misread_bias": ["panel", "category", "value", "status"],
+    "fig07_misread_bias": [
+        "panel",
+        "model",
+        "sample_id",
+        "sample_type",
+        "S",
+        "D",
+        "R",
+        "direction_emphasized",
+        "status",
+    ],
     "fig08_representation_comparison": [
         "panel",
         "representation",
+        "model",
+        "protocol",
+        "seed",
+        "sample_id",
         "sample_type",
+        "representation_split",
         "feature",
         "status",
     ],
@@ -94,86 +111,164 @@ class StateFigureInputResult:
     fig05_provenance_path: Path
     fig06_path: Path
     fig06_provenance_path: Path
+    fig07_path: Path
+    fig07_provenance_path: Path
 
 
 def build_state_figure_inputs(
     *,
-    sdr_scores_path: str | Path,
-    state_patterns_path: str | Path,
-    thresholds_path: str | Path,
+    sdr_scores_path: str | Path | Sequence[str | Path],
+    state_patterns_path: str | Path | Sequence[str | Path],
+    thresholds_path: str | Path | Sequence[str | Path],
     output_dir: str | Path,
     generated_command: list[str],
 ) -> StateFigureInputResult:
     """Build strict Fig. 4-6 CSV inputs from real state artifacts."""
     command = _validate_command(generated_command)
-    scores_file = Path(sdr_scores_path)
-    patterns_file = Path(state_patterns_path)
-    thresholds_file = Path(thresholds_path)
-    scores = read_jsonl(scores_file)
-    patterns = read_jsonl(patterns_file)
-    thresholds = json.loads(thresholds_file.read_text(encoding="utf-8"))
-    require_exact_sdr_rows(scores)
-    if (
-        thresholds.get("schema") != "mprisk_spherical_calibration_v2"
-        or thresholds.get("sdr_schema") != SDR_SCHEMA
-        or thresholds.get("distance_metric") != DISTANCE_METRIC
+    score_files = _path_list(sdr_scores_path)
+    pattern_files = _path_list(state_patterns_path)
+    threshold_files = _path_list(thresholds_path)
+    if not (len(score_files) == len(pattern_files) == len(threshold_files)):
+        raise ValueError("state figure inputs require paired score/pattern/calibration artifacts")
+
+    scores: list[dict[str, Any]] = []
+    patterns: list[dict[str, Any]] = []
+    thresholds_by_model: dict[str, dict[str, float]] = {}
+    split_counts: Counter[str] = Counter()
+    split_identities: list[dict[str, str]] = []
+    calibration_identities: list[dict[str, str]] = []
+    source_sample_count = 0
+    for scores_file, patterns_file, thresholds_file in zip(
+        score_files, pattern_files, threshold_files, strict=True
     ):
-        raise ValueError("figure thresholds must use exact spherical SDR v2 calibration")
-    kappa = float(thresholds["kappa"])
-    tau = float(thresholds["tau"])
-    _validate_state_rows(scores, patterns)
+        source_scores = read_jsonl(scores_file)
+        source_patterns = read_jsonl(patterns_file)
+        thresholds = json.loads(thresholds_file.read_text(encoding="utf-8"))
+        require_exact_sdr_rows(source_scores)
+        _validate_calibration(thresholds)
+        require_matching_identity(source_scores, thresholds)
+        _validate_state_rows(source_scores, source_patterns)
+        source_sample_count += len(source_scores)
+        split_counts.update(str(row["representation_split"]) for row in source_scores)
+        official_scores = [
+            row for row in source_scores if row["representation_split"] == "official_test"
+        ]
+        official_patterns = [
+            row for row in source_patterns if row["representation_split"] == "official_test"
+        ]
+        _validate_state_rows(official_scores, official_patterns, require_official_test=True)
+        model_keys = {str(row["model_key"]) for row in official_scores}
+        if len(model_keys) != 1:
+            raise ValueError("each state artifact triple must contain exactly one model")
+        model_key = next(iter(model_keys))
+        if model_key in thresholds_by_model:
+            raise ValueError(f"duplicate state artifact triple for model {model_key}")
+        thresholds_by_model[model_key] = {
+            "kappa": float(thresholds["kappa"]),
+            "tau": float(thresholds["tau"]),
+        }
+        split_identities.append(
+            {
+                "model": model_key,
+                "representation_split": "official_test",
+                "split_assignment_sha256": str(thresholds["split_assignment_sha256"]),
+            }
+        )
+        calibration_identities.append(
+            {
+                "model": model_key,
+                **{
+                    field: str(thresholds[field])
+                    for field in CALIBRATION_IDENTITY_FIELDS
+                },
+            }
+        )
+        scores.extend(official_scores)
+        patterns.extend(official_patterns)
 
     output_root = Path(output_dir)
     fig04_path = output_root / "fig04_sdr_distributions.csv"
     fig05_path = output_root / "fig05_four_state_stacks.csv"
     fig06_path = output_root / "fig06_stable_d_signed_r.csv"
+    fig07_path = output_root / "fig07_misread_bias.csv"
 
-    fig04_rows = _fig04_rows(scores, kappa=kappa, tau=tau)
+    fig04_rows = _fig04_rows(scores, thresholds_by_model=thresholds_by_model)
     fig05_rows = _fig05_rows(patterns)
-    fig06_rows = _fig06_rows(scores, kappa=kappa, tau=tau)
+    fig06_rows = _fig06_rows(scores, thresholds_by_model=thresholds_by_model)
+    fig07_rows = _fig07_rows(scores, thresholds_by_model=thresholds_by_model)
     _atomic_csv(fig04_path, FIGURE_CSV_FIELDS["fig04_sdr_distributions"], fig04_rows)
     _atomic_csv(fig05_path, FIGURE_CSV_FIELDS["fig05_four_state_stacks"], fig05_rows)
     _atomic_csv(fig06_path, FIGURE_CSV_FIELDS["fig06_stable_d_signed_r"], fig06_rows)
+    _atomic_csv(fig07_path, FIGURE_CSV_FIELDS["fig07_misread_bias"], fig07_rows)
+
+    common_provenance = {
+        "representation_split": "official_test",
+        "source_representation_split_counts": dict(sorted(split_counts.items())),
+        "official_test_sample_count": len(scores),
+        "excluded_non_official_test_count": source_sample_count - len(scores),
+        "split_identities": split_identities,
+        "calibration_identities": calibration_identities,
+        "thresholds_by_model": thresholds_by_model,
+    }
 
     fig04_provenance_path = _write_provenance(
         fig04_path,
         figure_key="fig04_sdr_distributions",
         generated_command=command,
-        sources=[scores_file, thresholds_file],
+        sources=[*score_files, *threshold_files],
         sample_masks={
             "S": "all_samples",
             "D": "S<=kappa",
             "abs_R": "S<=kappa and D>tau",
         },
-        thresholds={"kappa": kappa, "tau": tau},
-        source_sample_count=len(scores),
+        thresholds=None,
+        source_sample_count=source_sample_count,
         included_sample_count=len(scores),
         sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
+        extra=common_provenance,
     )
     fig05_provenance_path = _write_provenance(
         fig05_path,
         figure_key="fig05_four_state_stacks",
         generated_command=command,
-        sources=[patterns_file],
-        sample_masks={"patterns": "all_samples"},
+        sources=pattern_files,
+        sample_masks={"patterns": "representation_split=official_test"},
         thresholds=None,
-        source_sample_count=len(patterns),
+        source_sample_count=source_sample_count,
         included_sample_count=len(patterns),
         sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
+        extra=common_provenance,
     )
     fig06_provenance_path = _write_provenance(
         fig06_path,
         figure_key="fig06_stable_d_signed_r",
         generated_command=command,
-        sources=[scores_file, thresholds_file],
+        sources=[*score_files, *threshold_files],
         sample_masks={
             "points": "S<=kappa",
             "direction_emphasis": "S<=kappa and D>tau",
         },
-        thresholds={"kappa": kappa, "tau": tau},
-        source_sample_count=len(scores),
+        thresholds=None,
+        source_sample_count=source_sample_count,
         included_sample_count=len(fig06_rows),
         sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
+        extra=common_provenance,
+    )
+    fig07_provenance_path = _write_provenance(
+        fig07_path,
+        figure_key="fig07_misread_bias",
+        generated_command=command,
+        sources=[*score_files, *threshold_files],
+        sample_masks={
+            "misread": "Pending Misread annotations",
+            "bias": "representation_split=official_test and sample_type=Conflict and S<=kappa",
+            "direction_emphasis": "D>tau",
+        },
+        thresholds=None,
+        source_sample_count=source_sample_count,
+        included_sample_count=len(fig07_rows),
+        sdr_contract={"sdr_schema": SDR_SCHEMA, "distance_metric": DISTANCE_METRIC},
+        extra=common_provenance,
     )
     return StateFigureInputResult(
         fig04_path,
@@ -182,6 +277,8 @@ def build_state_figure_inputs(
         fig05_provenance_path,
         fig06_path,
         fig06_provenance_path,
+        fig07_path,
+        fig07_provenance_path,
     )
 
 
@@ -234,10 +331,15 @@ def write_pending_figure_inputs(
     return written
 
 
-def _fig04_rows(rows: list[dict[str, Any]], *, kappa: float, tau: float) -> list[dict[str, Any]]:
+def _fig04_rows(
+    rows: list[dict[str, Any]], *, thresholds_by_model: dict[str, dict[str, float]]
+) -> list[dict[str, Any]]:
     exported: list[dict[str, Any]] = []
     for row in rows:
         base = _state_values(row)
+        thresholds = thresholds_by_model[base["model"]]
+        kappa = thresholds["kappa"]
+        tau = thresholds["tau"]
         exported.append({**base, "metric": "S", "value": base["S"]})
         if float(base["S"]) <= kappa:
             exported.append({**base, "metric": "D", "value": base["D"]})
@@ -264,10 +366,15 @@ def _fig05_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _fig06_rows(rows: list[dict[str, Any]], *, kappa: float, tau: float) -> list[dict[str, Any]]:
+def _fig06_rows(
+    rows: list[dict[str, Any]], *, thresholds_by_model: dict[str, dict[str, float]]
+) -> list[dict[str, Any]]:
     exported: list[dict[str, Any]] = []
     for row in rows:
         base = _state_values(row)
+        thresholds = thresholds_by_model[base["model"]]
+        kappa = thresholds["kappa"]
+        tau = thresholds["tau"]
         if float(base["S"]) > kappa:
             continue
         emphasized = float(base["D"]) > tau
@@ -283,6 +390,28 @@ def _fig06_rows(rows: list[dict[str, Any]], *, kappa: float, tau: float) -> list
     return exported
 
 
+def _fig07_rows(
+    rows: list[dict[str, Any]], *, thresholds_by_model: dict[str, dict[str, float]]
+) -> list[dict[str, Any]]:
+    exported: list[dict[str, Any]] = []
+    for row in rows:
+        base = _state_values(row)
+        thresholds = thresholds_by_model[base["model"]]
+        if base["sample_type"] != "Conflict" or float(base["S"]) > thresholds["kappa"]:
+            continue
+        exported.append(
+            {
+                "panel": "bias",
+                **base,
+                "direction_emphasized": str(float(base["D"]) > thresholds["tau"]).lower(),
+                "status": READY,
+            }
+        )
+    if not exported:
+        raise ValueError("Fig. 7 bias panels require stable official-test Conflict samples")
+    return exported
+
+
 def _state_values(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "sample_id": str(row["sample_id"]),
@@ -294,7 +423,12 @@ def _state_values(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_state_rows(scores: list[dict[str, Any]], patterns: list[dict[str, Any]]) -> None:
+def _validate_state_rows(
+    scores: list[dict[str, Any]],
+    patterns: list[dict[str, Any]],
+    *,
+    require_official_test: bool = False,
+) -> None:
     if not scores or not patterns:
         raise ValueError("state figure inputs require non-empty real artifacts")
     score_ids = [str(row.get("sample_id", "")) for row in scores]
@@ -305,6 +439,64 @@ def _validate_state_rows(scores: list[dict[str, Any]], patterns: list[dict[str, 
         raise ValueError("S/D/R and pattern inputs must have exact sample correspondence")
     if any(row.get("sample_type") not in {"Aligned", "Conflict"} for row in scores):
         raise ValueError("state figure rows require Aligned or Conflict sample_type")
+    score_metadata = {
+        str(row["sample_id"]): (
+            str(row.get("model_key", "")),
+            str(row.get("sample_type", "")),
+            str(row.get("representation_split", "")),
+        )
+        for row in scores
+    }
+    pattern_metadata = {
+        str(row["sample_id"]): (
+            str(row.get("model_key", "")),
+            str(row.get("sample_type", "")),
+            str(row.get("representation_split", "")),
+        )
+        for row in patterns
+    }
+    if score_metadata != pattern_metadata:
+        raise ValueError("S/D/R and pattern metadata must match exactly")
+    valid_splits = {"relation_train", "relation_val", "aligned_calibration", "official_test"}
+    if any(metadata[2] not in valid_splits for metadata in score_metadata.values()):
+        raise ValueError("state figure rows require a registered representation_split")
+    if require_official_test:
+        if any(metadata[2] != "official_test" for metadata in score_metadata.values()):
+            raise ValueError(
+                "paper state figures may include only representation_split=official_test"
+            )
+        if {metadata[1] for metadata in score_metadata.values()} != {"Aligned", "Conflict"}:
+            raise ValueError(
+                "official-test state figures require both Aligned and Conflict samples"
+            )
+
+
+def _validate_calibration(thresholds: dict[str, Any]) -> None:
+    if (
+        thresholds.get("schema") != "mprisk_spherical_calibration_v2"
+        or thresholds.get("sdr_schema") != SDR_SCHEMA
+        or thresholds.get("distance_metric") != DISTANCE_METRIC
+    ):
+        raise ValueError("figure thresholds must use exact spherical SDR v2 calibration")
+    if (
+        thresholds.get("sample_type") != "Aligned"
+        or thresholds.get("calibration_split") != "aligned_calibration"
+        or thresholds.get("selection_rule")
+        != "representation_split=aligned_calibration then sample_type=Aligned"
+    ):
+        raise ValueError(
+            "paper thresholds must come only from the registered Aligned calibration split"
+        )
+
+
+def _path_list(value: str | Path | Sequence[str | Path]) -> list[Path]:
+    if isinstance(value, (str, Path)):
+        paths = [Path(value)]
+    else:
+        paths = [Path(item) for item in value]
+    if not paths:
+        raise ValueError("state figure artifact lists must be non-empty")
+    return paths
 
 
 def _write_provenance(
@@ -319,6 +511,7 @@ def _write_provenance(
     included_sample_count: int,
     status: str = READY,
     sdr_contract: dict[str, str] | None = None,
+    extra: dict[str, Any] | None = None,
 ) -> Path:
     path = provenance_path(csv_path)
     payload: dict[str, Any] = {
@@ -335,6 +528,11 @@ def _write_provenance(
         payload["thresholds"] = thresholds
     if sdr_contract is not None:
         payload.update(sdr_contract)
+    if extra is not None:
+        collisions = set(payload) & set(extra)
+        if collisions:
+            raise ValueError(f"provenance fields collide: {', '.join(sorted(collisions))}")
+        payload.update(extra)
     write_json(path, payload)
     return path
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -107,10 +108,15 @@ def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tm
 def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
     result = export_bundle_figures(_config(tmp_path))
     expected_text = {
+        "fig01_problem_protocol": ("Pre-generation state at", "Diagnostic affect description"),
         "fig04_sdr_distributions": ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B"),
         "fig07_misread_bias": ("Pending Misread annotations", "V lean", "T/A lean"),
         "fig08_representation_comparison": ("Single-Point", "Trajectory MLP", "TME", "UMAP"),
-        "fig09_conflict_case": ("Input", "Ground truth", "Baseline", "Ours"),
+        "fig09_conflict_case": (
+            "Conflict input + GT",
+            "Baseline response",
+            "State-guided response",
+        ),
         "fig10_four_pattern_cases": ("Confusion", "Consensus", "Balanced", "Dominant"),
         "figC5_model_patterns": ("16 models", "Pending"),
     }
@@ -136,20 +142,52 @@ def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) ->
             fieldnames=["sample_id", "model", "sample_type", "S", "D", "R", "metric", "value"],
         )
         writer.writeheader()
-        for sample_id, sample_type, s_value, d_value, r_value in (
-            ("a1", "Aligned", 0.1, 0.2, 0.2),
-            ("c1", "Conflict", 0.3, 0.8, 0.4),
-        ):
-            base = {
-                "sample_id": sample_id,
-                "model": "test",
-                "sample_type": sample_type,
-                "S": s_value,
-                "D": d_value,
-                "R": r_value,
-            }
-            for metric, value in (("S", s_value), ("D", d_value), ("abs_R", abs(r_value))):
-                writer.writerow({**base, "metric": metric, "value": value})
+        for model in ("qwen2_5_omni_7b", "qwen3_vl_8b", "internvl3_5_8b"):
+            for sample_id, sample_type, s_value, d_value, r_value in (
+                (f"{model}-a1", "Aligned", 0.1, 0.2, 0.2),
+                (f"{model}-c1", "Conflict", 0.3, 0.8, 0.4),
+            ):
+                base = {
+                    "sample_id": sample_id,
+                    "model": model,
+                    "sample_type": sample_type,
+                    "S": s_value,
+                    "D": d_value,
+                    "R": r_value,
+                }
+                for metric, value in (
+                    ("S", s_value),
+                    ("D", d_value),
+                    ("abs_R", abs(r_value)),
+                ):
+                    writer.writerow({**base, "metric": metric, "value": value})
+    models = ("qwen2_5_omni_7b", "qwen3_vl_8b", "internvl3_5_8b")
+    thresholds_by_model = {model: {"kappa": 0.5, "tau": 0.01} for model in models}
+    split_identities = [
+        {
+            "model": model,
+            "representation_split": "official_test",
+            "split_assignment_sha256": "1" * 64,
+        }
+        for model in models
+    ]
+    calibration_identities = [
+        {
+            "model": model,
+            "model_key": model,
+            "protocol": "va" if model == "qwen2_5_omni_7b" else "vt",
+            "prompt_set_key": "p8",
+            "prompt_set_artifact_sha256": "2" * 64,
+            "repr_key": "tme",
+            "encoder_checkpoint_sha256": "3" * 64,
+            "split_assignment_sha256": "1" * 64,
+            "embedding_manifest_sha256": "4" * 64,
+        }
+        for model in models
+    ]
+    source_path = tmp_path / "fig04-source.json"
+    source_path.write_text("{}", encoding="utf-8")
+    source_sha256 = hashlib.sha256(source_path.read_bytes()).hexdigest()
     input_path.with_suffix(input_path.suffix + ".provenance.json").write_text(
         json.dumps(
             {
@@ -157,15 +195,21 @@ def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) ->
                 "figure_key": "fig04_sdr_distributions",
                 "status": "Ready",
                 "generated_command": ["pytest", "fixture"],
-                "sources": [{"path": "fixture", "sha256": "0" * 64}],
+                "sources": [{"path": str(source_path), "sha256": source_sha256}],
                 "sample_masks": {
                     "S": "all_samples",
                     "D": "S<=kappa",
                     "abs_R": "S<=kappa and D>tau",
                 },
-                "thresholds": {"kappa": 0.5, "tau": 0.01},
-                "source_sample_count": 2,
-                "included_sample_count": 2,
+                "representation_split": "official_test",
+                "source_representation_split_counts": {"official_test": 6},
+                "official_test_sample_count": 6,
+                "excluded_non_official_test_count": 0,
+                "thresholds_by_model": thresholds_by_model,
+                "split_identities": split_identities,
+                "calibration_identities": calibration_identities,
+                "source_sample_count": 6,
+                "included_sample_count": 6,
             }
         ),
         encoding="utf-8",

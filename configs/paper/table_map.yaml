@@ -9,9 +9,9 @@ tables:
     title: Conflict-Only Misread Baselines
     input: outputs/paper_exports/tables/tab02_conflict_misread_baselines.csv
     output: paper/tables/generated/tab02_conflict_misread_baselines.tex
-    columns: [Representation, Accuracy, Macro-F1, AUPRC, Latency]
+    columns: [Method, Accuracy, Macro-F1, AUPRC, Latency]
   tab03_downstream_quality:
     title: Downstream Response Evaluation
     input: outputs/paper_exports/tables/tab03_downstream_quality.csv
     output: paper/tables/generated/tab03_downstream_quality.tex
-    columns: [Model, Setting, Misattribution, Quality]
+    columns: [Model, Setting, Affective Misattribution, Avg. Response Quality]

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib.metadata
 import json
 import subprocess
 from collections.abc import Mapping
@@ -48,7 +49,12 @@ CONCEPTUAL_KEYS = {
     "fig03_spherical_sdr",
     "figB1_representation_details",
 }
-MODEL_LABELS = ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B")
+MODEL_SPECS = (
+    ("qwen2_5_omni_7b", "Qwen2.5-Omni-7B"),
+    ("qwen3_vl_8b", "Qwen3-VL-8B"),
+    ("internvl3_5_8b", "InternVL3.5-8B"),
+)
+MODEL_LABELS = tuple(label for _, label in MODEL_SPECS)
 UMAP_CONFIG = {
     "random_state": 20260716,
     "n_neighbors": 15,
@@ -125,7 +131,12 @@ def _render_locked_layout(*, key: str, title: str, output_path: Path) -> None:
     if key == "fig01_problem_protocol":
         _render_flow(
             title,
-            ["Multimodal input", "First-token affect", "Misread\nPending annotations"],
+            [
+                "Complete multimodal input",
+                r"Pre-generation state at $t_0$",
+                "Diagnostic affect description",
+                "Misread\nPending annotations",
+            ],
             output_path,
         )
         return
@@ -145,7 +156,11 @@ def _render_locked_layout(*, key: str, title: str, output_path: Path) -> None:
         _render_two_by_three(key, title, output_path)
         return
     if key == "fig09_conflict_case":
-        _render_cards(title, ("Input", "Ground truth", "Baseline", "Ours"), output_path)
+        _render_cards(
+            title,
+            ("Conflict input + GT", "Baseline response", "State-guided response"),
+            output_path,
+        )
         return
     if key == "fig10_four_pattern_cases":
         _render_cards(title, ("Confusion", "Consensus", "Balanced", "Dominant"), output_path)
@@ -166,7 +181,7 @@ def _render_flow(title: str, labels: list[str], output_path: Path) -> None:
     figure, axis = plt.subplots(figsize=(9.2, 3.2), constrained_layout=True)
     axis.axis("off")
     for index, label in enumerate(labels):
-        x = 0.17 + index * 0.33
+        x = 0.10 + index * (0.80 / (len(labels) - 1))
         axis.text(
             x,
             0.5,
@@ -178,8 +193,8 @@ def _render_flow(title: str, labels: list[str], output_path: Path) -> None:
         if index < len(labels) - 1:
             axis.annotate(
                 "",
-                xy=(x + 0.23, 0.5),
-                xytext=(x + 0.1, 0.5),
+                xy=(x + 0.19, 0.5),
+                xytext=(x + 0.08, 0.5),
                 arrowprops={"arrowstyle": "->", "color": "#3b6f8f"},
             )
     axis.set_title(title, fontsize=14)
@@ -188,13 +203,14 @@ def _render_flow(title: str, labels: list[str], output_path: Path) -> None:
 
 
 def _render_framework(title: str, output_path: Path) -> None:
-    figure, axis = plt.subplots(figsize=(9.4, 4.2), constrained_layout=True)
+    figure, axis = plt.subplots(figsize=(11.2, 5.0), constrained_layout=True)
     axis.axis("off")
     boxes = (
-        (0.12, "Input"),
-        (0.37, "Backbone\ntrajectories"),
-        (0.62, "S/D/R\nstate"),
-        (0.87, "Deployment\nsignal"),
+        (0.09, "P=8 prompts\nM1: V | M2: T/A | M12: joint"),
+        (0.31, "Full-layer trajectories\n3 x L x H at t0"),
+        (0.53, "Shared TME\nlayer L2 + GRU -> unit z"),
+        (0.74, "ordered u -> linear r\nProxy Anchor (A/C)"),
+        (0.92, "S, D, signed R\nState Pattern"),
     )
     for x, label in boxes:
         axis.text(
@@ -213,14 +229,14 @@ def _render_framework(title: str, output_path: Path) -> None:
             arrowprops={"arrowstyle": "->"},
         )
     axis.text(
-        0.38,
-        0.22,
-        "Offline A/C supervision",
+        0.64,
+        0.20,
+        "Offline Conflict/Aligned supervision only",
         ha="center",
         bbox={"fc": "white", "ec": "#8b5e3c", "linestyle": "--"},
     )
     axis.text(
-        0.76,
+        0.88,
         0.22,
         "Conflict-only Misread probe\nPending",
         ha="center",
@@ -235,10 +251,23 @@ def _render_sdr_method(title: str, output_path: Path) -> None:
     figure, axes = plt.subplots(1, 2, figsize=(10.0, 4.2), constrained_layout=True)
     axes[0].axis("off")
     axes[0].set_title("Spherical geometry")
-    axes[0].text(0.05, 0.72, r"$d_g(a,b)=\arccos(\mathrm{clip}(a^Tb,-1,1))$", fontsize=11)
-    axes[0].text(0.05, 0.50, r"$S=(s_1+s_2+s_{12})/3$", fontsize=11)
-    axes[0].text(0.05, 0.30, r"$D=d_g(\mu_1,\mu_2)/(\sqrt{s_1+s_2}+\epsilon)$", fontsize=10)
-    axes[0].text(0.05, 0.10, r"$R>0$: V lean; $R<0$: T/A lean", fontsize=10)
+    axes[0].text(0.03, 0.82, r"$d_g(a,b)=\arccos(\mathrm{clip}(a^Tb,-1,1))$", fontsize=10)
+    axes[0].text(0.03, 0.65, r"$\mu_c=\mathrm{norm}(\sum_p z_{c,p})$", fontsize=10)
+    axes[0].text(
+        0.03,
+        0.48,
+        r"$s_c=P^{-1}\sum_p d_g^2(z_{c,p},\mu_c)$; $S=(s_1+s_2+s_{12})/3$",
+        fontsize=9,
+    )
+    axes[0].text(0.03, 0.30, r"$D=d_g(\mu_1,\mu_2)/(\sqrt{s_1+s_2}+\epsilon)$", fontsize=9)
+    axes[0].text(
+        0.03,
+        0.13,
+        r"$R=[d_g(\mu_{12},\mu_2)-d_g(\mu_{12},\mu_1)]/"
+        r"[d_g(\mu_1,\mu_2)+\epsilon]$",
+        fontsize=8,
+    )
+    axes[0].text(0.03, 0.02, r"$R>0$: V lean; $R<0$: T/A lean", fontsize=9)
     axes[1].axis("off")
     axes[1].set_title("Hierarchical decision")
     axes[1].text(0.5, 0.82, "S > kappa?  Confusion", ha="center")
@@ -390,7 +419,7 @@ def _render_artifact(
     elif key == "fig07_misread_bias":
         _render_misread_bias(title, rows, output_path)
     elif key == "fig08_representation_comparison":
-        _render_representation_comparison(title, rows, output_path)
+        _render_representation_comparison(title, rows, provenance, output_path)
     else:
         _render_evidence_table(title, rows, output_path)
 
@@ -401,26 +430,31 @@ def _render_sdr_distributions(
     provenance: dict[str, Any],
     output_path: Path,
 ) -> None:
-    _require_columns(rows, {"sample_type", "S", "D", "R", "metric", "value"})
+    _require_columns(rows, {"model", "sample_type", "S", "D", "R", "metric", "value"})
+    _validate_state_provenance(rows, provenance)
     _validate_fig04_masks(rows, provenance)
-    figure, axes = plt.subplots(1, 3, figsize=(9.0, 3.2), constrained_layout=True)
+    figure, axes = plt.subplots(3, 3, figsize=(10.2, 7.2), constrained_layout=True)
     groups = ("Aligned", "Conflict")
     colors = {"Aligned": "#2a9d8f", "Conflict": "#d1495b"}
-    for axis, metric in zip(axes, ("S", "D", "abs_R"), strict=True):
-        values = [
-            [
-                float(row["value"])
-                for row in rows
-                if row["sample_type"] == group and row["metric"] == metric
+    for model_index, (model_key, model_label) in enumerate(MODEL_SPECS):
+        for metric_index, metric in enumerate(("S", "D", "abs_R")):
+            axis = axes[model_index, metric_index]
+            values = [
+                [
+                    float(row["value"])
+                    for row in rows
+                    if row["model"] == model_key
+                    and row["sample_type"] == group
+                    and row["metric"] == metric
+                ]
+                for group in groups
             ]
-            for group in groups
-        ]
-        if any(not group_values for group_values in values):
-            raise ValueError("Fig. 4 requires both Aligned and Conflict rows")
-        boxes = axis.boxplot(values, tick_labels=groups, patch_artist=True)
-        for patch, group in zip(boxes["boxes"], groups, strict=True):
-            patch.set_facecolor(colors[group])
-        axis.set_title(metric)
+            if any(not group_values for group_values in values):
+                raise ValueError(f"Fig. 4 requires both classes for {model_key}/{metric}")
+            boxes = axis.boxplot(values, tick_labels=groups, patch_artist=True)
+            for patch, group in zip(boxes["boxes"], groups, strict=True):
+                patch.set_facecolor(colors[group])
+            axis.set_title(f"{model_label} | {metric}", fontsize=9)
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -433,12 +467,36 @@ def _render_four_state_stacks(
     output_path: Path,
 ) -> None:
     _require_columns(rows, {"model", "sample_type", "pattern", "count", "total", "proportion"})
+    _validate_state_provenance(rows, provenance)
     masks = provenance.get("sample_masks") or {}
-    if masks.get("patterns") != "all_samples":
-        raise ValueError("Fig. 5 requires the all-samples pattern mask")
-    if provenance.get("source_sample_count") != provenance.get("included_sample_count"):
-        raise ValueError("Fig. 5 all-samples provenance count mismatch")
-    _render_stacked_rows(title, rows, output_path, category="pattern", value="proportion")
+    if masks.get("patterns") != "representation_split=official_test":
+        raise ValueError("Fig. 5 requires the official-test pattern mask")
+    patterns = ("Consensus", "Balanced", "Dominant", "Confusion")
+    colors = ("#315a96", "#f4b183", "#c95359", "#c8c8c8")
+    figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.8), constrained_layout=True)
+    for axis, (model_key, model_label) in zip(axes, MODEL_SPECS, strict=True):
+        bottoms = [0.0, 0.0]
+        for pattern, color in zip(patterns, colors, strict=True):
+            values = [
+                sum(
+                    float(row["proportion"])
+                    for row in rows
+                    if row["model"] == model_key
+                    and row["sample_type"] == sample_type
+                    and row["pattern"] == pattern
+                )
+                for sample_type in ("Aligned", "Conflict")
+            ]
+            axis.bar(("Aligned", "Conflict"), values, bottom=bottoms, label=pattern, color=color)
+            bottoms = [left + current for left, current in zip(bottoms, values, strict=True)]
+        if any(abs(total - 1.0) > 1e-6 for total in bottoms):
+            raise ValueError(f"Fig. 5 proportions must sum to one for {model_key}")
+        axis.set_ylim(0.0, 1.0)
+        axis.set_title(model_label)
+    axes[-1].legend(fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5))
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
 
 
 def _render_d_signed_r(
@@ -451,72 +509,159 @@ def _render_d_signed_r(
         rows,
         {"S", "D", "R", "stable", "direction_emphasized", "sample_type"},
     )
+    _validate_state_provenance(rows, provenance)
     _validate_fig06_masks(rows, provenance)
-    figure, axis = plt.subplots(figsize=(6.4, 4.2), constrained_layout=True)
-    for sample_type, color in (("Aligned", "#2a9d8f"), ("Conflict", "#d1495b")):
-        for emphasized, marker, alpha in ((False, "o", 0.28), (True, "D", 0.9)):
-            selected = [
-                row
-                for row in rows
-                if row["sample_type"] == sample_type
-                and _as_bool(row["direction_emphasized"]) is emphasized
-            ]
-            if selected:
-                axis.scatter(
-                    [float(row["D"]) for row in selected],
-                    [float(row["R"]) for row in selected],
-                    label=f"{sample_type}{' directional' if emphasized else ''}",
-                    color=color,
-                    marker=marker,
-                    alpha=alpha,
-                )
-    axis.axhline(0.0, color="black", linewidth=0.8)
-    axis.text(0.99, 0.96, "V lean", transform=axis.transAxes, ha="right", va="top")
-    axis.text(0.99, 0.04, "T/A lean", transform=axis.transAxes, ha="right", va="bottom")
-    axis.set(xlabel="D", ylabel="signed R", title=title)
-    axis.legend()
+    figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.8), constrained_layout=True)
+    for axis, (model_key, model_label) in zip(axes, MODEL_SPECS, strict=True):
+        for sample_type, color in (("Aligned", "#2a9d8f"), ("Conflict", "#d1495b")):
+            for emphasized, marker, alpha in ((False, "o", 0.28), (True, "D", 0.9)):
+                selected = [
+                    row
+                    for row in rows
+                    if row["model"] == model_key
+                    and row["sample_type"] == sample_type
+                    and _as_bool(row["direction_emphasized"]) is emphasized
+                ]
+                if selected:
+                    axis.scatter(
+                        [float(row["D"]) for row in selected],
+                        [float(row["R"]) for row in selected],
+                        label=f"{sample_type}{' directional' if emphasized else ''}",
+                        color=color,
+                        marker=marker,
+                        alpha=alpha,
+                        s=14,
+                    )
+        axis.axhline(0.0, color="black", linewidth=0.8)
+        axis.text(0.99, 0.96, "V lean", transform=axis.transAxes, ha="right", va="top")
+        axis.text(0.99, 0.04, "T/A lean", transform=axis.transAxes, ha="right", va="bottom")
+        axis.set(xlabel="D", ylabel="signed R", title=model_label)
+    axes[-1].legend(fontsize=6, loc="center left", bbox_to_anchor=(1.02, 0.5))
+    figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
 
 
 def _render_misread_bias(title: str, rows: list[dict[str, Any]], output_path: Path) -> None:
-    _require_columns(rows, {"panel", "category", "value", "status"})
-    figure, axes = plt.subplots(2, 1, figsize=(7.0, 6.0), constrained_layout=True)
-    top = [row for row in rows if row["panel"] == "misread"]
-    if not top or any(row["status"] != STATUS_READY for row in top):
-        axes[0].axis("off")
-        axes[0].text(0.5, 0.5, f"Misread: {STATUS_PENDING}", ha="center", va="center")
-    else:
-        axes[0].bar([row["category"] for row in top], [float(row["value"]) for row in top])
-        axes[0].set_title("Misread")
-    bottom = [row for row in rows if row["panel"] == "bias"]
-    if not bottom:
-        raise ValueError("Fig. 7 requires real lower-panel bias rows")
-    axes[1].bar([row["category"] for row in bottom], [float(row["value"]) for row in bottom])
-    axes[1].set_title("V lean vs T/A lean")
+    _require_columns(
+        rows,
+        {"panel", "model", "sample_type", "S", "D", "R", "direction_emphasized", "status"},
+    )
+    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
+    for column, (model_key, model_label) in enumerate(MODEL_SPECS):
+        _pending_axis(
+            axes[0, column], f"{model_label} | Misread", "Pending Misread annotations"
+        )
+        bottom = [
+            row
+            for row in rows
+            if row["panel"] == "bias"
+            and row["model"] == model_key
+            and row["sample_type"] == "Conflict"
+            and row["status"] == STATUS_READY
+        ]
+        if not bottom:
+            raise ValueError(f"Fig. 7 requires real stable Conflict bias rows for {model_key}")
+        axis = axes[1, column]
+        for emphasized, marker, alpha in ((False, "o", 0.3), (True, "D", 0.9)):
+            selected = [
+                row for row in bottom if _as_bool(row["direction_emphasized"]) is emphasized
+            ]
+            if selected:
+                axis.scatter(
+                    [float(row["D"]) for row in selected],
+                    [float(row["R"]) for row in selected],
+                    marker=marker,
+                    alpha=alpha,
+                    s=14,
+                    color="#d1495b",
+                )
+        axis.axhline(0.0, color="black", linewidth=0.8)
+        axis.set_title(f"{model_label} | stable Conflict D-signed R", fontsize=8)
+        axis.set_xlabel("D")
+        axis.set_ylabel("signed R")
+        axis.text(0.98, 0.93, "V lean", ha="right", transform=axis.transAxes)
+        axis.text(0.98, 0.07, "T/A lean", ha="right", transform=axis.transAxes)
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
 
 
 def _render_representation_comparison(
-    title: str, rows: list[dict[str, Any]], output_path: Path
+    title: str,
+    rows: list[dict[str, Any]],
+    provenance: dict[str, Any],
+    output_path: Path,
 ) -> None:
-    _require_columns(rows, {"panel", "representation", "sample_type", "feature", "status"})
+    _require_columns(
+        rows,
+        {
+            "panel",
+            "representation",
+            "model",
+            "protocol",
+            "seed",
+            "sample_id",
+            "sample_type",
+            "representation_split",
+            "feature",
+            "status",
+        },
+    )
+    ac_rows = [row for row in rows if row["panel"] == "ac"]
+    if not ac_rows or any(
+        row["representation_split"] != "official_test"
+        or row["status"] != STATUS_READY
+        or row["model"] != "qwen3_vl_8b"
+        or row["protocol"] != "VT"
+        or row["seed"] != "20260717"
+        for row in ac_rows
+    ):
+        raise ValueError(
+            "Fig. 8 requires Ready qwen3_vl_8b/VT/seed20260717 official_test features"
+        )
+    sample_sets = {
+        representation: {
+            (row["sample_id"], row["sample_type"])
+            for row in ac_rows
+            if row["representation"] == representation
+        }
+        for representation in ("Single-Point", "Trajectory MLP", "TME")
+    }
+    if len({frozenset(samples) for samples in sample_sets.values()}) != 1:
+        raise ValueError("Fig. 8 representations require exact held-out sample correspondence")
     try:
         from umap import UMAP
     except ImportError as exc:
         raise RuntimeError("Fig. 8 requires pinned umap-learn; PCA fallback is forbidden") from exc
     import numpy as np
 
-    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
+    umap_version = importlib.metadata.version("umap-learn")
+    expected_umap = {"package": "umap-learn", "version": umap_version, **UMAP_CONFIG}
+    if provenance.get("representation_split") != "official_test":
+        raise ValueError("Fig. 8 provenance must lock representation_split=official_test")
+    if provenance.get("representative_backbone") != {
+        "model": "qwen3_vl_8b",
+        "protocol": "VT",
+        "seed": "20260717",
+    }:
+        raise ValueError("Fig. 8 provenance must lock the registered representative backbone")
+    if provenance.get("umap") != expected_umap:
+        raise ValueError("Fig. 8 provenance must lock the installed UMAP version and parameters")
+    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.5), constrained_layout=True)
     for column, representation in enumerate(("Single-Point", "Trajectory MLP", "TME")):
         selected = [
-            row for row in rows if row["panel"] == "ac" and row["representation"] == representation
+            row
+            for row in ac_rows
+            if row["representation"] == representation
         ]
         if len(selected) <= UMAP_CONFIG["n_neighbors"]:
             raise ValueError("Fig. 8 UMAP requires more samples than fixed n_neighbors")
         features = np.asarray([json.loads(str(row["feature"])) for row in selected], dtype=float)
+        if features.ndim != 2 or features.shape[0] != len(selected):
+            raise ValueError(f"Fig. 8 {representation} features must have one fixed dimension")
+        if {row["sample_type"] for row in selected} != {"Aligned", "Conflict"}:
+            raise ValueError(f"Fig. 8 {representation} requires both Aligned and Conflict")
         projection = UMAP(**UMAP_CONFIG).fit_transform(features)
         for sample_type, color in (("Aligned", "#2a9d8f"), ("Conflict", "#d1495b")):
             indexes = [i for i, row in enumerate(selected) if row["sample_type"] == sample_type]
@@ -531,6 +676,15 @@ def _render_representation_comparison(
             "Pending Misread annotations",
         )
     figure.suptitle(title)
+    figure.text(
+        0.5,
+        0.01,
+        f"umap-learn {umap_version}; n_neighbors={UMAP_CONFIG['n_neighbors']}; "
+        f"min_dist={UMAP_CONFIG['min_dist']}; metric={UMAP_CONFIG['metric']}; "
+        f"random_state={UMAP_CONFIG['random_state']}",
+        ha="center",
+        fontsize=7,
+    )
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
 
@@ -633,6 +787,9 @@ def _validate_provenance(figure_key: str, provenance: dict[str, Any]) -> None:
             or not _is_sha256(source.get("sha256"))
         ):
             raise ValueError("figure provenance source path/sha256 is invalid")
+        source_path = Path(source["path"])
+        if not source_path.is_file() or _sha256(source_path) != source["sha256"]:
+            raise ValueError(f"figure provenance source checksum mismatch: {source_path}")
 
 
 def _validate_fig04_masks(rows: list[dict[str, Any]], provenance: dict[str, Any]) -> None:
@@ -643,10 +800,13 @@ def _validate_fig04_masks(rows: list[dict[str, Any]], provenance: dict[str, Any]
         "abs_R": "S<=kappa and D>tau",
     }:
         raise ValueError("Fig. 4 sample masks do not match the locked contract")
-    thresholds = provenance.get("thresholds") or {}
-    kappa = float(thresholds["kappa"])
-    tau = float(thresholds["tau"])
+    thresholds_by_model = provenance.get("thresholds_by_model") or {}
     for row in rows:
+        thresholds = thresholds_by_model.get(row["model"])
+        if not isinstance(thresholds, dict):
+            raise ValueError("Fig. 4 is missing per-model calibration thresholds")
+        kappa = float(thresholds["kappa"])
+        tau = float(thresholds["tau"])
         metric = row["metric"]
         if metric not in {"S", "D", "abs_R"}:
             raise ValueError("Fig. 4 metric must be S, D, or abs_R")
@@ -672,14 +832,69 @@ def _validate_fig06_masks(rows: list[dict[str, Any]], provenance: dict[str, Any]
         "direction_emphasis": "S<=kappa and D>tau",
     }:
         raise ValueError("Fig. 6 sample masks do not match the locked contract")
-    thresholds = provenance.get("thresholds") or {}
-    kappa = float(thresholds["kappa"])
-    tau = float(thresholds["tau"])
+    thresholds_by_model = provenance.get("thresholds_by_model") or {}
     for row in rows:
+        thresholds = thresholds_by_model.get(row["model"])
+        if not isinstance(thresholds, dict):
+            raise ValueError("Fig. 6 is missing per-model calibration thresholds")
+        kappa = float(thresholds["kappa"])
+        tau = float(thresholds["tau"])
         if float(row["S"]) > kappa or not _as_bool(row["stable"]):
             raise ValueError("Fig. 6 stable mask violation")
         if _as_bool(row["direction_emphasized"]) != (float(row["D"]) > tau):
             raise ValueError("Fig. 6 direction emphasis mask violation")
+
+
+def _validate_state_provenance(
+    rows: list[dict[str, Any]], provenance: dict[str, Any]
+) -> None:
+    if provenance.get("representation_split") != "official_test":
+        raise ValueError("paper state figures require representation_split=official_test")
+    source_count = provenance.get("source_sample_count")
+    official_count = provenance.get("official_test_sample_count")
+    excluded_count = provenance.get("excluded_non_official_test_count")
+    counts = (source_count, official_count, excluded_count)
+    if not all(isinstance(value, int) and value >= 0 for value in counts):
+        raise ValueError(
+            "paper state provenance requires non-negative source/included/excluded counts"
+        )
+    if source_count != official_count + excluded_count:
+        raise ValueError("paper state provenance source count does not reconcile")
+    models = {str(row["model"]) for row in rows}
+    if models != {key for key, _ in MODEL_SPECS}:
+        raise ValueError("paper state figures require all three registered model facets")
+    thresholds_by_model = provenance.get("thresholds_by_model")
+    if not isinstance(thresholds_by_model, dict) or set(thresholds_by_model) != models:
+        raise ValueError("paper state provenance requires per-model calibration thresholds")
+    split_identities = provenance.get("split_identities")
+    calibration_identities = provenance.get("calibration_identities")
+    if not isinstance(split_identities, list) or {
+        str(item.get("model")) for item in split_identities if isinstance(item, dict)
+    } != models:
+        raise ValueError("paper state provenance requires one split identity per model")
+    if any(
+        item.get("representation_split") != "official_test"
+        or not _is_sha256(item.get("split_assignment_sha256"))
+        for item in split_identities
+    ):
+        raise ValueError("paper state split identity is invalid")
+    if not isinstance(calibration_identities, list) or {
+        str(item.get("model")) for item in calibration_identities if isinstance(item, dict)
+    } != models:
+        raise ValueError("paper state provenance requires one calibration identity per model")
+    for identity in calibration_identities:
+        if identity.get("model_key") != identity.get("model"):
+            raise ValueError("paper state calibration model identity mismatch")
+        if any(not str(identity.get(field, "")) for field in (
+            "protocol",
+            "prompt_set_key",
+            "repr_key",
+            "prompt_set_artifact_sha256",
+            "encoder_checkpoint_sha256",
+            "split_assignment_sha256",
+            "embedding_manifest_sha256",
+        )):
+            raise ValueError("paper state calibration identity is incomplete")
 
 
 def _as_bool(value: Any) -> bool:
