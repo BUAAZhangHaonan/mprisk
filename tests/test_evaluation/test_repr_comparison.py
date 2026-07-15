@@ -104,7 +104,7 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
     output_dir = tmp_path / "outputs/evaluation/main/qwen3_vl_8b/VT"
     repr_results = {
         "raw_layernorm_mean": _repr_paths(tmp_path, "raw_layernorm_mean", d_offset=0.0),
-        "tme_supcon_v1": _repr_paths(tmp_path, "tme_supcon_v1", d_offset=0.2),
+        "tme_proxy_anchor_v1": _repr_paths(tmp_path, "tme_proxy_anchor_v1", d_offset=0.2),
         "raw_layernorm_flat": {
             "sdr_scores": str(tmp_path / "missing/raw/sdr_scores.jsonl"),
             "state_patterns": str(tmp_path / "missing/raw/state_patterns.jsonl"),
@@ -121,7 +121,7 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
 
     payload = json.loads(result.json_path.read_text(encoding="utf-8"))
     rows = {row["repr_key"]: row for row in payload["rows"]}
-    assert set(rows) == {"raw_layernorm_mean", "tme_supcon_v1", "raw_layernorm_flat"}
+    assert set(rows) == {"raw_layernorm_mean", "tme_proxy_anchor_v1", "raw_layernorm_flat"}
 
     raw = rows["raw_layernorm_mean"]
     assert raw["status"] == "ok"
@@ -136,7 +136,7 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
     assert raw["missing_rate"] == pytest.approx(0.25)
     assert raw["runtime_seconds"] == pytest.approx(7.0)
 
-    tme = rows["tme_supcon_v1"]
+    tme = rows["tme_proxy_anchor_v1"]
     assert tme["status"] == "ok"
     assert tme["conflict_aligned_d_effect_size"] > raw["conflict_aligned_d_effect_size"]
 
@@ -148,10 +148,10 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
         csv_rows = list(csv.DictReader(handle))
     assert [row["repr_key"] for row in csv_rows] == [
         "raw_layernorm_mean",
-        "tme_supcon_v1",
+        "tme_proxy_anchor_v1",
         "raw_layernorm_flat",
     ]
-    assert csv_rows[1]["repr_key"] == "tme_supcon_v1"
+    assert csv_rows[1]["repr_key"] == "tme_proxy_anchor_v1"
     assert csv_rows[2]["status"] == "missing"
 
 
@@ -163,7 +163,9 @@ def test_repr_comparison_cli_accepts_config_and_output_dir(tmp_path: Path) -> No
         {
             "representations": {
                 "raw_layernorm_mean": _repr_paths(tmp_path, "raw_layernorm_mean", d_offset=0.0),
-                "tme_supcon_v1": _repr_paths(tmp_path, "tme_supcon_v1", d_offset=0.1),
+                "tme_proxy_anchor_v1": _repr_paths(
+                    tmp_path, "tme_proxy_anchor_v1", d_offset=0.1
+                ),
                 "raw_layernorm_flat": {
                     "sdr_scores": str(tmp_path / "missing/sdr_scores.jsonl"),
                     "state_patterns": str(tmp_path / "missing/state_patterns.jsonl"),

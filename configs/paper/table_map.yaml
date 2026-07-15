@@ -1,6 +1,5 @@
 schema: mprisk_paper_table_map_v1
 tables:
-  tab01_data_stats: paper/tables/generated/tab01_data_stats.tex
-  tab02_main_results: paper/tables/generated/tab02_main_results.tex
-  tab03_baselines: paper/tables/generated/tab03_baselines.tex
-  tab04_stage2: paper/tables/generated/tab04_stage2.tex
+  tab01_main_results: paper/tables/generated/tab01_main_results.tex
+  tab02_baselines: paper/tables/generated/tab02_baselines.tex
+  tab03_stage2: paper/tables/generated/tab03_stage2.tex

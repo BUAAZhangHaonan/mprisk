@@ -41,7 +41,9 @@ def _prompted_state(
     }
 
 
-def _bundle(root, sample_id: str, sample_type: str, offset: float) -> dict[str, object]:
+def _bundle(
+    root, sample_id: str, sample_type: str, offset: float, master_split: str
+) -> dict[str, object]:
     prompt_ids = ["vt_primary_v1_t01", "vt_primary_v1_t02"]
     base_vectors = {
         "M1": [1.0 + offset, 0.0, 0.1],
@@ -78,7 +80,11 @@ def _bundle(root, sample_id: str, sample_type: str, offset: float) -> dict[str, 
             }
             for view_key, vector in base_vectors.items()
         },
-        "metadata": {"source_dataset": "fake", "split_group_id": sample_id},
+        "metadata": {
+            "source_dataset": "fake",
+            "split_group_id": sample_id,
+            "master_split": master_split,
+        },
     }
 
 
@@ -97,22 +103,37 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
     write_jsonl(
         bundle_manifest,
         [
-            _bundle(tmp_path, "sample-1", "Conflict", 0.0),
-            _bundle(tmp_path, "sample-2", "Aligned", 0.2),
+            _bundle(
+                tmp_path,
+                f"sample-{index}",
+                "Conflict" if index % 2 else "Aligned",
+                index * 0.02,
+                "val" if index >= 6 else "train",
+            )
+            for index in range(8)
         ],
     )
     config_path.write_text(
         yaml.safe_dump(
             {
-                "embed_dim": 4,
+                "schema": "mprisk_representation_training_v2",
+                "key": "qwen3_vl_8b_tme_proxy_anchor_v1",
+                "architecture_version": "layer_l2_gru_linear_relation_v1",
+                "repr_key": "tme_proxy_anchor_v1",
+                "model_key": "qwen3_vl_8b",
                 "hidden_dim": 8,
+                "condition_dim": 4,
+                "relation_dim": 3,
                 "dropout": 0.0,
-                "epochs": 1,
-                "batch_size": 6,
+                "max_epochs": 1,
+                "batch_size": 4,
                 "lr": 0.01,
-                "lambda_prompt": 0.5,
-                "temperature": 0.2,
-                "negative_budget_ratio": 1.0,
+                "weight_decay": 0.0,
+                "proxy_alpha": 8.0,
+                "proxy_margin": 0.1,
+                "patience": 2,
+                "min_delta": 0.0,
+                "val_fraction": 0.25,
                 "seed": 123,
             }
         ),
@@ -126,8 +147,7 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
         protocol="VT",
         prompt_set_key="vt_primary_v1",
         output_root=output_root,
-        device="cpu",
-        thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},
+        thresholds={"kappa": 0.5, "tau": 0.01},
     )
 
     state_pattern_rows = _read_jsonl(result.state_patterns_path)
@@ -135,17 +155,17 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
 
     assert result.state_patterns_path == (
         output_root
-        / "outputs/states/qwen3_vl_8b/VT/vt_primary_v1/tme_supcon_v1/state_patterns.jsonl"
+        / "outputs/states/qwen3_vl_8b/VT/vt_primary_v1/tme_proxy_anchor_v1/state_patterns.jsonl"
     )
     assert state_pattern_rows
     assert result.report_path == (
         output_root / "outputs/representation_train/reports/REPRESENTATION_TRAINING_SMOKE.md"
     )
     assert report.strip()
-    assert "Representation dataset:" in report
+    assert "Relation dataset:" in report
     assert "Checkpoint:" in report
-    assert "Embedding manifest:" in report
+    assert "Frozen embedding manifest:" in report
     assert "S/D/R scores:" in report
     assert "State patterns:" in report
-    assert "Sample count: 2" in report
-    assert "Embedding dim: 4" in report
+    assert "Sample count: 8" in report
+    assert "Condition dim: 4" in report

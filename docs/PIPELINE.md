@@ -117,15 +117,30 @@ Main artifacts:
 
 ## 5. Representation
 
-The main representation uses full-layer prefill trajectories and maps them into a manifold-aware embedding space.
+All representation supervision is the sample-level `Conflict`/`Aligned` label. View
+labels and all Misread-derived fields are forbidden in relation datasets. Data is split
+by `split_group_id`; an explicit `master_split` is honored when present.
+
+The three independent backbone-specific interfaces are:
+
+- `single_point_binary_v1`: final-layer points from M1/M2/M12 and a two-logit linear classifier.
+- `trajectory_mlp_binary_v1`: complete per-layer L2-normalized M1/M2/M12 trajectories and a two-logit MLP classifier.
+- `tme_proxy_anchor_v1`: architecture `layer_l2_gru_linear_relation_v1`, a shared one-layer GRU over the complete normalized layer sequence, followed by a compact linear projection and unit-normalized condition embedding `z`.
+
+TME computes only the ordered relation features
+`u=[1-z1.z2, 1-z12.z1, 1-z12.z2]` and `r=normalize(Wu+b)`. The relation head has no
+concatenation, activation, or nonlinear branch. Its only objective is standard Proxy
+Anchor with exactly two proxies (`Aligned=0`, `Conflict=1`). SupCon, prompt-consistency,
+and cross-entropy are not part of the TME objective. Checkpoint selection uses only
+validation A/C balanced accuracy.
 
 The trained representation smoke chain is:
 
 ```text
 bundle_manifest
--> representation_dataset
--> tme_supcon_v1 checkpoint
--> trained embedding manifest
+-> relation_dataset
+-> tme_proxy_anchor_v1 checkpoint
+-> frozen condition-z and relation-r manifests
 -> S/D/R scores
 -> state patterns
 ```
@@ -135,29 +150,41 @@ Run the trained representation smoke pipeline:
 ```bash
 python scripts/run_representation_training_smoke.py \
   --bundle-manifest outputs/state_bundles/qwen3_vl_8b/VT/vt_primary_v1/bundle_manifest.jsonl \
-  --config configs/experiments/representation_tme_supcon_v1.yaml \
+  --config configs/experiments/representation_qwen3_vl_8b_tme_proxy_anchor_v1.yaml \
   --model-key qwen3_vl_8b \
   --protocol VT \
   --prompt-set-key vt_primary_v1 \
   --output-root . \
-  --device cpu
+  --device cuda \
+  --thresholds outputs/states/calibration/qwen3_vl_8b_vt_thresholds.json
 ```
 
 Main artifacts:
 
-- `outputs/representation_data/{model_key}/{protocol}/{prompt_set_key}/representation_dataset.jsonl`
-- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/checkpoint.pt`
-- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_config.yaml`
-- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_metrics.json`
-- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/train_log.jsonl`
-- `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/embedding_manifest.jsonl`
-- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/sdr_scores.jsonl`
-- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_supcon_v1/state_patterns.jsonl`
+- `outputs/representation_data/{model_key}/{protocol}/{prompt_set_key}/relation_dataset.jsonl`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/best_checkpoint.pt`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/last_checkpoint.pt`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/train_config.yaml`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/train_metrics.json`
+- `outputs/representation_train/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/train_log.jsonl`
+- `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/frozen_representations.jsonl`
+- `outputs/representation/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/spherical_embedding_manifest.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/sdr_scores.jsonl`
+- `outputs/states/{model_key}/{protocol}/{prompt_set_key}/tme_proxy_anchor_v1/state_patterns.jsonl`
 - `outputs/representation_train/reports/REPRESENTATION_TRAINING_SMOKE.md`
 
 ## 6. State Analysis
 
-`S`, `D`, and `R` are computed from the three conditions. They are then converted into four state patterns.
+For each condition, the spherical center is the normalized mean across synchronized
+prompts. `S` is mean prompt-to-center cosine distance, `D=1-c1.c2`, and signed
+`R=(d(c12,c2)-d(c12,c1))/(d(c12,c1)+d(c12,c2))`. Therefore `R>0` is V lean and
+`R<0` is T/A lean. Each sample uses `delta_i=1.96*SE` from its synchronized
+prompt-level R values.
+
+Thresholds are calibrated on a separate `aligned_calibration` split only. `kappa` is
+the q95 Aligned S value; `tau` is the q95 D value among stable Aligned rows where
+`S<=kappa`. State assignment is strictly hierarchical: Confusion (`S>kappa`), then
+Consensus (`D<=tau`), then Balanced (`abs(R)<=delta_i`), otherwise Dominant.
 
 The second implementation phase adds the first runnable science core:
 
@@ -218,19 +245,19 @@ python scripts/run_core_sdr_pipeline.py \
   --model-key qwen3_vl_8b \
   --protocol VT \
   --prompt-set-key vt_primary_v1 \
-  --repr-key raw_layernorm_mean \
+  --repr-key tme_proxy_anchor_v1 \
   --manifest-paths data/processed/manifests/conflict_manifest.jsonl data/processed/manifests/aligned_manifest.jsonl \
   --full-cache-root . \
   --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
   --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
   --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
   --output-root . \
-  --thresholds '{"kappa": 0.5, "tau": 0.25, "delta": 0.2}'
+  --checkpoint outputs/representation_train/qwen3_vl_8b/VT/vt_primary_v1/tme_proxy_anchor_v1/best_checkpoint.pt \
+  --thresholds outputs/states/calibration/qwen3_vl_8b_vt_thresholds.json
 ```
 
-`raw_layernorm_mean` and `raw_layernorm_flat` run without a checkpoint. `tme_supcon_v1`
-requires `--checkpoint`; this runner exports embeddings from an existing checkpoint and
-does not train one.
+The final core runner accepts only `tme_proxy_anchor_v1` and requires an existing
+checkpoint. Raw layer-normalized representations cannot stand in for final TME.
 
 Main artifacts:
 

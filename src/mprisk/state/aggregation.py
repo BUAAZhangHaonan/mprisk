@@ -6,10 +6,8 @@ from collections import Counter
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from mprisk.state.d_measure import compute_d_for_bundle
 from mprisk.state.patterns import StatePattern, StateThresholds, assign_state
-from mprisk.state.r_measure import compute_r_for_bundle
-from mprisk.state.s_measure import compute_s_for_bundle
+from mprisk.state.spherical import compute_spherical_state
 
 
 def count_patterns(patterns: list[StatePattern]) -> dict[str, int]:
@@ -18,10 +16,10 @@ def count_patterns(patterns: list[StatePattern]) -> dict[str, int]:
 
 
 def compute_state_row(bundle: Mapping[str, Any], thresholds: StateThresholds) -> dict[str, Any]:
-    s_scores = compute_s_for_bundle(bundle)
-    d_score = compute_d_for_bundle(bundle)
-    r_score = compute_r_for_bundle(bundle)
-    pattern = assign_state(s_scores["S_mean"], d_score, r_score, thresholds)
+    state = compute_spherical_state(bundle)
+    pattern = assign_state(
+        state["S_mean"], state["D"], state["R"], thresholds, delta_i=state["delta_i"]
+    )
 
     row: dict[str, Any] = {
         "sample_id": bundle.get("sample_id"),
@@ -30,9 +28,7 @@ def compute_state_row(bundle: Mapping[str, Any], thresholds: StateThresholds) ->
         "protocol": bundle.get("protocol"),
         "prompt_set_key": bundle.get("prompt_set_key"),
         "repr_key": bundle.get("repr_key"),
-        **s_scores,
-        "D": d_score,
-        "R": r_score,
+        **state,
         "pattern": pattern.value,
     }
     return row

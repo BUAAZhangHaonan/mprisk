@@ -55,7 +55,7 @@ def test_build_main_result_summary_writes_all_sections_from_present_inputs(tmp_p
         {
             "representations": {
                 "raw_layernorm_mean": {"n": 5, "metrics": {"error_auc": 0.61}},
-                "tme_supcon_v1": {"n": 5, "metrics": {"error_auc": 0.78}},
+                "tme_proxy_anchor_v1": {"n": 5, "metrics": {"error_auc": 0.78}},
             }
         },
     )
@@ -89,7 +89,7 @@ def test_build_main_result_summary_writes_all_sections_from_present_inputs(tmp_p
     assert "lowS-highD: n=3, error_rate=0.6670" in text
     assert "## Raw vs TME Comparison" in text
     assert "raw_layernorm_mean" in text
-    assert "tme_supcon_v1" in text
+    assert "tme_proxy_anchor_v1" in text
     assert "## T0 vs Posthoc Efficiency" in text
     assert "mean_seconds=0.8000" in text
     assert "## Missing Result Reminders" in text

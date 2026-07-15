@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 
 import pytest
 
@@ -16,11 +15,14 @@ def _bundle(sample_id: str = "case-1") -> dict[str, object]:
         "model_key": "toy-model",
         "protocol": "VT",
         "prompt_set_key": "vt_primary_v1",
-        "repr_key": "raw_layernorm_mean",
+        "repr_key": "tme_proxy_anchor_v1",
         "embeddings": {
-            "M1": {"p1": [0.0, 0.0], "p2": [0.0, 2.0]},
-            "M2": {"p1": [3.0, 0.0], "p2": [3.0, 4.0]},
-            "M12": {"p1": [1.0, 1.0], "p2": [1.0, 3.0]},
+            "M1": {"p1": [1.0, 0.0], "p2": [1.0, 0.0]},
+            "M2": {"p1": [0.0, 1.0], "p2": [0.0, 1.0]},
+            "M12": {
+                "p1": [0.7071067811865476, 0.7071067811865476],
+                "p2": [0.7071067811865476, 0.7071067811865476],
+            },
         },
     }
 
@@ -35,14 +37,14 @@ def test_compute_state_row_emits_metadata_measures_and_pattern() -> None:
     assert row["model_key"] == "toy-model"
     assert row["protocol"] == "VT"
     assert row["prompt_set_key"] == "vt_primary_v1"
-    assert row["repr_key"] == "raw_layernorm_mean"
-    assert row["S_M1"] == pytest.approx(1.0)
-    assert row["S_M2"] == pytest.approx(2.0)
-    assert row["S_M12"] == pytest.approx(1.0)
-    assert row["S_mean"] == pytest.approx(4.0 / 3.0)
-    assert row["D"] == pytest.approx(math.sqrt(10.0))
-    assert row["R"] == pytest.approx((2.0 - math.sqrt(2.0)) / (2.0 + math.sqrt(2.0)))
-    assert row["pattern"] == StatePattern.BALANCED.value
+    assert row["repr_key"] == "tme_proxy_anchor_v1"
+    assert row["S_M1"] == pytest.approx(0.0)
+    assert row["S_M2"] == pytest.approx(0.0)
+    assert row["S_M12"] == pytest.approx(0.0)
+    assert row["S_mean"] == pytest.approx(0.0)
+    assert row["D"] == pytest.approx(1.0)
+    assert row["R"] == pytest.approx(0.0)
+    assert row["pattern"] == StatePattern.CONSENSUS.value
 
 
 def test_aggregate_state_rows_processes_each_sample() -> None:

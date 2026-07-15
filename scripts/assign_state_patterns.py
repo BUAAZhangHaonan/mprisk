@@ -32,7 +32,13 @@ def assign_state_patterns(
     pattern_rows = [
         {
             **row,
-            "pattern": assign_state(row["S_mean"], row["D"], row["R"], threshold_values).value,
+            "pattern": assign_state(
+                row["S_mean"],
+                row["D"],
+                row["R"],
+                threshold_values,
+                delta_i=row["delta_i"],
+            ).value,
         }
         for row in score_rows
     ]
@@ -47,7 +53,7 @@ def assign_state_patterns(
             thresholds={
                 "kappa": threshold_values.kappa,
                 "tau": threshold_values.tau,
-                "delta": threshold_values.delta,
+                "delta_policy": "per_sample_synchronous_prompt_bootstrap_1.96se",
             },
         ),
     )

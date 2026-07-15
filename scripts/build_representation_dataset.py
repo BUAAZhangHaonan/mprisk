@@ -6,37 +6,24 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mprisk.representation.dataset import build_representation_dataset
+from mprisk.representation.relation_dataset import build_relation_dataset
 
 
-def parse_args() -> argparse.Namespace:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build representation-training JSONL from state bundle manifests."
+        description="Build sample-level A/C relation rows from state bundles."
     )
-    parser.add_argument(
-        "--bundle-manifest",
-        required=True,
-        help="Input bundle_manifest.jsonl.",
-    )
-    parser.add_argument(
-        "--output-dir",
-        required=True,
-        help="Directory for representation_dataset.jsonl and summary JSON.",
-    )
-    return parser.parse_args()
-
-
-def main() -> int:
-    args = parse_args()
-    result = build_representation_dataset(
+    parser.add_argument("--bundle-manifest", required=True)
+    parser.add_argument("--output-dir", required=True)
+    args = parser.parse_args(argv)
+    result = build_relation_dataset(
         bundle_manifest_path=Path(args.bundle_manifest),
         output_dir=Path(args.output_dir),
     )
-    print(f"representation_dataset={result.dataset_path}")
-    print(f"representation_dataset_summary={result.summary_path}")
-    print(f"total_input_bundles={result.total_input_bundles}")
-    print(f"exported_rows={result.exported_rows}")
-    print(f"skipped_rows={result.skipped_rows}")
+    print(f"relation_dataset={result.dataset_path}")
+    print(f"relation_dataset_summary={result.summary_path}")
+    print(f"sample_count={result.sample_count}")
+    print(f"row_count={result.row_count}")
     return 0
 
 

@@ -1,9 +1,47 @@
-schema: mprisk_paper_figure_map_v1
+schema: mprisk_bundle_figure_map_v1
 figures:
-  fig01_overview: paper/figures/generated/fig01_overview.pdf
-  fig02_method: paper/figures/generated/fig02_method.pdf
-  fig03_sdr: paper/figures/generated/fig03_sdr.pdf
-  fig04_conflict_vs_aligned: paper/figures/generated/fig04_conflict_vs_aligned.pdf
-  fig05_state_vs_error: paper/figures/generated/fig05_state_vs_error.pdf
-  fig06_t0_vs_posthoc_efficiency: paper/figures/generated/fig06_t0_vs_posthoc_efficiency.pdf
-  fig07_cases_and_policy: paper/figures/generated/fig07_cases_and_policy.pdf
+  fig01_problem_protocol:
+    title: Problem and protocol
+    input: outputs/paper_exports/figures/fig01_problem_protocol.json
+    output: paper/figures/generated/fig01_problem_protocol.pdf
+  fig02_representation_pipeline:
+    title: Three representation interfaces
+    input: outputs/paper_exports/figures/fig02_representation_pipeline.json
+    output: paper/figures/generated/fig02_representation_pipeline.pdf
+  fig03_spherical_sdr:
+    title: Spherical S/D/R and hierarchical states
+    input: outputs/paper_exports/figures/fig03_spherical_sdr.json
+    output: paper/figures/generated/fig03_spherical_sdr.pdf
+  fig04_sdr_distributions:
+    title: Conflict and Aligned S/D/R distributions
+    input: outputs/paper_exports/figures/fig04_sdr_distributions.csv
+    output: paper/figures/generated/fig04_sdr_distributions.pdf
+  fig05_four_state_stacks:
+    title: Four-state proportions by model and sample type
+    input: outputs/paper_exports/figures/fig05_four_state_stacks.csv
+    output: paper/figures/generated/fig05_four_state_stacks.pdf
+  fig06_stable_d_signed_r:
+    title: Stable samples in D and signed R space
+    input: outputs/paper_exports/figures/fig06_stable_d_signed_r.csv
+    output: paper/figures/generated/fig06_stable_d_signed_r.pdf
+  fig07_misread_bias:
+    title: Misread status and real arbitration bias
+    input: outputs/paper_exports/figures/fig07_misread_bias.csv
+    output: paper/figures/generated/fig07_misread_bias.pdf
+  fig08_representation_comparison:
+    title: Three-representation comparison
+    input: outputs/paper_exports/figures/fig08_representation_comparison.csv
+    output: paper/figures/generated/fig08_representation_comparison.pdf
+  fig09_conflict_case:
+    title: Conflict case
+    input: outputs/paper_exports/figures/fig09_conflict_case.json
+    output: paper/figures/generated/fig09_conflict_case.pdf
+  fig10_aligned_case:
+    title: Aligned case
+    input: outputs/paper_exports/figures/fig10_aligned_case.json
+    output: paper/figures/generated/fig10_aligned_case.pdf
+appendix:
+  figA01_calibration_audit:
+    title: Independent Aligned calibration audit
+    input: outputs/paper_exports/figures/figA01_calibration_audit.json
+    output: paper/figures/appendix/figA01_calibration_audit.pdf

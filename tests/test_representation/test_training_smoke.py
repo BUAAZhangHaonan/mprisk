@@ -8,8 +8,10 @@ import yaml
 from safetensors.numpy import save_file
 
 
-def _write_prompted_state(tmp_path, sample_id: str, prompt_id: str, vector: list[float]) -> dict:
-    shard_path = f"prompted/{sample_id}-{prompt_id}.safetensors"
+def _write_prompted_state(
+    tmp_path, sample_id: str, condition: str, prompt_id: str, vector: list[float]
+) -> dict:
+    shard_path = f"prompted/{sample_id}-{condition}-{prompt_id}.safetensors"
     shard = tmp_path / shard_path
     shard.parent.mkdir(parents=True, exist_ok=True)
     hidden_states = np.zeros((1, 2, 3, len(vector)), dtype=np.float32)
@@ -19,7 +21,7 @@ def _write_prompted_state(tmp_path, sample_id: str, prompt_id: str, vector: list
         "sample_id": sample_id,
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
-        "condition": "M1",
+        "condition": condition,
         "prompt_set_key": "vt_primary_v1",
         "prompt_id": prompt_id,
         "shard_path": shard_path,
@@ -37,35 +39,39 @@ def _write_representation_dataset(tmp_path) -> tuple[object, object]:
     dataset_path = tmp_path / "representation_dataset.jsonl"
     rows = []
     examples = [
-        ("sample-1", "safe", [1.0, 0.0, 0.0]),
-        ("sample-2", "safe", [0.9, 0.1, 0.0]),
-        ("sample-3", "risk", [0.0, 1.0, 0.0]),
-        ("sample-4", "risk", [0.0, 0.9, 0.1]),
+        (f"sample-{index}", "Aligned" if index % 2 == 0 else "Conflict")
+        for index in range(8)
     ]
-    for sample_id, label, vector in examples:
+    for index, (sample_id, sample_type) in enumerate(examples):
         for prompt_index in range(2):
             prompt_id = f"prompt-{prompt_index + 1}"
+            base = [1.0, 0.1 + index * 0.01, 0.2]
             rows.append(
                 {
-                    "row_id": f"{sample_id}-{prompt_id}",
+                    "schema": "mprisk_relation_sample_v1",
+                    "row_id": f"{sample_id}:{prompt_id}",
                     "sample_id": sample_id,
-                    "sample_type": "Conflict" if label == "risk" else "Aligned",
+                    "sample_type": sample_type,
+                    "label_id": int(sample_type == "Conflict"),
                     "model_key": "qwen3_vl_8b",
                     "protocol": "VT",
-                    "view_key": "M1",
                     "prompt_id": prompt_id,
                     "prompt_set_key": "vt_primary_v1",
-                    "label": label,
-                    "specific_affect": "neutral",
-                    "is_clear": True,
-                    "prompt_conditioned_state": _write_prompted_state(
-                        tmp_path,
-                        sample_id,
-                        prompt_id,
-                        [value + prompt_index * 0.01 for value in vector],
-                    ),
                     "split_group_id": sample_id,
-                    "source_dataset": "fake",
+                    "master_split": "val" if index >= 6 else "train",
+                    "conditions": {
+                        condition: _write_prompted_state(
+                            tmp_path,
+                            sample_id,
+                            condition,
+                            prompt_id,
+                            [
+                                value + condition_index * 0.02 + prompt_index * 0.01
+                                for value in base
+                            ],
+                        )
+                        for condition_index, condition in enumerate(("M1", "M2", "M12"))
+                    },
                 }
             )
     dataset_path.write_text(
@@ -76,15 +82,24 @@ def _write_representation_dataset(tmp_path) -> tuple[object, object]:
     config_path.write_text(
         yaml.safe_dump(
             {
-                "embed_dim": 4,
+                "schema": "mprisk_representation_training_v2",
+                "key": "qwen3_vl_8b_tme_proxy_anchor_test_v1",
+                "architecture_version": "layer_l2_gru_linear_relation_v1",
+                "repr_key": "tme_proxy_anchor_v1",
+                "model_key": "qwen3_vl_8b",
                 "hidden_dim": 8,
+                "condition_dim": 4,
+                "relation_dim": 3,
                 "dropout": 0.0,
-                "epochs": 1,
+                "max_epochs": 1,
                 "batch_size": 4,
                 "lr": 0.01,
-                "lambda_prompt": 0.5,
-                "temperature": 0.2,
-                "negative_budget_ratio": 1.0,
+                "weight_decay": 0.0,
+                "proxy_alpha": 8.0,
+                "proxy_margin": 0.1,
+                "patience": 2,
+                "min_delta": 0.0,
+                "val_fraction": 0.25,
                 "seed": 123,
             }
         ),
@@ -108,18 +123,21 @@ def test_train_trajectory_encoder_cli_writes_loadable_artifacts(tmp_path) -> Non
                 str(config_path),
                 "--output-dir",
                 str(output_dir),
+                "--device",
+                "cpu",
             ]
         )
         == 0
     )
 
-    checkpoint = torch.load(output_dir / "checkpoint.pt", map_location="cpu")
-    assert checkpoint["repr_key"] == "tme_supcon_v1"
-    assert checkpoint["model_config"]["embed_dim"] == 4
-    assert checkpoint["label_to_id"] == {"risk": 0, "safe": 1}
+    checkpoint = torch.load(output_dir / "best_checkpoint.pt", map_location="cpu")
+    assert checkpoint["repr_key"] == "tme_proxy_anchor_v1"
+    assert checkpoint["training_config"]["condition_dim"] == 4
+    assert checkpoint["proxy_state_dict"]["proxies"].shape == (2, 3)
     assert "model_state_dict" in checkpoint
     metrics = json.loads((output_dir / "train_metrics.json").read_text(encoding="utf-8"))
-    assert metrics["repr_key"] == "tme_supcon_v1"
-    assert metrics["epochs"] == 1
+    assert metrics["repr_key"] == "tme_proxy_anchor_v1"
+    assert metrics["final_epoch"] == 1
+    assert metrics["device"] == "cpu"
     assert (output_dir / "train_config.yaml").exists()
     assert (output_dir / "train_log.jsonl").read_text(encoding="utf-8").strip()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 
 import numpy as np
 import pytest
@@ -9,7 +10,8 @@ from safetensors.numpy import save_file
 
 from mprisk.data.manifests import write_jsonl
 from mprisk.prompts.prompt_cache_builder import prompt_cache_key
-from mprisk.representation.trajectory_model import MLPProjection
+from mprisk.representation.relation_models import TME_PROXY_ANCHOR_V1, SphericalTMEV1
+from mprisk.representation.training import TrainingConfig
 from scripts.run_core_sdr_pipeline import run_core_sdr_pipeline
 
 
@@ -182,63 +184,21 @@ def _read_jsonl(path) -> list[dict[str, object]]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
 
 
-def test_core_sdr_pipeline_runs_from_fake_manifests_and_writes_summary(tmp_path) -> None:
-    labels = tmp_path / "manifests/final_manifest.jsonl"
-    labels.parent.mkdir(parents=True)
-    sample_ids = ["sample-conflict", "sample-aligned"]
-    write_jsonl(
-        labels,
-        [
-            _manifest_row("sample-conflict", "Conflict"),
-            _manifest_row("sample-aligned", "Aligned"),
-        ],
-    )
-    _write_full_cache_manifest(tmp_path, sample_ids)
-
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
-    prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
-    prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
-    _prompt_set(prompt_set)
-    write_jsonl(
-        prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
-    )
-    write_jsonl(prompted_manifest, _prompted_rows(tmp_path, sample_ids))
-
-    result = run_core_sdr_pipeline(
-        model_key="qwen3_vl_8b",
-        protocol="VT",
-        prompt_set_key="vt_primary_v1",
-        repr_key="raw_layernorm_mean",
-        manifest_paths=[labels],
-        full_cache_root=tmp_path,
-        prompt_cache_manifest=prompt_cache_manifest,
-        prompt_conditioned_cache_manifest=prompted_manifest,
-        prompt_set=prompt_set,
-        output_root=tmp_path,
-        thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},
-    )
-
-    expected_output_dir = (
-        tmp_path / "outputs/states/qwen3_vl_8b/VT/vt_primary_v1/raw_layernorm_mean"
-    )
-    assert result.sdr_scores_path == expected_output_dir / "sdr_scores.jsonl"
-    assert result.state_patterns_path == expected_output_dir / "state_patterns.jsonl"
-    assert result.state_summary_path == expected_output_dir / "state_summary.json"
-    assert result.core_summary_path == expected_output_dir / "CORE_SDR_SUMMARY.md"
-
-    scores = _read_jsonl(result.sdr_scores_path)
-    patterns = _read_jsonl(result.state_patterns_path)
-    summary_text = result.core_summary_path.read_text(encoding="utf-8")
-
-    assert [row["sample_id"] for row in scores] == sample_ids
-    assert [row["sample_id"] for row in patterns] == sample_ids
-    assert "State counts" in summary_text
-    assert "Output paths" in summary_text
-    assert "Conflict samples: 1" in summary_text
-    assert "Aligned samples: 1" in summary_text
-    assert str(result.sdr_scores_path) in summary_text
-    assert str(result.state_patterns_path) in summary_text
+def test_core_sdr_pipeline_rejects_raw_layernorm_as_final_representation(tmp_path) -> None:
+    with pytest.raises(ValueError, match="raw_layernorm representations cannot stand in"):
+        run_core_sdr_pipeline(
+            model_key="qwen3_vl_8b",
+            protocol="VT",
+            prompt_set_key="vt_primary_v1",
+            repr_key="raw_layernorm_mean",
+            manifest_paths=[tmp_path / "missing.jsonl"],
+            full_cache_root=tmp_path,
+            prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
+            prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
+            prompt_set=tmp_path / "vt_primary_v1.yaml",
+            output_root=tmp_path,
+            thresholds={"kappa": 0.5, "tau": 0.01},
+        )
 
 
 def test_core_sdr_pipeline_requires_checkpoint_for_tme_repr(tmp_path) -> None:
@@ -247,13 +207,14 @@ def test_core_sdr_pipeline_requires_checkpoint_for_tme_repr(tmp_path) -> None:
             model_key="qwen3_vl_8b",
             protocol="VT",
             prompt_set_key="vt_primary_v1",
-            repr_key="tme_supcon_v1",
+            repr_key=TME_PROXY_ANCHOR_V1,
             manifest_paths=[tmp_path / "missing.jsonl"],
             full_cache_root=tmp_path,
             prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
             prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
             prompt_set=tmp_path / "vt_primary_v1.yaml",
             output_root=tmp_path,
+            thresholds={"kappa": 0.5, "tau": 0.01},
         )
 
 
@@ -274,18 +235,26 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
         [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
     )
     write_jsonl(prompted_manifest, _prompted_rows(tmp_path, sample_ids))
-    model = MLPProjection(input_dim=3, embed_dim=4, hidden_dim=8, dropout=0.0)
+    model = SphericalTMEV1(
+        input_dim=3,
+        sequence_hidden_dim=8,
+        condition_dim=4,
+        relation_dim=3,
+        dropout=0.0,
+    )
+    training_config = TrainingConfig(
+        repr_key=TME_PROXY_ANCHOR_V1,
+        model_key="qwen3_vl_8b",
+        hidden_dim=8,
+        condition_dim=4,
+        relation_dim=3,
+        dropout=0.0,
+    )
     torch.save(
         {
-            "repr_key": "tme_supcon_v1",
-            "model_config": {
-                "input_dim": 3,
-                "embed_dim": 4,
-                "hidden_dim": 8,
-                "dropout": 0.0,
-                "pooling": "mean",
-                "normalize_output": True,
-            },
+            "repr_key": TME_PROXY_ANCHOR_V1,
+            "model_config": {"input_dim": 3, "layer_count": 2},
+            "training_config": asdict(training_config),
             "model_state_dict": model.state_dict(),
         },
         checkpoint,
@@ -295,19 +264,19 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
         model_key="qwen3_vl_8b",
         protocol="VT",
         prompt_set_key="vt_primary_v1",
-        repr_key="tme_supcon_v1",
+        repr_key=TME_PROXY_ANCHOR_V1,
         manifest_paths=[labels],
         full_cache_root=tmp_path,
         prompt_cache_manifest=prompt_cache_manifest,
         prompt_conditioned_cache_manifest=prompted_manifest,
         prompt_set=prompt_set,
         output_root=tmp_path,
-        thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},
+        thresholds={"kappa": 0.5, "tau": 0.01},
         checkpoint=checkpoint,
     )
 
     scores = _read_jsonl(result.sdr_scores_path)
 
     assert result.sdr_scores_path.name == "sdr_scores.jsonl"
-    assert scores[0]["repr_key"] == "tme_supcon_v1"
+    assert scores[0]["repr_key"] == TME_PROXY_ANCHOR_V1
     assert result.core_summary_path.exists()
