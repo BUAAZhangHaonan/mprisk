@@ -16,6 +16,7 @@ def _row(
     master_split: str,
     sample_type: str,
     protocol: str = "VT",
+    use_in_main: bool = True,
 ) -> dict[str, object]:
     return {
         "sample_id": sample_id,
@@ -24,7 +25,7 @@ def _row(
         "sample_type": sample_type,
         "source_dataset": "fixture",
         "protocol": protocol,
-        "use_in_main": True,
+        "use_in_main": use_in_main,
     }
 
 
@@ -48,7 +49,8 @@ def _config(tmp_path: Path, sources: list[Path]) -> Path:
                 "ranking_rule": "sha256(seed:split_group_id)",
                 "master_split_field": "split",
                 "split_group_field": "split_group_id",
-                "use_in_main_only": True,
+                "scope": "all_valid_conflict_aligned",
+                "use_in_main_only": False,
                 "calibration_master_split": "val",
                 "calibration_eligible_sample_type": "Aligned",
                 "minimum_eligible_groups": 2,
@@ -159,6 +161,35 @@ def test_split_assignment_rejects_group_crossing_official_splits(tmp_path) -> No
         )
 
 
+def test_split_assignment_includes_valid_ac_rows_regardless_of_legacy_main_flag(
+    tmp_path,
+) -> None:
+    rows = _fixture_rows()
+    rows.append(
+        _row(
+            "legacy-supplemental",
+            "g-legacy-supplemental",
+            "train",
+            "Conflict",
+            use_in_main=False,
+        )
+    )
+    source = _write_jsonl(tmp_path / "rows.jsonl", rows)
+
+    result = build_representation_split_assignment(
+        config_path=_config(tmp_path, [source]),
+        output_dir=tmp_path / "out",
+    )
+    assignments = [json.loads(line) for line in result.manifest_path.read_text().splitlines()]
+    summary = json.loads(result.summary_path.read_text())
+
+    assert any(
+        "legacy-supplemental" in row["sample_ids"] for row in assignments
+    )
+    assert summary["scope"] == "all_valid_conflict_aligned"
+    assert summary["use_in_main_only"] is False
+
+
 def test_registered_split_artifact_matches_sources_and_exact_counts(tmp_path) -> None:
     root = Path(__file__).resolve().parents[2]
     config = root / "configs/splits/representation_split_v1.yaml"
@@ -173,21 +204,38 @@ def test_registered_split_artifact_matches_sources_and_exact_counts(tmp_path) ->
     )
 
     assert rebuilt.manifest_path.read_bytes() == committed_manifest.read_bytes()
-    assert committed_summary["group_counts"] == {
-        "aligned_calibration": 175,
-        "official_test": 447,
-        "relation_train": 2046,
-        "relation_val": 230,
+    assert committed_summary["scope"] == "all_valid_conflict_aligned"
+    assert committed_summary["use_in_main_only"] is False
+    assert committed_summary["legacy_use_in_main_counts"] == {
+        "false": 205,
+        "true": 4549,
     }
-    assert committed_summary["sample_counts"] == {
-        "aligned_calibration": 289,
-        "official_test": 706,
-        "relation_train": 3208,
-        "relation_val": 346,
+    assert committed_summary["sample_count"] == 4754
+    assert committed_summary["sample_counts"]["relation_train"] == 3354
+    assert (
+        committed_summary["sample_counts"]["relation_val"]
+        + committed_summary["sample_counts"]["aligned_calibration"]
+        == 666
+    )
+    assert committed_summary["sample_counts"]["official_test"] == 734
+    source_ids = {
+        json.loads(line)["sample_id"]
+        for path in (
+            root / "data/processed/manifests/protocol_manifests/vt_primary.jsonl",
+            root / "data/processed/manifests/protocol_manifests/va_aux.jsonl",
+        )
+        for line in path.read_text().splitlines()
+        if line
     }
+    assigned_ids = {
+        sample_id
+        for row in (
+            json.loads(line) for line in committed_manifest.read_text().splitlines() if line
+        )
+        for sample_id in row["sample_ids"]
+    }
+    assert assigned_ids == source_ids
+    assert len(assigned_ids) == 4754
     assert committed_summary["manifest_sha256"] == hashlib.sha256(
         committed_manifest.read_bytes()
     ).hexdigest()
-    assert committed_summary["manifest_sha256"] == (
-        "f597ed0067c7f643760ce066b03bd8a5af10a59542d89dc467d46824d3070ce7"
-    )

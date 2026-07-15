@@ -76,9 +76,13 @@ def build_representation_split_assignment(
             "sources": sources,
             "seed": config["seed"],
             "ranking_rule": config["ranking_rule"],
+            "scope": config["scope"],
             "calibration_fraction": config["calibration_fraction"],
             "calibration_rounding": config["calibration_rounding"],
             "use_in_main_only": config["use_in_main_only"],
+            "legacy_use_in_main_counts": dict(
+                sorted(Counter(str(bool(row.get("use_in_main"))).lower() for row in rows).items())
+            ),
             "selection_policy": (
                 "official val groups containing only Aligned samples; fixed seeded hash rank"
             ),
@@ -140,6 +144,7 @@ def _load_config(path: Path) -> dict[str, Any]:
         "ranking_rule",
         "master_split_field",
         "split_group_field",
+        "scope",
         "use_in_main_only",
         "calibration_master_split",
         "calibration_eligible_sample_type",
@@ -159,8 +164,10 @@ def _load_config(path: Path) -> dict[str, Any]:
         raise ValueError("calibration carve must use official validation only")
     if payload["calibration_eligible_sample_type"] != "Aligned":
         raise ValueError("calibration carve eligibility must be Aligned")
-    if payload["use_in_main_only"] is not True:
-        raise ValueError("use_in_main_only must be explicitly true")
+    if payload["scope"] != "all_valid_conflict_aligned":
+        raise ValueError("split scope must be all_valid_conflict_aligned")
+    if payload["use_in_main_only"] is not False:
+        raise ValueError("use_in_main_only must be explicitly false for the all-A/C scope")
     expected_assignments = {
         "train": "relation_train",
         "validation": "relation_val",
@@ -188,15 +195,15 @@ def _load_source_rows(
         source_rows = _read_jsonl(path)
         sources.append({"path": str(raw_path), "sha256": _sha256(path)})
         for row in source_rows:
-            if not bool(row.get("use_in_main")):
-                continue
             sample_id = _required_text(row, "sample_id")
+            if _required_text(row, "sample_type") not in {"Aligned", "Conflict"}:
+                raise ValueError("split scope accepts only valid Conflict/Aligned samples")
             if sample_id in seen_samples:
                 raise ValueError(f"sample_id appears in multiple source rows: {sample_id}")
             seen_samples.add(sample_id)
             rows.append(row)
     if not rows:
-        raise ValueError("split sources contain no use_in_main samples")
+        raise ValueError("split sources contain no valid Conflict/Aligned samples")
     return rows, sources
 
 

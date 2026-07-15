@@ -1,8 +1,8 @@
 {
   "schema": "mprisk_representation_split_summary_v1",
-  "config_key": "representation_split_seed20260716_v1",
+  "config_key": "representation_split_seed20260716_all_ac_v2",
   "config_path": "configs/splits/representation_split_v1.yaml",
-  "config_sha256": "47170e6ea497e1bae3c50db0783d141fb64eaf118b26c032c2fdba86fe2919a9",
+  "config_sha256": "1cc8d5d4f7e911e3b2f7389ef3246f165221a27a0b95461e40fa1f0c1d068418",
   "sources": [
     {
       "path": "../../data/processed/manifests/protocol_manifests/vt_primary.jsonl",
@@ -15,42 +15,47 @@
   ],
   "seed": 20260716,
   "ranking_rule": "sha256(seed:split_group_id)",
+  "scope": "all_valid_conflict_aligned",
   "calibration_fraction": 0.5,
   "calibration_rounding": "floor",
-  "use_in_main_only": true,
+  "use_in_main_only": false,
+  "legacy_use_in_main_counts": {
+    "false": 205,
+    "true": 4549
+  },
   "selection_policy": "official val groups containing only Aligned samples; fixed seeded hash rank",
   "group_counts": {
-    "aligned_calibration": 175,
-    "official_test": 447,
-    "relation_train": 2046,
-    "relation_val": 230
+    "aligned_calibration": 171,
+    "official_test": 458,
+    "relation_train": 2104,
+    "relation_val": 241
   },
   "sample_counts": {
-    "aligned_calibration": 289,
-    "official_test": 706,
-    "relation_train": 3208,
-    "relation_val": 346
+    "aligned_calibration": 290,
+    "official_test": 734,
+    "relation_train": 3354,
+    "relation_val": 376
   },
   "label_counts": {
     "aligned_calibration": {
-      "Aligned": 289
+      "Aligned": 290
     },
     "official_test": {
-      "Aligned": 625,
-      "Conflict": 81
+      "Aligned": 634,
+      "Conflict": 100
     },
     "relation_train": {
-      "Aligned": 2884,
-      "Conflict": 324
+      "Aligned": 2943,
+      "Conflict": 411
     },
     "relation_val": {
-      "Aligned": 291,
-      "Conflict": 55
+      "Aligned": 302,
+      "Conflict": 74
     }
   },
-  "group_count": 2898,
-  "sample_count": 4549,
+  "group_count": 2974,
+  "sample_count": 4754,
   "manifest_path": "data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl",
-  "manifest_sha256": "f597ed0067c7f643760ce066b03bd8a5af10a59542d89dc467d46824d3070ce7",
-  "assignment_checksum": "cf447cd39f4961572c049e971a6680c44a436b8086e67174d7a16a208a8b76b0"
+  "manifest_sha256": "681114e1d8e9a94a1ac243d44b4194327431eb2bdaf5557de87a0e58cd404475",
+  "assignment_checksum": "bd784c316e2b6ff886c5223b749745606fecf8155c6122b0c0ebe79a415c88b0"
 }

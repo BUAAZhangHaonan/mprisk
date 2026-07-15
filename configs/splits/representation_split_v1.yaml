@@ -1,5 +1,6 @@
 schema: mprisk_representation_split_config_v1
-key: representation_split_seed20260716_v1
+key: representation_split_seed20260716_all_ac_v2
+scope: all_valid_conflict_aligned
 source_manifests:
   - ../../data/processed/manifests/protocol_manifests/vt_primary.jsonl
   - ../../data/processed/manifests/protocol_manifests/va_aux.jsonl
@@ -9,7 +10,7 @@ calibration_rounding: floor
 ranking_rule: sha256(seed:split_group_id)
 master_split_field: split
 split_group_field: split_group_id
-use_in_main_only: true
+use_in_main_only: false
 calibration_master_split: val
 calibration_eligible_sample_type: Aligned
 minimum_eligible_groups: 2

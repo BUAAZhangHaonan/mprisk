@@ -164,11 +164,15 @@ def test_build_state_dataset_exports_resolved_rows_and_missing_cache_report(tmp_
     assert summary["missing_cache_rows"] == 1
 
 
-def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
+def test_build_state_dataset_filters_protocol_but_preserves_legacy_main_flag(tmp_path) -> None:
     labels = tmp_path / "data/processed/manifests/unified_sample_manifest.jsonl"
     labels.parent.mkdir(parents=True)
     skipped = _manifest_row("sample-skip")
     skipped["use_in_main"] = False
+    for view in skipped["views"].values():
+        view["label"] = ""
+        view["specific_affect"] = ""
+        view["is_clear"] = False
     other_protocol = _manifest_row("sample-va")
     other_protocol["protocol"] = "VA"
     write_jsonl(labels, [_manifest_row("sample-ok"), skipped, other_protocol])
@@ -178,6 +182,9 @@ def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
             _cache_entry(tmp_path, "sample-ok", "M1"),
             _cache_entry(tmp_path, "sample-ok", "M2"),
             _cache_entry(tmp_path, "sample-ok", "M12"),
+            _cache_entry(tmp_path, "sample-skip", "M1"),
+            _cache_entry(tmp_path, "sample-skip", "M2"),
+            _cache_entry(tmp_path, "sample-skip", "M12"),
         ],
     )
 
@@ -187,7 +194,11 @@ def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
         model_key="qwen3_vl_8b",
         protocol="vt",
         split_assignment_path=_write_split_assignment(
-            tmp_path, {"sample-ok": ("train", "relation_train")}
+            tmp_path,
+            {
+                "sample-ok": ("train", "relation_train"),
+                "sample-skip": ("train", "relation_train"),
+            },
         ),
         output_dir=tmp_path / "outputs/state_data/qwen3_vl_8b/VT",
     )
@@ -197,7 +208,9 @@ def test_build_state_dataset_filters_protocol_and_use_in_main(tmp_path) -> None:
         for line in result.manifest_path.read_text(encoding="utf-8").splitlines()
         if line
     ]
-    assert [row["sample_id"] for row in rows] == ["sample-ok"]
+    assert [row["sample_id"] for row in rows] == ["sample-ok", "sample-skip"]
+    assert [row["use_in_main"] for row in rows] == [True, False]
+    assert rows[1]["target_label"] is None
 
 
 def test_build_state_dataset_rejects_missing_master_split_before_cache_resolution(

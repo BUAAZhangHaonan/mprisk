@@ -129,7 +129,11 @@ never hashes the full dataset into a new split.
 The pre-registered split rule is in
 `configs/splits/representation_split_v1.yaml`. Official train is unchanged and is the
 only encoder-training partition. Official test is unchanged and is reserved for final
-evaluation. Among official-validation source groups containing only Aligned samples,
+evaluation. The registered scope is all 4,754 valid `Conflict`/`Aligned` rows in the
+VT and VA protocol manifests. The legacy `use_in_main` field is retained as provenance
+but does not filter representation or state data. No view-level affect label or
+`is_clear` field participates in inclusion or supervision. Among official-validation
+source groups containing only Aligned samples,
 groups are ranked without replacement by `sha256(seed:split_group_id)` using seed
 `20260716`; floor 50% are assigned to `aligned_calibration`. Remaining Aligned groups
 and every Conflict validation group form `relation_val`. A group cannot cross

@@ -92,6 +92,10 @@ def build_state_dataset(
             "missing_cache_rows_path": str(output_root / "missing_cache_rows.jsonl"),
             "split_assignment": str(split_assignment_file),
             "split_assignment_sha256": split_assignment_sha256,
+            "legacy_use_in_main_counts": {
+                value: sum(str(row.use_in_main).lower() == value for row in rows)
+                for value in ("true", "false")
+            },
         },
     )
     missing_output = write_jsonl(output_root / "missing_cache_rows.jsonl", missing_rows)
@@ -112,7 +116,9 @@ def _load_label_rows(
     rows: list[FinalManifestRow] = []
     seen: set[str] = set()
     for path in manifest_paths:
-        for row in read_final_manifest(path, protocol=protocol, use_in_main=True):
+        for row in read_final_manifest(path, protocol=protocol):
+            if row.sample_type not in {"Aligned", "Conflict"}:
+                continue
             if row.sample_id in seen:
                 continue
             seen.add(row.sample_id)
@@ -149,6 +155,7 @@ def _state_row(
         ),
         "split_assignment_key": assignment["config_key"],
         "split_assignment_sha256": split_assignment_sha256,
+        "use_in_main": row.use_in_main,
         "target_label": _target_label(row),
         "view_labels": _view_labels(row),
         "dominant_modality": extras.get("dominant_modality", "unclear"),
@@ -179,6 +186,7 @@ def _missing_row(
         "split_group_id": row.split_group_id,
         "master_split": assignment["master_split"],
         "representation_split": assignment["representation_split"],
+        "use_in_main": row.use_in_main,
         "missing_conditions": missing_conditions,
     }
 
