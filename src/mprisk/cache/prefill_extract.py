@@ -6,12 +6,11 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from safetensors.numpy import load_file
+from safetensors import safe_open
 
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 
-
-Trajectory = list[list[float]]
+Trajectory = np.ndarray
 
 
 @dataclass(frozen=True)
@@ -37,10 +36,9 @@ def t0_token_index(entry: HiddenStateEntry | None = None) -> int:
 
 def extract_t0_trajectory(entry: HiddenStateEntry) -> Trajectory:
     """Read one cache entry and return a [layer_count, hidden_dim] trajectory."""
-    hidden_states = _load_entry_hidden_states(entry)
-    trajectory = _slice_t0(hidden_states, entry)
+    trajectory = _load_entry_t0(entry)
     _validate_trajectory(trajectory, entry)
-    return trajectory.astype(np.float32).tolist()
+    return np.asarray(trajectory, dtype=np.float32)
 
 
 def bundle_three_views(
@@ -78,55 +76,54 @@ def bundle_three_views(
     )
 
 
-def _load_entry_hidden_states(entry: HiddenStateEntry) -> np.ndarray:
+def _load_entry_t0(entry: HiddenStateEntry) -> np.ndarray:
     if not entry.shard_file.exists():
         raise FileNotFoundError(f"Cache shard does not exist: {entry.shard_file}")
-    tensors = load_file(entry.shard_file)
-    tensor_key = _select_tensor_key(tensors, entry.metadata or {})
-    tensor = np.asarray(tensors[tensor_key])
-    return _select_sample_tensor(tensor, entry)
-
-
-def _select_tensor_key(tensors: dict[str, np.ndarray], metadata: dict[str, Any]) -> str:
-    requested = metadata.get("tensor_key")
-    if requested:
-        requested_key = str(requested)
-        if requested_key not in tensors:
-            raise KeyError(f"Tensor key {requested_key!r} not found in cache shard")
-        return requested_key
-    if "hidden_states" in tensors:
-        return "hidden_states"
-    if len(tensors) == 1:
-        return next(iter(tensors))
-    keys = ", ".join(sorted(tensors))
-    raise ValueError(f"Cache shard has multiple tensors; set metadata.tensor_key. Keys: {keys}")
-
-
-def _select_sample_tensor(tensor: np.ndarray, entry: HiddenStateEntry) -> np.ndarray:
-    if tensor.ndim == 4:
-        if entry.index_in_shard >= tensor.shape[0]:
-            raise IndexError(
-                f"index_in_shard {entry.index_in_shard} is out of range for {entry.shard_file}"
-            )
-        return tensor[entry.index_in_shard]
-    if tensor.ndim in {2, 3}:
-        return tensor
+    with safe_open(entry.shard_file, framework="np") as tensors:
+        tensor_key = _select_tensor_key(list(tensors.keys()), entry.metadata or {})
+        tensor = tensors.get_slice(tensor_key)
+        shape = tuple(tensor.get_shape())
+        if len(shape) == 4:
+            if entry.index_in_shard >= shape[0]:
+                raise IndexError(
+                    f"index_in_shard {entry.index_in_shard} is out of range for "
+                    f"{entry.shard_file}"
+                )
+            token_index = _resolved_token_index(shape[2], entry)
+            return np.asarray(tensor[entry.index_in_shard, :, token_index, :])
+        if len(shape) == 3:
+            token_index = _resolved_token_index(shape[1], entry)
+            return np.asarray(tensor[:, token_index, :])
+        if len(shape) == 2:
+            return np.asarray(tensor[:, :])
     raise ValueError(
         "Hidden-state tensor must have shape [sample, layer, token, hidden], "
         "[layer, token, hidden], or [layer, hidden]"
     )
 
 
-def _slice_t0(hidden_states: np.ndarray, entry: HiddenStateEntry) -> np.ndarray:
-    if hidden_states.ndim == 2:
-        return hidden_states
-    if hidden_states.ndim != 3:
-        raise ValueError("Selected hidden states must be [layer, token, hidden] or [layer, hidden]")
+def _select_tensor_key(keys: list[str], metadata: dict[str, Any]) -> str:
+    requested = metadata.get("tensor_key")
+    if requested:
+        requested_key = str(requested)
+        if requested_key not in keys:
+            raise KeyError(f"Tensor key {requested_key!r} not found in cache shard")
+        return requested_key
+    if "hidden_states" in keys:
+        return "hidden_states"
+    if len(keys) == 1:
+        return keys[0]
+    key_text = ", ".join(sorted(keys))
+    raise ValueError(
+        f"Cache shard has multiple tensors; set metadata.tensor_key. Keys: {key_text}"
+    )
+
+
+def _resolved_token_index(token_count: int, entry: HiddenStateEntry) -> int:
     token_index = t0_token_index(entry)
-    token_count = hidden_states.shape[1]
     if not -token_count <= token_index < token_count:
         raise IndexError(f"t0_token_index {token_index} is out of range for {token_count} tokens")
-    return hidden_states[:, token_index, :]
+    return token_index
 
 
 def _validate_trajectory(trajectory: np.ndarray, entry: HiddenStateEntry) -> None:

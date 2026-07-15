@@ -162,6 +162,12 @@ and cross-entropy are not part of the TME objective. Checkpoint selection uses o
 validation balanced accuracy over `sample_type.Aligned` and `sample_type.Conflict`, with
 class-code mapping `C=Aligned` and `A=Conflict`.
 
+Training indexes only relation metadata in memory. M1/M2/M12 trajectories are sliced
+from safetensors with `safe_open` when each bounded batch is consumed; cache tensors
+are never converted to nested Python lists or retained for the full dataset. Frozen
+`z`/`r` manifests and sample bundles are written incrementally through atomic temporary
+files, with at most one sample's prompt bundle accumulated at a time.
+
 The trained representation smoke chain is:
 
 ```text

@@ -91,7 +91,7 @@ class _Sample:
     protocol: str
     prompt_set_key: str
     prompt_id: str
-    trajectories: torch.Tensor
+    condition_entries: tuple[Any, Any, Any]
 
 
 def load_training_config(path: str | Path) -> TrainingConfig:
@@ -146,7 +146,7 @@ def train_trajectory_encoder(
         for row in rows
         if row["representation_split"] in {"relation_train", "relation_val"}
     ]
-    samples = _rows_to_samples(training_rows)
+    samples = _rows_to_sample_refs(training_rows)
     train_samples, val_samples = _registered_group_split(samples)
     layer_count, input_dim = _trajectory_shape(samples)
     torch_device = _resolve_device(device)
@@ -304,7 +304,7 @@ def export_frozen_representations(
         )
     config = TrainingConfig(**checkpoint["training_config"])
     rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
-    samples = _rows_to_samples(rows)
+    samples = _rows_to_sample_refs(rows)
     model = build_representation_model(
         config.repr_key,
         input_dim=int(checkpoint["model_config"]["input_dim"]),
@@ -316,87 +316,146 @@ def export_frozen_representations(
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
-    exported: list[dict[str, Any]] = []
-    with torch.no_grad():
-        for sample in samples:
-            condition_z, relation_r = model(sample.trajectories.unsqueeze(0))
-            exported.append(
-                {
-                    "schema": "mprisk_frozen_spherical_representation_v1",
-                    "row_id": sample.row_id,
-                    "sample_id": sample.sample_id,
-                    "sample_type": sample.sample_type,
-                    "model_key": config.model_key,
-                    "protocol": sample.protocol,
-                    "prompt_set_key": sample.prompt_set_key,
-                    "calibration_split": sample.calibration_split,
-                    "master_split": sample.master_split,
-                    "representation_split": sample.representation_split,
-                    "split_group_id": sample.split_group_id,
-                    "split_assignment_key": sample.split_assignment_key,
-                    "split_assignment_sha256": sample.split_assignment_sha256,
-                    "prompt_id": sample.prompt_id,
-                    "repr_key": config.repr_key,
-                    "condition_z": {
-                        condition: condition_z[0, index].cpu().tolist()
-                        for index, condition in enumerate(CONDITIONS)
-                    },
-                    "relation_r": relation_r[0].cpu().tolist(),
-                }
-            )
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     manifest_path = output_root / "frozen_representations.jsonl"
-    _atomic_jsonl(manifest_path, exported)
-    bundle_rows = _frozen_bundle_rows(exported)
     bundle_manifest_path = output_root / "spherical_embedding_manifest.jsonl"
-    _atomic_jsonl(bundle_manifest_path, bundle_rows)
+    sample_count = _stream_frozen_exports(
+        samples=sorted(samples, key=lambda sample: (sample.sample_id, sample.prompt_id)),
+        model=model,
+        config=config,
+        manifest_path=manifest_path,
+        bundle_manifest_path=bundle_manifest_path,
+    )
     summary_path = write_json(
         output_root / "frozen_representation_summary.json",
         {
             "schema": "mprisk_frozen_spherical_representation_summary_v1",
             "checkpoint": str(checkpoint_path),
             "dataset": str(dataset_path),
-            "count": len(exported),
-            "sample_count": len(bundle_rows),
+            "count": len(samples),
+            "sample_count": sample_count,
             "bundle_manifest": str(bundle_manifest_path),
             "repr_key": config.repr_key,
             "model_key": config.model_key,
         },
     )
     return FrozenRepresentationExportResult(
-        manifest_path, bundle_manifest_path, summary_path, len(exported)
+        manifest_path, bundle_manifest_path, summary_path, len(samples)
     )
 
 
-def _frozen_bundle_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        sample_id = str(row["sample_id"])
-        bundle = grouped.setdefault(
-            sample_id,
-            {
-                "sample_id": sample_id,
-                "sample_type": row["sample_type"],
-                "model_key": row["model_key"],
-                "protocol": row["protocol"],
-                "prompt_set_key": row["prompt_set_key"],
-                "calibration_split": row["calibration_split"],
-                "master_split": row["master_split"],
-                "representation_split": row["representation_split"],
-                "split_group_id": row["split_group_id"],
-                "split_assignment_key": row["split_assignment_key"],
-                "split_assignment_sha256": row["split_assignment_sha256"],
-                "repr_key": row["repr_key"],
-                "embeddings": {condition: {} for condition in CONDITIONS},
-                "relations": {},
-            },
+def _stream_frozen_exports(
+    *,
+    samples: list[_Sample],
+    model: nn.Module,
+    config: TrainingConfig,
+    manifest_path: Path,
+    bundle_manifest_path: Path,
+) -> int:
+    manifest_tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    bundle_tmp = bundle_manifest_path.with_suffix(bundle_manifest_path.suffix + ".tmp")
+    current_bundle: dict[str, Any] | None = None
+    sample_count = 0
+    with (
+        manifest_tmp.open("w", encoding="utf-8") as manifest_handle,
+        bundle_tmp.open("w", encoding="utf-8") as bundle_handle,
+        torch.no_grad(),
+    ):
+        for batch in _batches(samples, config.batch_size):
+            trajectories, _labels = _load_trajectory_batch(
+                batch, device=next(model.parameters()).device
+            )
+            condition_z, relation_r = model(trajectories)
+            for index, sample in enumerate(batch):
+                row = _frozen_row(
+                    sample,
+                    model_key=config.model_key,
+                    repr_key=config.repr_key,
+                    condition_z=condition_z[index],
+                    relation_r=relation_r[index],
+                )
+                manifest_handle.write(json.dumps(row, sort_keys=True) + "\n")
+                if current_bundle is None or current_bundle["sample_id"] != sample.sample_id:
+                    if current_bundle is not None:
+                        bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
+                    current_bundle = _empty_frozen_bundle(row)
+                    sample_count += 1
+                _append_frozen_row(current_bundle, row)
+        if current_bundle is not None:
+            bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
+        for handle in (manifest_handle, bundle_handle):
+            handle.flush()
+            os.fsync(handle.fileno())
+    os.replace(manifest_tmp, manifest_path)
+    os.replace(bundle_tmp, bundle_manifest_path)
+    return sample_count
+
+
+def _frozen_row(
+    sample: _Sample,
+    *,
+    model_key: str,
+    repr_key: str,
+    condition_z: torch.Tensor,
+    relation_r: torch.Tensor,
+) -> dict[str, Any]:
+    return {
+        "schema": "mprisk_frozen_spherical_representation_v1",
+        "row_id": sample.row_id,
+        "sample_id": sample.sample_id,
+        "sample_type": sample.sample_type,
+        "model_key": model_key,
+        "protocol": sample.protocol,
+        "prompt_set_key": sample.prompt_set_key,
+        "calibration_split": sample.calibration_split,
+        "master_split": sample.master_split,
+        "representation_split": sample.representation_split,
+        "split_group_id": sample.split_group_id,
+        "split_assignment_key": sample.split_assignment_key,
+        "split_assignment_sha256": sample.split_assignment_sha256,
+        "prompt_id": sample.prompt_id,
+        "repr_key": repr_key,
+        "condition_z": {
+            condition: _vector_values(condition_z[index])
+            for index, condition in enumerate(CONDITIONS)
+        },
+        "relation_r": _vector_values(relation_r),
+    }
+
+
+def _empty_frozen_bundle(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: row[key]
+        for key in (
+            "sample_id",
+            "sample_type",
+            "model_key",
+            "protocol",
+            "prompt_set_key",
+            "calibration_split",
+            "master_split",
+            "representation_split",
+            "split_group_id",
+            "split_assignment_key",
+            "split_assignment_sha256",
+            "repr_key",
         )
-        prompt_id = str(row["prompt_id"])
-        for condition in CONDITIONS:
-            bundle["embeddings"][condition][prompt_id] = row["condition_z"][condition]
-        bundle["relations"][prompt_id] = row["relation_r"]
-    return [grouped[sample_id] for sample_id in sorted(grouped)]
+    } | {
+        "embeddings": {condition: {} for condition in CONDITIONS},
+        "relations": {},
+    }
+
+
+def _append_frozen_row(bundle: dict[str, Any], row: dict[str, Any]) -> None:
+    prompt_id = str(row["prompt_id"])
+    for condition in CONDITIONS:
+        bundle["embeddings"][condition][prompt_id] = row["condition_z"][condition]
+    bundle["relations"][prompt_id] = row["relation_r"]
+
+
+def _vector_values(vector: torch.Tensor) -> list[float]:
+    return [float(value) for value in vector.detach().cpu().numpy()]
 
 
 def _read_relation_rows(path: str | Path, *, expected_model_key: str) -> list[dict[str, Any]]:
@@ -429,23 +488,38 @@ def _read_relation_rows(path: str | Path, *, expected_model_key: str) -> list[di
     return rows
 
 
-def _rows_to_samples(rows: list[dict[str, Any]]) -> list[_Sample]:
+def _rows_to_sample_refs(rows: list[dict[str, Any]]) -> list[_Sample]:
     samples: list[_Sample] = []
     expected_shape: tuple[int, int] | None = None
     for row in rows:
-        trajectories = torch.stack(
-            [
-                torch.tensor(
-                    extract_t0_trajectory(
-                        prompt_conditioned_entry_from_row(row["conditions"][condition])
-                        .to_hidden_state_entry()
-                    ),
-                    dtype=torch.float32,
-                )
-                for condition in CONDITIONS
-            ]
+        entries = tuple(
+            prompt_conditioned_entry_from_row(row["conditions"][condition])
+            for condition in CONDITIONS
         )
-        shape = tuple(trajectories.shape[1:])
+        expected_key = (
+            str(row["sample_id"]),
+            str(row["model_key"]),
+            str(row["protocol"]).lower(),
+            str(row["prompt_set_key"]),
+            str(row["prompt_id"]),
+        )
+        for condition, entry in zip(CONDITIONS, entries, strict=True):
+            actual_key = (
+                entry.sample_id,
+                entry.model_key,
+                entry.protocol,
+                entry.prompt_set_key,
+                entry.prompt_id,
+            )
+            if actual_key != expected_key or entry.condition != condition:
+                raise ValueError(
+                    "M1, M2, and M12 cache entries must use the same "
+                    "sample/model/protocol/prompt as the relation row"
+                )
+        shapes = {(entry.layer_count, entry.hidden_dim) for entry in entries}
+        if len(shapes) != 1:
+            raise ValueError("all three condition trajectories must have the same shape")
+        shape = next(iter(shapes))
         if expected_shape is None:
             expected_shape = shape
         elif shape != expected_shape:
@@ -465,10 +539,24 @@ def _rows_to_samples(rows: list[dict[str, Any]]) -> list[_Sample]:
                 protocol=str(row["protocol"]),
                 prompt_set_key=str(row["prompt_set_key"]),
                 prompt_id=str(row["prompt_id"]),
-                trajectories=trajectories,
+                condition_entries=tuple(entry.to_hidden_state_entry() for entry in entries),
             )
         )
     return samples
+
+
+def _load_trajectory_batch(
+    batch: list[_Sample], *, device: torch.device
+) -> tuple[torch.Tensor, torch.Tensor]:
+    arrays = [
+        np.stack([extract_t0_trajectory(entry) for entry in sample.condition_entries])
+        for sample in batch
+    ]
+    trajectories = torch.from_numpy(np.stack(arrays).astype(np.float32, copy=False)).to(device)
+    labels = torch.tensor(
+        [sample.label_id for sample in batch], dtype=torch.long, device=device
+    )
+    return trajectories, labels
 
 
 def _registered_group_split(samples: list[_Sample]) -> tuple[list[_Sample], list[_Sample]]:
@@ -590,10 +678,7 @@ def _batch_loss_and_predictions(
     batch: list[_Sample],
 ) -> tuple[torch.Tensor, torch.Tensor]:
     device = next(model.parameters()).device
-    trajectories = torch.stack([sample.trajectories for sample in batch]).to(device)
-    labels = torch.tensor(
-        [sample.label_id for sample in batch], dtype=torch.long, device=device
-    )
+    trajectories, labels = _load_trajectory_batch(batch, device=device)
     if objective is not None:
         _condition_z, relation_r = model(trajectories)
         loss = objective(relation_r, labels)
@@ -649,8 +734,8 @@ def _checkpoint_payload(
 
 
 def _trajectory_shape(samples: list[_Sample]) -> tuple[int, int]:
-    shape = samples[0].trajectories.shape
-    return int(shape[1]), int(shape[2])
+    entry = samples[0].condition_entries[0]
+    return int(entry.layer_count), int(entry.hidden_dim)
 
 
 def _batches(samples: list[_Sample], batch_size: int) -> list[list[_Sample]]:

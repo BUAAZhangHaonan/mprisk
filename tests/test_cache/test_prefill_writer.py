@@ -52,7 +52,7 @@ def test_prefill_writer_round_trips_through_full_cache_manifest(tmp_path) -> Non
     )
     entry = manifest.query("sample:1", "qwen2_5_omni_7b", "va", "M12")
     assert entry is not None
-    assert extract_t0_trajectory(entry) == _result().trajectory.tolist()
+    np.testing.assert_array_equal(extract_t0_trajectory(entry), _result().trajectory)
 
 
 def test_prefill_writer_refuses_implicit_overwrite(tmp_path) -> None:

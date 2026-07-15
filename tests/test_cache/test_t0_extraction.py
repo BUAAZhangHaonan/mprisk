@@ -46,7 +46,8 @@ def test_extract_t0_trajectory_reads_sample_from_safetensors_shard(tmp_path) -> 
 
     trajectory = extract_t0_trajectory(entry)
 
-    assert trajectory == hidden_states[0, :, -1, :].tolist()
+    np.testing.assert_array_equal(trajectory, hidden_states[0, :, -1, :])
+    assert trajectory.dtype == np.float32
 
 
 def test_extract_t0_trajectory_supports_metadata_token_override(tmp_path) -> None:
@@ -58,4 +59,4 @@ def test_extract_t0_trajectory_supports_metadata_token_override(tmp_path) -> Non
 
     trajectory = extract_t0_trajectory(entry)
 
-    assert trajectory == hidden_states[0, :, 2, :].tolist()
+    np.testing.assert_array_equal(trajectory, hidden_states[0, :, 2, :])

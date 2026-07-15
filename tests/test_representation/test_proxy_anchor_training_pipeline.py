@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 
@@ -8,9 +9,12 @@ import pytest
 import torch
 from safetensors.numpy import save_file
 
+from mprisk.representation import training as training_impl
 from mprisk.representation.relation_models import TME_ARCHITECTURE_V1, TME_PROXY_ANCHOR_V1
 from mprisk.representation.training import (
     TrainingConfig,
+    _load_trajectory_batch,
+    _rows_to_sample_refs,
     export_frozen_representations,
     train_trajectory_encoder,
 )
@@ -212,6 +216,61 @@ def test_relation_training_reads_direct_float32_layer_hidden_cache(tmp_path) -> 
     )
     checkpoint = torch.load(result.best_checkpoint_path, map_location="cpu")
     assert checkpoint["model_config"] == {"input_dim": 3, "layer_count": 2}
+
+
+def test_relation_index_is_metadata_only_and_loads_one_bounded_batch(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path)
+    rows = training_impl._read_relation_rows(
+        dataset, expected_model_key="qwen3_vl_8b"
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_extract(entry):
+        prompt_id = Path(entry.shard_path).stem.rsplit("-", maxsplit=1)[-1]
+        calls.append((entry.sample_id, entry.condition, prompt_id))
+        return np.zeros((entry.layer_count, entry.hidden_dim), dtype=np.float32)
+
+    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    refs = _rows_to_sample_refs(rows)
+
+    assert calls == []
+    trajectories, labels = _load_trajectory_batch(refs[:2], device=torch.device("cpu"))
+    assert trajectories.shape == (2, 3, 2, 3)
+    assert labels.shape == (2,)
+    assert len(calls) == 2 * 3
+    assert set(calls) == {
+        (ref.sample_id, condition, ref.prompt_id)
+        for ref in refs[:2]
+        for condition in ("M1", "M2", "M12")
+    }
+
+
+def test_relation_index_rejects_cross_prompt_condition_pairing_before_cache_io(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path)
+    rows = training_impl._read_relation_rows(
+        dataset, expected_model_key="qwen3_vl_8b"
+    )
+    rows[0]["conditions"]["M12"]["prompt_id"] = "wrong-prompt"
+    monkeypatch.setattr(
+        training_impl,
+        "extract_t0_trajectory",
+        lambda _entry: pytest.fail("cache must not be read while indexing metadata"),
+    )
+
+    with pytest.raises(ValueError, match="same sample/model/protocol/prompt"):
+        _rows_to_sample_refs(rows)
+
+
+def test_trajectory_loading_paths_never_convert_full_cache_to_python_lists() -> None:
+    from mprisk.cache import prefill_extract
+
+    assert ".tolist(" not in inspect.getsource(prefill_extract)
+    assert ".tolist(" not in inspect.getsource(training_impl._load_trajectory_batch)
+    assert ".tolist(" not in inspect.getsource(training_impl._stream_frozen_exports)
 
 
 def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> None:
