@@ -1,3 +1,4 @@
+# LEGACY READ-ONLY RECORD. Active GT Description loaders reject this schema.
 schema_name: mprisk_deepseek_gt_config_v1
 run_id: deepseek_gt_v1
 model: deepseek-v4-flash

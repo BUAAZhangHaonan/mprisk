@@ -1,4 +1,4 @@
-"""Strict resumable DeepSeek GT-description generation."""
+"""DeepSeek provider adapter for strict, resumable GT Description generation."""
 
 from __future__ import annotations
 
@@ -21,17 +21,23 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 from mprisk.data.generated_archive_freeze import _canonical_json, _sha256
+from mprisk.ground_truth.annotation_inputs import (
+    GT_INPUT_SCHEMA_VERSION,
+    GTAnnotationInput,
+)
 
-PROMPT_KIND = {"A": "a_conflict", "C": "c_aligned"}
-ARCHIVE_ORDER = ("accept_a_svt", "accept_a_va", "accept_c_svt", "accept_c_va")
+CONFIG_SCHEMA = "mprisk_gt_description_generation_config_v1"
+PROVENANCE_SCHEMA = "mprisk_gt_description_generation_provenance_v1"
 
 
-class StrictModel(BaseModel):
+class _StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class _GTConfigBase(StrictModel):
-    model: Literal["deepseek-v4-flash"]
+class GTDescriptionGenerationConfig(_StrictModel):
+    schema_name: Literal["mprisk_gt_description_generation_config_v1"]
+    run_id: str
+    gt_generator_model: Literal["deepseek-v4-flash"]
     api_url: str
     env_file: Path
     api_key_variable: Literal["DEEPSEEK_API_KEY"]
@@ -43,15 +49,26 @@ class _GTConfigBase(StrictModel):
     request_timeout_seconds: float
     min_words: int
     max_words: int
+    gt_input_schema_version: Literal["gt_annotation_input_v1"]
+    input_manifest: Path
+    input_manifest_sha256: str
+    expected_count: int
     output_root: Path
-    a_prompt_path: Path
-    c_prompt_path: Path
+    conflict_prompt_path: Path
+    aligned_prompt_path: Path
 
-    @field_validator("concurrency")
+    @field_validator("run_id")
     @classmethod
-    def positive_concurrency(cls, value: int) -> int:
+    def run_id_must_be_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("run_id must be non-empty")
+        return value
+
+    @field_validator("concurrency", "expected_count")
+    @classmethod
+    def positive_integer(cls, value: int) -> int:
         if value <= 0:
-            raise ValueError("concurrency must be positive")
+            raise ValueError("concurrency and expected_count must be positive")
         return value
 
     @field_validator("retry_delays_seconds")
@@ -69,55 +86,30 @@ class _GTConfigBase(StrictModel):
             raise ValueError("word limits must satisfy 0 < min_words <= max_words")
         return value
 
-
-class GTConfig(_GTConfigBase):
-    schema_name: Literal["mprisk_deepseek_gt_config_v1"]
-    run_id: Literal["deepseek_gt_v1"]
-    input_root: Path
-
-
-class GTPromptContextV2Config(_GTConfigBase):
-    schema_name: Literal["mprisk_deepseek_gt_config_v2"]
-    run_id: str
-    protocol_version: Literal["prompt_context_v2"]
-    input_manifest: Path
-    input_manifest_sha256: str
-    expected_count: int
-
-    @field_validator("run_id")
+    @field_validator("input_manifest_sha256")
     @classmethod
-    def run_id_must_be_versioned_pilot(cls, value: str) -> str:
-        if not value.startswith("deepseek_gt_prompt_context_v2_pilot"):
-            raise ValueError("run_id must identify a prompt-context v2 pilot")
+    def manifest_hash_must_be_sha256(cls, value: str) -> str:
+        if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise ValueError("input_manifest_sha256 must be a lowercase SHA-256 digest")
         return value
-
-    @field_validator("expected_count")
-    @classmethod
-    def expected_count_must_be_positive(cls, value: int) -> int:
-        if value <= 0:
-            raise ValueError("expected_count must be positive")
-        return value
-
-
-AnyGTConfig = GTConfig | GTPromptContextV2Config
 
 
 @dataclass(frozen=True)
-class GTTask:
+class GTDescriptionGenerationTask:
     order: int
     sample_id: str
+    sample_type: Literal["Conflict", "Aligned"]
     source_archive: str
-    data_type: str
     input_hash: str
     prompt_hash: str
     system_prompt: str
     model_input: dict[str, Any]
-    eligible_row: dict[str, Any]
-    ledger_signature: dict[str, Any] | None = None
+    annotation_input_row: dict[str, Any]
+    ledger_signature: dict[str, Any]
 
 
 @dataclass(frozen=True)
-class RunResult:
+class GTDescriptionGenerationResult:
     total: int
     completed: int
     failed: int
@@ -133,20 +125,20 @@ class PermanentAPIError(RuntimeError):
     pass
 
 
-class GTValidationError(ValueError):
+class GTDescriptionValidationError(ValueError):
     pass
 
 
-def load_config(path: str | Path) -> AnyGTConfig:
+def load_config(path: str | Path) -> GTDescriptionGenerationConfig:
     payload = load_yaml(path)
-    if payload.get("schema_name") == "mprisk_deepseek_gt_config_v1":
-        return GTConfig.model_validate(payload)
-    if payload.get("schema_name") == "mprisk_deepseek_gt_config_v2":
-        return GTPromptContextV2Config.model_validate(payload)
-    raise ValueError(f"Unsupported DeepSeek GT config schema: {payload.get('schema_name')!r}")
+    if payload.get("schema_name") != CONFIG_SCHEMA:
+        raise ValueError(
+            f"Unsupported GT Description generation config: {payload.get('schema_name')!r}"
+        )
+    return GTDescriptionGenerationConfig.model_validate(payload)
 
 
-def load_api_key(config: AnyGTConfig) -> str:
+def load_api_key(config: GTDescriptionGenerationConfig) -> str:
     value = os.environ.get(config.api_key_variable)
     if value:
         return value
@@ -154,161 +146,91 @@ def load_api_key(config: AnyGTConfig) -> str:
     value = values.get(config.api_key_variable)
     if value:
         return value
-    raise ValueError("DEEPSEEK_API_KEY is required for ground-truth generation")
+    raise ValueError("DEEPSEEK_API_KEY is required for GT Description generation")
 
 
-def prepare_tasks(repo_root: str | Path, config: AnyGTConfig) -> list[GTTask]:
-    if isinstance(config, GTPromptContextV2Config):
-        return _prepare_prompt_context_v2_tasks(repo_root, config)
-    return _prepare_v1_tasks(repo_root, config)
-
-
-def _prepare_v1_tasks(repo_root: str | Path, config: GTConfig) -> list[GTTask]:
-    root = Path(repo_root).resolve()
-    input_root = (root / config.input_root).resolve()
-    eligible = _read_jsonl(input_root / "gt_eligible.jsonl")
-    assignments = _index(_read_jsonl(input_root / "archetype_semantic_assignments_v1.jsonl"))
-    dictionary = {
-        row["archetype_semantic_id"]: row
-        for row in _read_jsonl(input_root / "archetype_canonical_meanings_v1.jsonl")
-    }
-    prompts = {
-        "A": (root / config.a_prompt_path).read_text(encoding="utf-8"),
-        "C": (root / config.c_prompt_path).read_text(encoding="utf-8"),
-    }
-    tasks: list[GTTask] = []
-    for order, row in enumerate(eligible):
-        sample_id = _text(row, "sample_id")
-        assignment = assignments.get(sample_id)
-        if assignment is None or assignment.get("gt_eligible") is not True:
-            raise ValueError(f"Missing eligible semantic assignment: {sample_id}")
-        if assignment.get("source_row_sha256") != row.get("source_row_sha256"):
-            raise ValueError(f"Assignment hash mismatch: {sample_id}")
-        semantic_id = _text(assignment, "archetype_semantic_id")
-        meaning = dictionary.get(semantic_id)
-        if meaning is None or meaning.get("data_type") != row.get("data_type"):
-            raise ValueError(f"Dictionary join mismatch: {sample_id}")
-        data_type = _text(row, "data_type")
-        model_input = {
-            "archetype": {
-                "id": semantic_id,
-                "name": meaning["canonical_name"],
-                "canonical_meaning": meaning["canonical_meaning"],
-            },
-            "trigger_context": row["context_text"],
-            "dialogue": row["dialogue_text"],
-            "surface_emotion": meaning["surface_emotion"],
-        }
-        _validate_model_input(model_input)
-        prompt = prompts[data_type]
-        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
-        input_hash = hashlib.sha256(
-            _canonical_json(
-                {"model": config.model, "prompt_hash": prompt_hash, "input": model_input}
-            ).encode()
-        ).hexdigest()
-        tasks.append(
-            GTTask(
-                order=order,
-                sample_id=sample_id,
-                source_archive=_text(row, "source_archive"),
-                data_type=data_type,
-                input_hash=input_hash,
-                prompt_hash=prompt_hash,
-                system_prompt=prompt,
-                model_input=model_input,
-                eligible_row=row,
-            )
-        )
-    if len(tasks) != 162 or len({task.sample_id for task in tasks}) != 162:
-        raise ValueError("DeepSeek GT input must contain exactly 162 unique rows")
-    return tasks
-
-
-def _prepare_prompt_context_v2_tasks(
+def prepare_tasks(
     repo_root: str | Path,
-    config: GTPromptContextV2Config,
-) -> list[GTTask]:
+    config: GTDescriptionGenerationConfig,
+) -> list[GTDescriptionGenerationTask]:
     root = Path(repo_root).resolve()
-    manifest_path = (root / config.input_manifest).resolve()
+    manifest_path = _resolve_repo_path(root, config.input_manifest)
     if _sha256(manifest_path) != config.input_manifest_sha256:
-        raise ValueError("Prompt-context v2 input manifest hash mismatch")
+        raise ValueError("GT annotation input manifest hash mismatch")
     rows = _read_jsonl(manifest_path)
     if len(rows) != config.expected_count:
         raise ValueError(
-            f"Prompt-context v2 manifest count mismatch: expected {config.expected_count}, "
+            f"GT annotation input count mismatch: expected {config.expected_count}, "
             f"got {len(rows)}"
         )
     prompts = {
-        "A": (root / config.a_prompt_path).read_text(encoding="utf-8"),
-        "C": (root / config.c_prompt_path).read_text(encoding="utf-8"),
+        "Conflict": _resolve_repo_path(root, config.conflict_prompt_path).read_text(
+            encoding="utf-8"
+        ),
+        "Aligned": _resolve_repo_path(root, config.aligned_prompt_path).read_text(
+            encoding="utf-8"
+        ),
     }
     ledger_signature = {
         "schema_name": config.schema_name,
         "run_id": config.run_id,
-        "protocol_version": config.protocol_version,
+        "gt_generator_model": config.gt_generator_model,
+        "gt_input_schema_version": config.gt_input_schema_version,
         "input_manifest_sha256": config.input_manifest_sha256,
         "expected_count": config.expected_count,
     }
-    tasks: list[GTTask] = []
+    tasks: list[GTDescriptionGenerationTask] = []
     seen_ids: set[str] = set()
-    for order, row in enumerate(rows):
-        _validate_prompt_context_v2_row(row)
-        sample_id = _text(row, "sample_id")
+    for order, raw_row in enumerate(rows):
+        annotation_input = GTAnnotationInput.model_validate(raw_row)
+        row = annotation_input.model_dump(mode="json")
+        sample_id = annotation_input.sample_id
         if sample_id in seen_ids:
-            raise ValueError(f"Duplicate prompt-context v2 sample_id: {sample_id}")
+            raise ValueError(f"Duplicate GT annotation sample_id: {sample_id}")
         seen_ids.add(sample_id)
-        data_type = _text(row, "data_type")
+        sample_type = annotation_input.sample_type
         model_input = {
-            "archetype": dict(row["archetype"]),
-            "dialogue": row["dialogue"],
-            "context": row["context_text"],
-            "surface_emotion": row["surface_emotion"],
+            "archetype": annotation_input.archetype.model_dump(mode="json"),
+            "dialogue": annotation_input.dialogue,
+            "scenario_context": annotation_input.scenario_context,
+            "surface_emotion": annotation_input.surface_emotion,
         }
         _validate_model_input(model_input)
-        prompt = prompts[data_type]
+        prompt = prompts[sample_type]
         prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()
         input_hash = hashlib.sha256(
             _canonical_json(
                 {
-                    "model": config.model,
+                    "gt_generator_model": config.gt_generator_model,
                     "prompt_hash": prompt_hash,
-                    "input": model_input,
+                    "model_input": model_input,
                     "ledger_signature": ledger_signature,
                 }
             ).encode()
         ).hexdigest()
         tasks.append(
-            GTTask(
+            GTDescriptionGenerationTask(
                 order=order,
                 sample_id=sample_id,
-                source_archive=_text(row, "source_archive"),
-                data_type=data_type,
+                sample_type=sample_type,
+                source_archive=annotation_input.source_provenance.source_archive,
                 input_hash=input_hash,
                 prompt_hash=prompt_hash,
                 system_prompt=prompt,
                 model_input=model_input,
-                eligible_row=row,
+                annotation_input_row=row,
                 ledger_signature=dict(ledger_signature),
             )
         )
     return tasks
 
 
-def select_pilot(tasks: list[GTTask], per_archive: int = 4) -> list[GTTask]:
-    selected: list[GTTask] = []
-    for archive in ARCHIVE_ORDER:
-        rows = [task for task in tasks if task.source_archive == archive]
-        if len(rows) < per_archive:
-            raise ValueError(f"Not enough pilot rows in {archive}")
-        selected.extend(rows[:per_archive])
-    return selected
-
-
 class DeepSeekClient:
+    """Provider adapter; GT Description task semantics remain provider-independent."""
+
     def __init__(
         self,
-        config: AnyGTConfig,
+        config: GTDescriptionGenerationConfig,
         api_key: str,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
@@ -316,14 +238,17 @@ class DeepSeekClient:
         self.client = httpx.AsyncClient(
             timeout=httpx.Timeout(config.request_timeout_seconds), transport=transport
         )
-        self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        self.headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
     async def close(self) -> None:
         await self.client.aclose()
 
-    async def complete(self, task: GTTask) -> dict[str, Any]:
+    async def complete(self, task: GTDescriptionGenerationTask) -> dict[str, Any]:
         body = {
-            "model": self.config.model,
+            "model": self.config.gt_generator_model,
             "messages": [
                 {"role": "system", "content": task.system_prompt},
                 {"role": "user", "content": _canonical_json(task.model_input)},
@@ -335,7 +260,9 @@ class DeepSeekClient:
             "stream": False,
         }
         try:
-            response = await self.client.post(self.config.api_url, headers=self.headers, json=body)
+            response = await self.client.post(
+                self.config.api_url, headers=self.headers, json=body
+            )
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise TransientAPIError(type(exc).__name__) from exc
         if response.status_code in {408, 409, 429} or response.status_code >= 500:
@@ -346,10 +273,10 @@ class DeepSeekClient:
             payload = response.json()
         except json.JSONDecodeError as exc:
             raise PermanentAPIError("API response is not JSON") from exc
-        return _validate_response_envelope(payload, self.config.model)
+        return _validate_response_envelope(payload, self.config.gt_generator_model)
 
 
-class Ledger:
+class GTDescriptionGenerationLedger:
     def __init__(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.path = path
@@ -359,11 +286,13 @@ class Ledger:
         self.db.executescript(
             """
             create table if not exists tasks (
-              sample_id text primary key, task_order integer not null, source_archive text not null,
-              data_type text not null, input_hash text not null, prompt_hash text not null,
-              request_json text not null, eligible_json text not null, status text not null,
-              attempts integer not null default 0, result_json text, error_type text,
-              error_message text, created_at text not null, updated_at text not null
+              sample_id text primary key, task_order integer not null,
+              source_archive text not null, sample_type text not null,
+              input_hash text not null, prompt_hash text not null,
+              request_json text not null, annotation_input_json text not null,
+              status text not null, attempts integer not null default 0,
+              result_json text, error_type text, error_message text,
+              created_at text not null, updated_at text not null
             );
             create table if not exists attempts (
               sample_id text not null, attempt integer not null, started_at text not null,
@@ -375,26 +304,30 @@ class Ledger:
         self.db.execute("update tasks set status='pending' where status='running'")
         self.db.commit()
 
-    def prepare(self, tasks: list[GTTask]) -> None:
+    def prepare(self, tasks: list[GTDescriptionGenerationTask]) -> None:
         now = _now()
         for task in tasks:
-            request_payload = {
-                "system_prompt": task.system_prompt,
-                "model_input": task.model_input,
-            }
-            if task.ledger_signature is not None:
-                request_payload["ledger_signature"] = task.ledger_signature
-            request_json = _canonical_json(request_payload)
+            request_json = _canonical_json(
+                {
+                    "system_prompt": task.system_prompt,
+                    "model_input": task.model_input,
+                    "ledger_signature": task.ledger_signature,
+                }
+            )
+            annotation_input_json = _canonical_json(task.annotation_input_row)
             existing = self.db.execute(
-                """select input_hash,prompt_hash,request_json,eligible_json
+                """select input_hash,prompt_hash,request_json,annotation_input_json
                    from tasks where sample_id=?""",
                 (task.sample_id,),
             ).fetchone()
-            eligible_json = _canonical_json(task.eligible_row)
             if existing is not None:
-                actual = tuple(existing)
-                expected = (task.input_hash, task.prompt_hash, request_json, eligible_json)
-                if actual != expected:
+                expected = (
+                    task.input_hash,
+                    task.prompt_hash,
+                    request_json,
+                    annotation_input_json,
+                )
+                if tuple(existing) != expected:
                     raise ValueError(f"Ledger signature mismatch: {task.sample_id}")
                 continue
             self.db.execute(
@@ -403,11 +336,11 @@ class Ledger:
                     task.sample_id,
                     task.order,
                     task.source_archive,
-                    task.data_type,
+                    task.sample_type,
                     task.input_hash,
                     task.prompt_hash,
                     request_json,
-                    eligible_json,
+                    annotation_input_json,
                     "pending",
                     0,
                     None,
@@ -418,11 +351,8 @@ class Ledger:
                 ),
             )
         self.db.commit()
-
         expected_ids = {task.sample_id for task in tasks}
-        actual_ids = {
-            str(row[0]) for row in self.db.execute("select sample_id from tasks")
-        }
+        actual_ids = {str(row[0]) for row in self.db.execute("select sample_id from tasks")}
         if actual_ids != expected_ids:
             unexpected = sorted(actual_ids - expected_ids)
             missing = sorted(expected_ids - actual_ids)
@@ -430,32 +360,28 @@ class Ledger:
                 f"Ledger task set mismatch: unexpected={unexpected[:5]}, missing={missing[:5]}"
             )
 
-    def pending_ids(
-        self, selected: set[str], *, include_failed: bool = False
-    ) -> list[str]:
-        if not selected:
-            return []
+    def pending_ids(self, *, include_failed: bool = False) -> list[str]:
         statuses = ("pending", "failed") if include_failed else ("pending",)
         placeholders = ",".join("?" for _ in statuses)
         return [
-            row[0]
+            str(row[0])
             for row in self.db.execute(
-                f"select sample_id from tasks where status in ({placeholders}) order by task_order",
+                f"select sample_id from tasks where status in ({placeholders}) "
+                "order by task_order",
                 statuses,
             )
-            if row[0] in selected
         ]
 
     def start(self, sample_id: str) -> int:
         row = self.db.execute(
             "select attempts from tasks where sample_id=?", (sample_id,)
         ).fetchone()
+        if row is None:
+            raise KeyError(f"Unknown ledger sample_id: {sample_id}")
         attempt = int(row[0]) + 1
         self.db.execute(
-            """update tasks
-               set status='running', attempts=?, updated_at=?, error_type=null,
-                   error_message=null
-               where sample_id=?""",
+            """update tasks set status='running',attempts=?,updated_at=?,
+               error_type=null,error_message=null where sample_id=?""",
             (attempt, _now(), sample_id),
         )
         self.db.commit()
@@ -494,8 +420,7 @@ class Ledger:
 
     def fail(self, sample_id: str, exc: Exception) -> None:
         self.db.execute(
-            """update tasks
-               set status='failed', error_type=?, error_message=?, updated_at=?
+            """update tasks set status='failed',error_type=?,error_message=?,updated_at=?
                where sample_id=?""",
             (type(exc).__name__, str(exc), _now(), sample_id),
         )
@@ -512,28 +437,21 @@ class Ledger:
         self.db.close()
 
 
-async def run_batch(
+async def run_gt_description_generation(
     *,
     repo_root: str | Path,
     config_path: str | Path,
-    mode: Literal["pilot", "full"],
     retry_failed: bool = False,
     client: DeepSeekClient | Any | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
-) -> RunResult:
+) -> GTDescriptionGenerationResult:
     root = Path(repo_root).resolve()
     config_file = Path(config_path).resolve()
     config = load_config(config_file)
     tasks = prepare_tasks(root, config)
-    if isinstance(config, GTPromptContextV2Config):
-        if mode != "pilot":
-            raise ValueError("Prompt-context v2 pilot config only supports --mode pilot")
-        selected = tasks
-    else:
-        selected = select_pilot(tasks) if mode == "pilot" else tasks
     task_by_id = {task.sample_id: task for task in tasks}
-    output_root = (root / config.output_root).resolve()
-    ledger = Ledger(output_root / "batch_state.sqlite3")
+    output_root = _resolve_repo_path(root, config.output_root)
+    ledger = GTDescriptionGenerationLedger(output_root / "batch_state.sqlite3")
     ledger.prepare(tasks)
     owns_client = client is None
     if client is None:
@@ -550,13 +468,10 @@ async def run_batch(
                 envelope: dict[str, Any] | None = None
                 try:
                     envelope = await client.complete(task)
-                    description = validate_gt_content(
+                    description = validate_gt_description_content(
                         envelope["content"],
                         min_words=config.min_words,
                         max_words=config.max_words,
-                        allow_quoted_terminal_marks=isinstance(
-                            config, GTPromptContextV2Config
-                        ),
                     )
                     result = {**envelope, "GT_DESCRIPTION": description}
                     ledger.finish_attempt(sample_id, attempt, started, "completed", result)
@@ -564,7 +479,9 @@ async def run_batch(
                     return
                 except TransientAPIError as exc:
                     last_error = exc
-                    ledger.finish_attempt(sample_id, attempt, started, "transient_error", exc=exc)
+                    ledger.finish_attempt(
+                        sample_id, attempt, started, "transient_error", exc=exc
+                    )
                     if retry_index < len(config.retry_delays_seconds):
                         await sleep(config.retry_delays_seconds[retry_index])
                         continue
@@ -580,16 +497,16 @@ async def run_batch(
                         exc=exc,
                     )
                     break
-            assert last_error is not None
+            if last_error is None:
+                raise RuntimeError(f"GT task ended without a result: {sample_id}")
             ledger.fail(sample_id, last_error)
 
     try:
-        selected_ids = {task.sample_id for task in selected}
-        runnable_ids = ledger.pending_ids(selected_ids, include_failed=retry_failed)
+        runnable_ids = ledger.pending_ids(include_failed=retry_failed)
         await asyncio.gather(*(worker(sample_id) for sample_id in runnable_ids))
         _export(output_root, ledger, config, config_file)
         counts = Counter(row["status"] for row in ledger.rows())
-        return RunResult(
+        return GTDescriptionGenerationResult(
             total=len(ledger.rows()),
             completed=counts["completed"],
             failed=counts["failed"],
@@ -602,77 +519,61 @@ async def run_batch(
         ledger.close()
 
 
-def validate_gt_content(
-    content: Any,
-    *,
-    min_words: int,
-    max_words: int,
-    allow_quoted_terminal_marks: bool = False,
-) -> str:
+def validate_gt_description_content(content: Any, *, min_words: int, max_words: int) -> str:
     if not isinstance(content, str) or not content:
-        raise GTValidationError("response content must be a non-empty string")
+        raise GTDescriptionValidationError("response content must be a non-empty string")
     try:
         payload = json.loads(content)
     except json.JSONDecodeError as exc:
-        raise GTValidationError("response content must be exact JSON") from exc
+        raise GTDescriptionValidationError("response content must be exact JSON") from exc
     if not isinstance(payload, dict) or set(payload) != {"GT_DESCRIPTION"}:
-        raise GTValidationError("response JSON must contain exactly GT_DESCRIPTION")
+        raise GTDescriptionValidationError(
+            "response JSON must contain exactly GT_DESCRIPTION"
+        )
     value = payload["GT_DESCRIPTION"]
     if not isinstance(value, str) or not value or value != value.strip() or "\n" in value:
-        raise GTValidationError("GT_DESCRIPTION must be one non-empty unpadded line")
-    has_invalid_terminal_mark = any(mark in value for mark in "?!")
-    if allow_quoted_terminal_marks:
-        has_invalid_terminal_mark = _has_unquoted_terminal_mark(value)
-    if not value.endswith(".") or has_invalid_terminal_mark:
-        raise GTValidationError(
+        raise GTDescriptionValidationError(
+            "GT_DESCRIPTION must be one non-empty unpadded line"
+        )
+    if not value.endswith(".") or any(mark in value for mark in "?!"):
+        raise GTDescriptionValidationError(
             "GT_DESCRIPTION must be a declarative sentence ending in a period"
         )
     if len(re.findall(r"[.!?](?=\s|$)", value)) != 1:
-        raise GTValidationError("GT_DESCRIPTION must contain exactly one sentence")
+        raise GTDescriptionValidationError("GT_DESCRIPTION must contain exactly one sentence")
     words = re.findall(r"[A-Za-z]+(?:[-'][A-Za-z]+)*", value)
     if not min_words <= len(words) <= max_words:
-        raise GTValidationError(
+        raise GTDescriptionValidationError(
             f"GT_DESCRIPTION must contain {min_words}-{max_words} English words"
         )
     return value
 
 
-def _has_unquoted_terminal_mark(value: str) -> bool:
-    for index, mark in enumerate(value):
-        if mark not in "?!":
-            continue
-        if index + 1 >= len(value) or value[index + 1] not in "'\"":
-            return True
-        closing_quote = value[index + 1]
-        if closing_quote not in value[:index]:
-            return True
-    return False
-
-
-def verify_outputs(
+def verify_gt_description_generation(
     repo_root: str | Path,
     config_path: str | Path,
     *,
     require_complete: bool,
-) -> RunResult:
+) -> GTDescriptionGenerationResult:
     root = Path(repo_root).resolve()
     config = load_config(config_path)
     tasks = prepare_tasks(root, config)
-    output_root = (root / config.output_root).resolve()
+    output_root = _resolve_repo_path(root, config.output_root)
     manifest = _read_jsonl(output_root / "gt_manifest.jsonl")
     sidecar = _read_jsonl(output_root / "review_status.jsonl")
     failures = _read_jsonl(output_root / "failures.jsonl")
     provenance = json.loads((output_root / "provenance.json").read_text(encoding="utf-8"))
     completed = len(manifest)
-    expected_count = _expected_count(config)
     if require_complete and (
-        completed != expected_count or failures or len(sidecar) != expected_count
+        completed != config.expected_count
+        or failures
+        or len(sidecar) != config.expected_count
     ):
         raise ValueError(
-            f"Complete GT export must contain {expected_count} completed rows and no failures"
+            f"Complete GT export must contain {config.expected_count} rows and no failures"
         )
-    eligible_by_id = {task.sample_id: task.eligible_row for task in tasks}
-    task_ids = set(eligible_by_id)
+    input_by_id = {task.sample_id: task.annotation_input_row for task in tasks}
+    task_ids = set(input_by_id)
     manifest_ids = [_text(row, "sample_id") for row in manifest]
     sidecar_ids = [_text(row, "sample_id") for row in sidecar]
     failure_ids = [_text(row, "sample_id") for row in failures]
@@ -686,16 +587,15 @@ def verify_outputs(
         raise ValueError("GT review sidecar must exactly match completed manifest rows")
     for row in manifest:
         sample_id = _text(row, "sample_id")
-        expected = eligible_by_id[sample_id]
+        expected = input_by_id[sample_id]
         if set(row) != set(expected) | {"GT_DESCRIPTION"}:
             raise ValueError(f"Final GT manifest fields differ for {sample_id}")
         if {key: row[key] for key in expected} != expected:
-            raise ValueError(f"Final GT manifest changed eligible fields for {sample_id}")
-        validate_gt_content(
+            raise ValueError(f"Final GT manifest changed annotation input fields for {sample_id}")
+        validate_gt_description_content(
             _canonical_json({"GT_DESCRIPTION": row["GT_DESCRIPTION"]}),
             min_words=config.min_words,
             max_words=config.max_words,
-            allow_quoted_terminal_marks=isinstance(config, GTPromptContextV2Config),
         )
     for row in sidecar:
         if set(row) != {
@@ -709,32 +609,31 @@ def verify_outputs(
             raise ValueError(f"Unexpected annotation status: {row['sample_id']}")
         if row["human_review_status"] != "pending_human":
             raise ValueError(f"Unexpected human review status: {row['sample_id']}")
-    expected_provenance_schema = (
-        "mprisk_deepseek_gt_provenance_v2"
-        if isinstance(config, GTPromptContextV2Config)
-        else "mprisk_deepseek_gt_provenance_v1"
-    )
-    if provenance.get("schema_name") != expected_provenance_schema:
+    if provenance.get("schema_name") != PROVENANCE_SCHEMA:
         raise ValueError("Unexpected GT provenance schema")
-    if provenance.get("run_id") != config.run_id or provenance.get("model") != config.model:
+    if (
+        provenance.get("run_id") != config.run_id
+        or provenance.get("gt_generator_model") != config.gt_generator_model
+        or provenance.get("gt_input_schema_version") != GT_INPUT_SCHEMA_VERSION
+    ):
         raise ValueError("GT provenance run identity mismatch")
     for artifact in provenance["artifacts"].values():
         path = root / artifact["path"]
         if _sha256(path) != artifact["sha256"]:
             raise ValueError(f"GT artifact hash mismatch: {path}")
-    return RunResult(
-        total=expected_count,
+    return GTDescriptionGenerationResult(
+        total=config.expected_count,
         completed=completed,
         failed=len(failures),
-        pending=expected_count - completed - len(failures),
+        pending=config.expected_count - completed - len(failures),
         output_root=output_root,
     )
 
 
 def _export(
     output_root: Path,
-    ledger: Ledger,
-    config: AnyGTConfig,
+    ledger: GTDescriptionGenerationLedger,
+    config: GTDescriptionGenerationConfig,
     config_file: Path,
 ) -> None:
     rows = ledger.rows()
@@ -749,13 +648,15 @@ def _export(
             {
                 key: record[key]
                 for key in record
-                if key not in {"request_json", "eligible_json", "result_json"}
+                if key not in {"request_json", "annotation_input_json", "result_json"}
             }
         )
         if row["status"] == "completed":
-            eligible = json.loads(row["eligible_json"])
+            annotation_input = json.loads(row["annotation_input_json"])
             result = json.loads(row["result_json"])
-            manifest.append({**eligible, "GT_DESCRIPTION": result["GT_DESCRIPTION"]})
+            manifest.append(
+                {**annotation_input, "GT_DESCRIPTION": result["GT_DESCRIPTION"]}
+            )
             raw.append(
                 {
                     "sample_id": row["sample_id"],
@@ -799,30 +700,24 @@ def _export(
         }
         for name, content in payloads.items()
     }
-    provenance: dict[str, Any] = {
-        "schema_name": (
-            "mprisk_deepseek_gt_provenance_v2"
-            if isinstance(config, GTPromptContextV2Config)
-            else "mprisk_deepseek_gt_provenance_v1"
-        ),
+    provenance = {
+        "schema_name": PROVENANCE_SCHEMA,
         "run_id": config.run_id,
-        "model": config.model,
+        "gt_generator_model": config.gt_generator_model,
+        "gt_input_schema_version": config.gt_input_schema_version,
         "thinking": config.thinking,
         "temperature": config.temperature,
         "max_tokens": config.max_tokens,
         "config_sha256": _sha256(config_file),
+        "input_manifest": config.input_manifest.as_posix(),
+        "input_manifest_sha256": config.input_manifest_sha256,
+        "expected_count": config.expected_count,
         "counts": dict(Counter(row["status"] for row in rows)),
         "artifacts": artifacts,
     }
-    if isinstance(config, GTPromptContextV2Config):
-        provenance["protocol_version"] = config.protocol_version
-        provenance["input_manifest"] = config.input_manifest.as_posix()
-        provenance["input_manifest_sha256"] = config.input_manifest_sha256
-        provenance["expected_count"] = config.expected_count
-    provenance_json = json.dumps(
-        provenance, ensure_ascii=False, sort_keys=True, indent=2
-    )
-    payloads["provenance.json"] = (provenance_json + "\n").encode()
+    payloads["provenance.json"] = (
+        json.dumps(provenance, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    ).encode()
     for name, content in payloads.items():
         _atomic_write(output_root / name, content)
 
@@ -843,102 +738,32 @@ def _validate_response_envelope(payload: Any, model: str) -> dict[str, Any]:
     if not isinstance(content, str) or not content:
         raise PermanentAPIError("API returned empty content")
     return {
-        "response_id": payload.get("id"), "response_model": payload.get("model"),
+        "response_id": payload.get("id"),
+        "response_model": payload.get("model"),
         "system_fingerprint": payload.get("system_fingerprint"),
-        "finish_reason": choice.get("finish_reason"), "content": content,
+        "finish_reason": choice.get("finish_reason"),
+        "content": content,
         "usage": payload.get("usage") or {},
     }
 
 
 def _validate_model_input(payload: dict[str, Any]) -> None:
-    allowed_fields = (
-        {"archetype", "trigger_context", "dialogue", "surface_emotion"},
-        {"archetype", "context", "dialogue", "surface_emotion"},
-    )
-    if set(payload) not in allowed_fields:
-        raise ValueError("Model input contains forbidden fields")
-    if set(payload["archetype"]) != {"id", "name", "canonical_meaning"}:
-        raise ValueError("Archetype model input contains forbidden fields")
-    for key in set(payload) - {"archetype", "surface_emotion"}:
-        if not isinstance(payload[key], str) or not payload[key].strip():
-            raise ValueError(f"{key} must be a non-empty string")
-    if payload["surface_emotion"] is not None and not isinstance(payload["surface_emotion"], str):
-        raise TypeError("surface_emotion must be a string or null")
-
-
-def _validate_prompt_context_v2_row(row: dict[str, Any]) -> None:
-    expected_fields = {
-        "schema_name",
-        "protocol_version",
-        "sample_id",
-        "source_archive",
-        "data_type",
-        "protocol",
+    if set(payload) != {
         "archetype",
         "dialogue",
-        "context_text",
-        "context_source",
+        "scenario_context",
         "surface_emotion",
-        "media",
-        "source_assignment",
-        "source_row_sha256",
-    }
-    if set(row) != expected_fields:
-        raise ValueError("Prompt-context v2 manifest fields are not strict")
-    if row.get("schema_name") != "mprisk_gt_prompt_context_v2_pilot_row":
-        raise ValueError("Prompt-context v2 row schema mismatch")
-    if row.get("protocol_version") != "prompt_context_v2":
-        raise ValueError("Prompt-context v2 protocol version mismatch")
-    if row.get("context_source") not in {"setting", "trigger", "ltx2_prompt"}:
-        raise ValueError("Prompt-context v2 context_source is invalid")
-    data_type = _text(row, "data_type")
-    protocol = _text(row, "protocol")
-    source_archive = _text(row, "source_archive")
-    expected_archive = {
-        ("A", "VT"): "accept_a_svt",
-        ("A", "VA"): "accept_a_va",
-        ("C", "VT"): "accept_c_svt",
-        ("C", "VA"): "accept_c_va",
-    }.get((data_type, protocol))
-    if expected_archive != source_archive:
-        raise ValueError("Prompt-context v2 archive/data_type/protocol mismatch")
-    if not isinstance(row.get("archetype"), dict) or set(row["archetype"]) != {
-        "id",
-        "name",
-        "canonical_meaning",
     }:
-        raise ValueError("Prompt-context v2 archetype fields are not strict")
-    for key in ("id", "name", "canonical_meaning"):
-        _text(row["archetype"], key)
-    for key in ("sample_id", "dialogue", "context_text", "source_row_sha256"):
-        _text(row, key)
-    media = row.get("media")
-    if not isinstance(media, dict) or set(media) != {"path", "sha256"}:
-        raise ValueError("Prompt-context v2 media fields are not strict")
-    media_path = Path(_text(media, "path"))
-    if not media_path.is_file() or _sha256(media_path) != _text(media, "sha256"):
-        raise ValueError(f"Prompt-context v2 media hash mismatch: {row['sample_id']}")
-    assignment = row.get("source_assignment")
-    assignment_fields = {
-        "path",
-        "schema_name",
-        "dictionary_id",
-        "assignment_source",
-        "source_row_sha256",
-        "assignment_sha256",
-    }
-    if not isinstance(assignment, dict) or set(assignment) != assignment_fields:
-        raise ValueError("Prompt-context v2 source assignment fields are not strict")
-    if assignment.get("source_row_sha256") != row["source_row_sha256"]:
-        raise ValueError("Prompt-context v2 source assignment hash mismatch")
-    for key in assignment_fields:
-        _text(assignment, key)
-    if row["surface_emotion"] is not None and not isinstance(row["surface_emotion"], str):
-        raise TypeError("Prompt-context v2 surface_emotion must be a string or null")
-
-
-def _expected_count(config: AnyGTConfig) -> int:
-    return config.expected_count if isinstance(config, GTPromptContextV2Config) else 162
+        raise ValueError("GT generator model input contains forbidden fields")
+    if set(payload["archetype"]) != {"id", "name", "canonical_meaning"}:
+        raise ValueError("Archetype model input contains forbidden fields")
+    for key in ("dialogue", "scenario_context"):
+        if not isinstance(payload[key], str) or not payload[key].strip():
+            raise ValueError(f"{key} must be a non-empty string")
+    if payload["surface_emotion"] is not None and not isinstance(
+        payload["surface_emotion"], str
+    ):
+        raise TypeError("surface_emotion must be a string or null")
 
 
 def _read_env_file(path: Path) -> dict[str, str]:
@@ -955,22 +780,10 @@ def _read_env_file(path: Path) -> dict[str, str]:
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
     rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
     if not all(isinstance(row, dict) for row in rows):
         raise TypeError(f"JSONL rows must be objects: {path}")
     return rows
-
-
-def _index(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        key = _text(row, "sample_id")
-        if key in result:
-            raise ValueError(f"Duplicate sample_id: {key}")
-        result[key] = row
-    return result
 
 
 def _text(row: dict[str, Any], key: str) -> str:
@@ -981,15 +794,22 @@ def _text(row: dict[str, Any], key: str) -> str:
 
 
 def _jsonl(rows: list[dict[str, Any]]) -> bytes:
-    return "".join(_canonical_json(row)+"\n" for row in rows).encode()
+    return "".join(_canonical_json(row) + "\n" for row in rows).encode()
+
+
+def _resolve_repo_path(root: Path, path: Path) -> Path:
+    resolved = path.resolve() if path.is_absolute() else (root / path).resolve()
+    if resolved != root and root not in resolved.parents:
+        raise ValueError(f"GT Description path escapes repository: {resolved}")
+    return resolved
 
 
 def _atomic_write(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     temporary = Path(name)
     try:
-        with os.fdopen(fd, "wb") as handle:
+        with os.fdopen(descriptor, "wb") as handle:
             handle.write(content)
             handle.flush()
             os.fsync(handle.fileno())

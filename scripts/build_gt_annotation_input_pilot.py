@@ -7,13 +7,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mprisk.ground_truth.prompt_context_v2 import write_prompt_context_v2_pilot
+from mprisk.ground_truth.annotation_inputs import write_gt_annotation_input_pilot
 
 
 def main() -> int:
     root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(
-        description="Freeze the deterministic prompt-context v2 pilot."
+        description="Freeze the deterministic GT annotation-input pilot."
     )
     parser.add_argument("--repo-root", type=Path, default=root)
     parser.add_argument(
@@ -21,7 +21,7 @@ def main() -> int:
         type=Path,
         default=Path(
             "data/frozen/generated_round1_v1/ground_truth_inputs/"
-            "prompt_context_v2_pilot.jsonl"
+            "gt_annotation_input_v1/pilot.jsonl"
         ),
     )
     parser.add_argument(
@@ -29,11 +29,11 @@ def main() -> int:
         type=Path,
         default=Path(
             "data/frozen/generated_round1_v1/ground_truth_inputs/"
-            "prompt_context_v2_pilot.provenance.json"
+            "gt_annotation_input_v1/pilot.provenance.json"
         ),
     )
     args = parser.parse_args()
-    manifest, provenance = write_prompt_context_v2_pilot(
+    manifest, provenance = write_gt_annotation_input_pilot(
         args.repo_root,
         manifest_path=args.manifest,
         provenance_path=args.provenance,

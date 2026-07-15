@@ -1,3 +1,4 @@
+# LEGACY READ-ONLY RECORD. Active GT Description loaders reject this schema.
 schema_name: mprisk_deepseek_gt_config_v2
 run_id: deepseek_gt_prompt_context_v2_pilot_r2
 protocol_version: prompt_context_v2

@@ -8,17 +8,18 @@
 
 Main experiments focus on `Conflict` and `Aligned`. `Ambiguous` is reserved for appendix or supplemental analysis.
 
-The final data layer uses relation labels instead of a shared affective coordinate. Each curated sample must carry:
+The final data layer uses relation labels instead of a shared affective coordinate. M1, M2, and
+M12 are conditions, not modality names. Each curated sample must carry:
 
 ```text
 m1_label
 m2_label
-joint_label
+m12_label
 m1_is_clear
 m2_is_clear
-joint_is_clear
+m12_is_clear
 sample_type
-dominant_modality
+joint_lean_direction
 ```
 
 Allowed coarse labels are `positive`, `negative`, `neutral`, `uncertain`, and `invalid`.
@@ -29,11 +30,13 @@ Allowed coarse labels are `positive`, `negative`, `neutral`, `uncertain`, and `i
 - `VA`: vision and audio.
 - `IT`: image and text.
 
-For each protocol, the pipeline builds three views:
+For each protocol, the pipeline builds three conditions:
 
 - `M1`: first unimodal condition.
 - `M2`: second unimodal condition.
 - `M12`: joint multimodal condition.
+
+`joint_lean_direction` is `V`, `T_or_A`, `No-lean`, or explicit `unclear`; it never uses M1 or M2.
 
 ## Main Datasets
 
@@ -56,8 +59,8 @@ The LLM step is only a screening assistant. Human adjudication is the final labe
 - `CMU-MOSEI`: larger candidate and generalization pool. It also needs LLM screening and human review.
 - `DFEW`: visual-anchor source. It enters the main conflict pool only when paired with natural text or another modality.
 - Generated `sample_type.Conflict` and `sample_type.Aligned` data: supplemental and
-  stress-test source. The class-code mapping is `A=Conflict` and `C=Aligned`; planned
-  labels are candidate labels, not final labels.
+  stress-test source. The source class-code mapping is `A=Conflict` and `C=Aligned`; A/C is
+  retained only in ingestion provenance, and planned labels are candidate labels, not final labels.
 
 ## Normalized Sample Fields
 
@@ -73,7 +76,7 @@ sample_type
 split
 labels
 annotations
-protocol_views
+protocol_conditions
 ```
 
 ## Split Rule

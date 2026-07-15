@@ -1,0 +1,42 @@
+{
+  "gt_input_schema_version": "gt_annotation_input_v1",
+  "pilot_count": 8,
+  "pilot_manifest_sha256": "5fc6270125bc0f7611c53f403fab870981bdee54e95a2827274fdc82add33c1a",
+  "pilot_sample_ids": [
+    "gen:accept_a_svt:S0097",
+    "gen:accept_a_svt:S0098",
+    "gen:accept_a_va:S0047",
+    "gen:accept_a_va:S0048",
+    "gen:accept_c_svt:S0001",
+    "gen:accept_c_svt:S0002",
+    "gen:accept_c_va:S0012",
+    "gen:accept_c_va:S0013"
+  ],
+  "scenario_context_source_counts": {
+    "setting": 126,
+    "source_prompt": 490,
+    "trigger": 36
+  },
+  "scenario_context_source_priority": [
+    "setting",
+    "trigger",
+    "source_prompt"
+  ],
+  "schema_name": "mprisk_gt_annotation_input_pilot_provenance_v1",
+  "selection": "lexicographic_first_2_per_sample_type_protocol_cell",
+  "source_artifacts": {
+    "archive_manifest": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/data/frozen/generated_round1_v1/archive_manifest.jsonl",
+      "sha256": "a981c2223274df4a10be61482615a79de7fa5239b0f3040aadeb5e58e954899e"
+    },
+    "assignments": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/data/frozen/generated_round1_v1/archetype_semantic_assignments_v1.jsonl",
+      "sha256": "21cbc5972896ad2910ddef6219dafa5601b3ea7808099d17780baf70f27105ca"
+    },
+    "dictionary": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/data/frozen/generated_round1_v1/archetype_canonical_meanings_v1.jsonl",
+      "sha256": "0f91c21be5e68988ff3ad8c194d5f6bd581799267bcf7affbf63451880b23695"
+    }
+  },
+  "source_count": 652
+}
