@@ -78,11 +78,18 @@ class GTConfig(_GTConfigBase):
 
 class GTPromptContextV2Config(_GTConfigBase):
     schema_name: Literal["mprisk_deepseek_gt_config_v2"]
-    run_id: Literal["deepseek_gt_prompt_context_v2_pilot"]
+    run_id: str
     protocol_version: Literal["prompt_context_v2"]
     input_manifest: Path
     input_manifest_sha256: str
     expected_count: int
+
+    @field_validator("run_id")
+    @classmethod
+    def run_id_must_be_versioned_pilot(cls, value: str) -> str:
+        if not value.startswith("deepseek_gt_prompt_context_v2_pilot"):
+            raise ValueError("run_id must identify a prompt-context v2 pilot")
+        return value
 
     @field_validator("expected_count")
     @classmethod
