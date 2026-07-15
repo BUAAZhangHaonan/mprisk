@@ -208,6 +208,15 @@ def test_v1_task_count_and_model_input_contract_remain_unchanged() -> None:
     )
 
 
+def test_v2_aligned_prompt_prevents_dialogue_punctuation_from_breaking_one_sentence() -> None:
+    prompt = (
+        ROOT / "configs/prompts/ground_truth/c_aligned_gt_prompt_context_v2.txt"
+    ).read_text(encoding="utf-8")
+
+    assert "Paraphrase dialogue rather than quoting it" in prompt
+    assert "do not use question marks or exclamation marks anywhere" in prompt
+
+
 def _v2_test_config(tmp_path: Path) -> Path:
     import yaml
 
