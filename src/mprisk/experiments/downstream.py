@@ -77,6 +77,7 @@ class CacheJob:
 @dataclass(frozen=True)
 class AllowedExternalGpuContext:
     process_name: str
+    command_substring: str
     max_process_count: int
     max_gpu_memory_mib_per_process: float
 
@@ -133,15 +134,21 @@ def load_plan(path: str | Path) -> DownstreamPlan:
     external_contexts = tuple(
         AllowedExternalGpuContext(
             process_name=str(row["process_name"]),
+            command_substring=str(row["command_substring"]),
             max_process_count=int(row["max_process_count"]),
             max_gpu_memory_mib_per_process=float(row["max_gpu_memory_mib_per_process"]),
         )
         for row in external_context_rows
     )
-    if any(not rule.process_name for rule in external_contexts):
-        raise ValueError("allowed external GPU context process_name cannot be empty")
-    if len({rule.process_name for rule in external_contexts}) != len(external_contexts):
-        raise ValueError("allowed external GPU context process_name values must be unique")
+    if any(not rule.process_name or not rule.command_substring for rule in external_contexts):
+        raise ValueError(
+            "allowed external GPU context process_name and command_substring cannot be empty"
+        )
+    context_identities = {
+        (rule.process_name, rule.command_substring) for rule in external_contexts
+    }
+    if len(context_identities) != len(external_contexts):
+        raise ValueError("allowed external GPU context identities must be unique")
     if any(rule.max_process_count <= 0 for rule in external_contexts):
         raise ValueError("allowed external GPU context max_process_count must be positive")
     if any(rule.max_gpu_memory_mib_per_process <= 0 for rule in external_contexts):
@@ -919,30 +926,53 @@ def _gpu_available(plan: DownstreamPlan) -> bool:
         capture_output=True,
         text=True,
     ).stdout.strip()
-    rules = {rule.process_name: rule for rule in plan.allowed_external_gpu_contexts}
-    process_counts: Counter[str] = Counter()
-    external_memory_mib = 0.0
+    external_processes: list[tuple[int, str, float]] = []
     for line in process_output.splitlines():
         if not line.strip():
             continue
         fields = [field.strip() for field in line.split(",")]
         if len(fields) != 3 or not fields[0].isdigit():
             raise RuntimeError(f"invalid nvidia-smi compute-app row: {line!r}")
-        pid = int(fields[0])
-        process_name = fields[1]
         try:
             process_memory_mib = float(fields[2])
         except ValueError as exc:
             raise RuntimeError(f"invalid nvidia-smi process memory: {line!r}") from exc
-        if pid == os.getpid():
-            continue
-        rule = rules.get(process_name)
-        if rule is None:
+        pid = int(fields[0])
+        if pid != os.getpid():
+            external_processes.append((pid, fields[1], process_memory_mib))
+    if not external_processes:
+        return True
+
+    command_output = subprocess.run(
+        ["ps", "-eo", "pid=,args="],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    command_by_pid: dict[int, str] = {}
+    for row in command_output:
+        fields = row.strip().split(maxsplit=1)
+        if len(fields) == 2 and fields[0].isdigit():
+            command_by_pid[int(fields[0])] = fields[1]
+
+    process_counts: Counter[AllowedExternalGpuContext] = Counter()
+    external_memory_mib = 0.0
+    for pid, process_name, process_memory_mib in external_processes:
+        command = command_by_pid.get(pid)
+        if command is None:
             return False
+        matching_rules = [
+            rule
+            for rule in plan.allowed_external_gpu_contexts
+            if rule.process_name == process_name and rule.command_substring in command
+        ]
+        if len(matching_rules) != 1:
+            return False
+        rule = matching_rules[0]
         if process_memory_mib > rule.max_gpu_memory_mib_per_process:
             return False
-        process_counts[process_name] += 1
-        if process_counts[process_name] > rule.max_process_count:
+        process_counts[rule] += 1
+        if process_counts[rule] > rule.max_process_count:
             return False
         external_memory_mib += process_memory_mib
     return external_memory_mib <= plan.max_external_gpu_context_memory_mib

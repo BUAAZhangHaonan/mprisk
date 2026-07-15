@@ -14,6 +14,7 @@ resource_gate:
   max_external_gpu_context_memory_mib: 512
   allowed_external_gpu_contexts:
     - process_name: /home/team/lvshuyang/anaconda3/envs/comfyui/bin/python
+      command_substring: /home/team/lvshuyang/anaconda3/envs/comfyui/bin/python main.py --listen 127.0.0.1 --port 8188
       max_process_count: 1
       max_gpu_memory_mib_per_process: 512
   producer_tmux_sessions:

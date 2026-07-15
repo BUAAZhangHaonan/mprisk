@@ -189,10 +189,21 @@ def _gpu_plan(*rules: AllowedExternalGpuContext) -> SimpleNamespace:
     )
 
 
-def _mock_gpu_queries(monkeypatch, process_rows: str) -> None:
+def _mock_gpu_queries(
+    monkeypatch,
+    process_rows: str,
+    process_commands: dict[int, str],
+) -> None:
     monkeypatch.setattr(downstream, "_cache_producer_can_launch_gpu_work", lambda _plan: False)
 
     def fake_run(command, **_kwargs):
+        if command[0] == "ps":
+            return SimpleNamespace(
+                stdout="".join(
+                    f"{pid} {process_command}\n"
+                    for pid, process_command in process_commands.items()
+                )
+            )
         query = next(value for value in command if value.startswith("--query-"))
         if query == "--query-gpu=memory.used,memory.total":
             return SimpleNamespace(stdout="832, 81920\n")
@@ -204,51 +215,79 @@ def _mock_gpu_queries(monkeypatch, process_rows: str) -> None:
 
 def test_gpu_gate_allows_one_registered_low_memory_context(monkeypatch) -> None:
     comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
     _mock_gpu_queries(
         monkeypatch,
         f"2621614, {comfyui}, 416\n{os.getpid()}, /runner/python, 416\n",
+        {2621614: comfyui_command},
     )
-    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, 1, 512.0))
+    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0))
     assert downstream._gpu_available(plan) is True
 
 
 def test_gpu_gate_rejects_unregistered_context(monkeypatch) -> None:
-    _mock_gpu_queries(monkeypatch, "2621614, /unknown/python, 100\n")
-    plan = _gpu_plan(
-        AllowedExternalGpuContext(
-            "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python", 1, 512.0
-        )
+    _mock_gpu_queries(
+        monkeypatch,
+        "2621614, /unknown/python, 100\n",
+        {2621614: "/unknown/python other.py"},
     )
+    comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
+    plan = _gpu_plan(
+        AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0)
+    )
+    assert downstream._gpu_available(plan) is False
+
+
+def test_gpu_gate_rejects_registered_interpreter_with_wrong_command(monkeypatch) -> None:
+    comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
+    _mock_gpu_queries(
+        monkeypatch,
+        f"2621614, {comfyui}, 100\n",
+        {2621614: f"{comfyui} unrelated.py"},
+    )
+    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0))
     assert downstream._gpu_available(plan) is False
 
 
 def test_gpu_gate_rejects_registered_context_over_process_limit(monkeypatch) -> None:
     comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
-    _mock_gpu_queries(monkeypatch, f"2621614, {comfyui}, 513\n")
-    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, 1, 512.0))
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
+    _mock_gpu_queries(
+        monkeypatch,
+        f"2621614, {comfyui}, 513\n",
+        {2621614: comfyui_command},
+    )
+    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0))
     assert downstream._gpu_available(plan) is False
 
 
 def test_gpu_gate_rejects_registered_context_over_count_limit(monkeypatch) -> None:
     comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
     _mock_gpu_queries(
         monkeypatch,
         f"2621614, {comfyui}, 200\n2621615, {comfyui}, 200\n",
+        {2621614: comfyui_command, 2621615: comfyui_command},
     )
-    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, 1, 512.0))
+    plan = _gpu_plan(AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0))
     assert downstream._gpu_available(plan) is False
 
 
 def test_gpu_gate_rejects_registered_contexts_over_total_limit(monkeypatch) -> None:
     comfyui = "/home/team/lvshuyang/anaconda3/envs/comfyui/bin/python"
+    comfyui_command = f"{comfyui} main.py --listen 127.0.0.1 --port 8188"
     monitor = "/opt/registered/monitor-python"
+    monitor_command = f"{monitor} monitor.py"
     _mock_gpu_queries(
         monkeypatch,
         f"2621614, {comfyui}, 300\n2621615, {monitor}, 300\n",
+        {2621614: comfyui_command, 2621615: monitor_command},
     )
     plan = _gpu_plan(
-        AllowedExternalGpuContext(comfyui, 1, 512.0),
-        AllowedExternalGpuContext(monitor, 1, 512.0),
+        AllowedExternalGpuContext(comfyui, comfyui_command, 1, 512.0),
+        AllowedExternalGpuContext(monitor, monitor_command, 1, 512.0),
     )
     assert downstream._gpu_available(plan) is False
 
