@@ -184,11 +184,17 @@ and both class proxies must have norm greater than `1e-12` before normalization.
 zero or non-finite vector raises an explicit error containing its stage and sample (or
 proxy-class) identity; zero vectors are never silently mapped to zero by normalization.
 
-Single-Point and Trajectory MLP remain ordinary two-class cross-entropy baselines. Both
-expose a fixed `hidden_dim` penultimate feature before their two-logit classifier. Their
-held-out exporter streams cache batches, averages penultimate features and logits over
-all synchronized prompts for each sample, and writes one frozen row per sample. It never
-uses Proxy Anchor geometry or Misread labels:
+Single-Point and Trajectory MLP remain ordinary two-class cross-entropy baselines.
+Single-Point's frozen feature is exactly the M1/M2/M12 final-layer point concatenation
+(`3H`), which is also the direct input to its linear two-logit classifier; it has no
+extra projection, activation, or spherical normalization. Trajectory MLP's frozen
+feature is the `hidden_dim=128` output after its first linear layer and GELU over the
+complete `3 x L x H` layer-normalized trajectory. Their held-out exporter streams cache
+batches, averages these features and logits over all eight synchronized prompts for
+each sample, and writes one frozen row per sample. TME keeps prompt-level `z` and `r`
+for state analysis and additionally exports one sample feature by averaging the eight
+ordered `r32` prompt vectors and then unit-normalizing the mean. None of these exports
+uses Misread labels:
 
 ```bash
 python scripts/export_baseline_representations.py \

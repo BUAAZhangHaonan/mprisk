@@ -114,8 +114,13 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
     return path
 
 
-@pytest.mark.parametrize("repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1])
-def test_baselines_expose_fixed_penultimate_features(repr_key: str) -> None:
+@pytest.mark.parametrize(
+    ("repr_key", "expected_dim"),
+    [(SINGLE_POINT_BINARY_V1, 9), (TRAJECTORY_MLP_BINARY_V1, 6)],
+)
+def test_baselines_expose_locked_frozen_features(
+    repr_key: str, expected_dim: int
+) -> None:
     model = build_representation_model(
         repr_key,
         input_dim=3,
@@ -128,11 +133,28 @@ def test_baselines_expose_fixed_penultimate_features(repr_key: str) -> None:
     features = model.forward_features(trajectories)
     logits = model(trajectories)
 
-    assert model.penultimate_dim == 6
-    assert features.shape == (4, 6)
+    assert model.penultimate_dim == expected_dim
+    assert features.shape == (4, expected_dim)
     assert logits.shape == (4, 2)
     torch.testing.assert_close(logits, model.classifier(features))
     assert not hasattr(model, "proxies")
+
+
+def test_single_point_feature_is_unprojected_three_condition_concat() -> None:
+    model = build_representation_model(
+        SINGLE_POINT_BINARY_V1,
+        input_dim=3,
+        layer_count=2,
+        hidden_dim=128,
+        dropout=0.5,
+    )
+    trajectories = torch.arange(36, dtype=torch.float32).reshape(2, 3, 2, 3)
+
+    expected = trajectories[:, :, -1, :].flatten(start_dim=1)
+
+    torch.testing.assert_close(model.forward_features(trajectories), expected)
+    assert model.classifier.in_features == 9
+    assert not hasattr(model, "feature_projection")
 
 
 @pytest.mark.parametrize("repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1])
@@ -161,9 +183,17 @@ def test_baseline_export_streams_and_aggregates_held_out_prompts_once(
     assert [row["sample_id"] for row in rows] == ["sample-a", "sample-c"]
     assert all(row["prompt_count"] == 8 for row in rows)
     assert all(row["representation_split"] == "official_test" for row in rows)
-    assert all(len(row["penultimate_feature"]) == 6 for row in rows)
+    expected_dim = 9 if repr_key == SINGLE_POINT_BINARY_V1 else 6
+    assert all(len(row["penultimate_feature"]) == expected_dim for row in rows)
     assert all(len(row["mean_logits"]) == 2 for row in rows)
+    expected_definition = (
+        "mean_prompt_final_layer_m1_m2_m12_concat"
+        if repr_key == SINGLE_POINT_BINARY_V1
+        else "mean_prompt_first_linear_gelu_hidden"
+    )
+    assert all(row["feature_definition"] == expected_definition for row in rows)
     assert all("misread" not in json.dumps(row).casefold() for row in rows)
     assert summary["sample_count"] == 2
-    assert summary["feature_dim"] == 6
+    assert summary["feature_dim"] == expected_dim
     assert summary["aggregation"] == "mean_over_synchronized_prompts"
+    assert summary["feature_definition"] == expected_definition

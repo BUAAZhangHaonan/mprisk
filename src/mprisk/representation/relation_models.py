@@ -78,18 +78,14 @@ class SinglePointBinaryClassifierV1(nn.Module):
 
     architecture_version = SINGLE_POINT_BINARY_V1
 
-    def __init__(self, *, input_dim: int, hidden_dim: int, dropout: float = 0.0) -> None:
+    def __init__(self, *, input_dim: int) -> None:
         super().__init__()
-        self.penultimate_dim = hidden_dim
-        self.feature_projection = nn.Linear(3 * input_dim, hidden_dim)
-        self.feature_activation = nn.GELU()
-        self.feature_dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(hidden_dim, 2)
+        self.penultimate_dim = 3 * input_dim
+        self.classifier = nn.Linear(self.penultimate_dim, 2)
 
     def forward_features(self, trajectories: torch.Tensor) -> torch.Tensor:
         _validate_three_condition_trajectories(trajectories)
-        points = trajectories[:, :, -1, :].flatten(start_dim=1)
-        return self.feature_dropout(self.feature_activation(self.feature_projection(points)))
+        return trajectories[:, :, -1, :].flatten(start_dim=1)
 
     def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.forward_features(trajectories))
@@ -300,11 +296,7 @@ def build_representation_model(
     dropout: float = 0.0,
 ) -> nn.Module:
     if repr_key == SINGLE_POINT_BINARY_V1:
-        return SinglePointBinaryClassifierV1(
-            input_dim=input_dim,
-            hidden_dim=hidden_dim,
-            dropout=dropout,
-        )
+        return SinglePointBinaryClassifierV1(input_dim=input_dim)
     if repr_key == TRAJECTORY_MLP_BINARY_V1:
         return TrajectoryMLPBinaryClassifierV1(
             input_dim=input_dim,

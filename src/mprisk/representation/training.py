@@ -27,6 +27,7 @@ from mprisk.representation.relation_models import (
     TME_PROXY_ANCHOR_V1,
     TRAJECTORY_MLP_BINARY_V1,
     build_representation_model,
+    strict_l2_normalize,
 )
 from mprisk.utils.io import write_json
 
@@ -426,6 +427,7 @@ def export_frozen_baseline_representations(
             "repr_key": repr_key,
             "representation_split": representation_split,
             "aggregation": "mean_over_synchronized_prompts",
+            "feature_definition": _baseline_feature_definition(repr_key),
             "feature_dim": feature_dim,
             "sample_count": sample_count,
         },
@@ -539,6 +541,7 @@ def _baseline_export_row(
         "repr_key": repr_key,
         "encoder_checkpoint_sha256": checkpoint_sha256,
         "aggregation": "mean_over_synchronized_prompts",
+        "feature_definition": _baseline_feature_definition(repr_key),
         "prompt_count": prompt_count,
         "penultimate_feature": _vector_values(mean_feature),
         "mean_logits": _vector_values(mean_logits),
@@ -583,11 +586,13 @@ def _stream_frozen_exports(
                 manifest_handle.write(json.dumps(row, sort_keys=True) + "\n")
                 if current_bundle is None or current_bundle["sample_id"] != sample.sample_id:
                     if current_bundle is not None:
+                        _finalize_frozen_bundle(current_bundle)
                         bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
                     current_bundle = _empty_frozen_bundle(row)
                     sample_count += 1
                 _append_frozen_row(current_bundle, row)
         if current_bundle is not None:
+            _finalize_frozen_bundle(current_bundle)
             bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
         for handle in (manifest_handle, bundle_handle):
             handle.flush()
@@ -657,6 +662,31 @@ def _append_frozen_row(bundle: dict[str, Any], row: dict[str, Any]) -> None:
     for condition in CONDITIONS:
         bundle["embeddings"][condition][prompt_id] = row["condition_z"][condition]
     bundle["relations"][prompt_id] = row["relation_r"]
+
+
+def _finalize_frozen_bundle(bundle: dict[str, Any]) -> None:
+    relations = bundle["relations"]
+    if not relations:
+        raise ValueError("frozen TME sample aggregate is empty")
+    relation_rows = torch.tensor(list(relations.values()), dtype=torch.float32)
+    mean_relation = relation_rows.mean(dim=0, keepdim=True)
+    normalized = strict_l2_normalize(
+        mean_relation,
+        stage="tme_sample_relation_aggregate",
+        sample_ids=[str(bundle["sample_id"])],
+    )[0]
+    bundle["sample_relation_feature"] = _vector_values(normalized)
+    bundle["prompt_count"] = len(relations)
+    bundle["aggregation"] = "mean_over_synchronized_prompts_then_l2"
+    bundle["feature_definition"] = "unit_normalized_mean_prompt_ordered_relation_r"
+
+
+def _baseline_feature_definition(repr_key: str) -> str:
+    if repr_key == SINGLE_POINT_BINARY_V1:
+        return "mean_prompt_final_layer_m1_m2_m12_concat"
+    if repr_key == TRAJECTORY_MLP_BINARY_V1:
+        return "mean_prompt_first_linear_gelu_hidden"
+    raise ValueError(f"unsupported baseline representation: {repr_key}")
 
 
 def _vector_values(vector: torch.Tensor) -> list[float]:

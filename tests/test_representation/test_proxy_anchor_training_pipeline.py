@@ -159,7 +159,12 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
         output_dir=tmp_path / "frozen",
     )
     rows = [json.loads(line) for line in exported.manifest_path.read_text().splitlines()]
+    bundles = [
+        json.loads(line)
+        for line in exported.bundle_manifest_path.read_text().splitlines()
+    ]
     assert len(rows) == 16
+    assert len(bundles) == 8
     assert all(set(row["condition_z"]) == {"M1", "M2", "M12"} for row in rows)
     assert all(np.linalg.norm(row["relation_r"]) == pytest.approx(1.0) for row in rows)
     assert all(
@@ -168,6 +173,18 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
         for vector in row["condition_z"].values()
     )
     assert all("misread" not in json.dumps(row).casefold() for row in rows)
+    for bundle in bundles:
+        relation_feature = np.asarray(bundle["sample_relation_feature"], dtype=float)
+        prompt_relations = np.asarray(list(bundle["relations"].values()), dtype=float)
+        expected = prompt_relations.mean(axis=0)
+        expected /= np.linalg.norm(expected)
+        assert relation_feature == pytest.approx(expected)
+        assert np.linalg.norm(relation_feature) == pytest.approx(1.0)
+        assert bundle["aggregation"] == "mean_over_synchronized_prompts_then_l2"
+        assert (
+            bundle["feature_definition"]
+            == "unit_normalized_mean_prompt_ordered_relation_r"
+        )
     assert result.metrics["train_group_count"] == 6
     assert result.metrics["val_group_count"] == 2
     assert result.metrics["val_rows"] == 4
