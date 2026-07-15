@@ -1,0 +1,44 @@
+{
+  "artifacts": {
+    "attempts": {
+      "bytes": 156018,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/attempts.jsonl",
+      "sha256": "39d43cb35724b6cf774fd0b361508e3ce768d8f8af379bbe49f6bd2119b70c05"
+    },
+    "failures": {
+      "bytes": 0,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/failures.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "gt_manifest": {
+      "bytes": 199971,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/gt_manifest.jsonl",
+      "sha256": "479ae9f470ecabcedf979f42b4f1ff5e7e7489f1c8f2244bb6ebe1d58591e2ac"
+    },
+    "ledger": {
+      "bytes": 70156,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/ledger.jsonl",
+      "sha256": "298692e709c8fd272cef4a27d8bbd1e6f614f64cea27845355f415da9ec3e9c1"
+    },
+    "raw_responses": {
+      "bytes": 267939,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/raw_responses.jsonl",
+      "sha256": "c63af2cbb319c58a64d714e30710b4b9a434d488cf1f959abb9b40e2d1a0e538"
+    },
+    "review_status": {
+      "bytes": 34161,
+      "path": "data/frozen/generated_round1_v1/ground_truth/deepseek_gt_v1/review_status.jsonl",
+      "sha256": "872147745da52b5230ae888f7b3d86aaedaa334dbdb2c8769162731ea46613dd"
+    }
+  },
+  "config_sha256": "f290e6c824711f2029ed880bb8e9e96f60379908dbb09e178512c073703a2f8d",
+  "counts": {
+    "completed": 162
+  },
+  "max_tokens": 128,
+  "model": "deepseek-v4-flash",
+  "run_id": "deepseek_gt_v1",
+  "schema_name": "mprisk_deepseek_gt_provenance_v1",
+  "temperature": 0,
+  "thinking": "disabled"
+}
