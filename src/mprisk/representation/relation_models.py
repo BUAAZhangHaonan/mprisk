@@ -78,14 +78,21 @@ class SinglePointBinaryClassifierV1(nn.Module):
 
     architecture_version = SINGLE_POINT_BINARY_V1
 
-    def __init__(self, *, input_dim: int) -> None:
+    def __init__(self, *, input_dim: int, hidden_dim: int, dropout: float = 0.0) -> None:
         super().__init__()
-        self.classifier = nn.Linear(3 * input_dim, 2)
+        self.penultimate_dim = hidden_dim
+        self.feature_projection = nn.Linear(3 * input_dim, hidden_dim)
+        self.feature_activation = nn.GELU()
+        self.feature_dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_dim, 2)
 
-    def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
+    def forward_features(self, trajectories: torch.Tensor) -> torch.Tensor:
         _validate_three_condition_trajectories(trajectories)
         points = trajectories[:, :, -1, :].flatten(start_dim=1)
-        return self.classifier(points)
+        return self.feature_dropout(self.feature_activation(self.feature_projection(points)))
+
+    def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.forward_features(trajectories))
 
 
 class TrajectoryMLPBinaryClassifierV1(nn.Module):
@@ -93,16 +100,23 @@ class TrajectoryMLPBinaryClassifierV1(nn.Module):
 
     architecture_version = TRAJECTORY_MLP_BINARY_V1
 
-    def __init__(self, *, input_dim: int, layer_count: int, hidden_dim: int) -> None:
+    def __init__(
+        self,
+        *,
+        input_dim: int,
+        layer_count: int,
+        hidden_dim: int,
+        dropout: float = 0.0,
+    ) -> None:
         super().__init__()
         self.layer_count = layer_count
-        self.classifier = nn.Sequential(
-            nn.Linear(3 * layer_count * input_dim, hidden_dim),
-            nn.GELU(),
-            nn.Linear(hidden_dim, 2),
-        )
+        self.penultimate_dim = hidden_dim
+        self.feature_projection = nn.Linear(3 * layer_count * input_dim, hidden_dim)
+        self.feature_activation = nn.GELU()
+        self.feature_dropout = nn.Dropout(dropout)
+        self.classifier = nn.Linear(hidden_dim, 2)
 
-    def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
+    def forward_features(self, trajectories: torch.Tensor) -> torch.Tensor:
         _validate_three_condition_trajectories(trajectories)
         if trajectories.shape[2] != self.layer_count:
             raise ValueError("trajectory layer_count does not match model configuration")
@@ -110,7 +124,14 @@ class TrajectoryMLPBinaryClassifierV1(nn.Module):
             trajectories,
             stage="trajectory_mlp_layer_input",
         )
-        return self.classifier(normalized.flatten(start_dim=1))
+        return self.feature_dropout(
+            self.feature_activation(
+                self.feature_projection(normalized.flatten(start_dim=1))
+            )
+        )
+
+    def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
+        return self.classifier(self.forward_features(trajectories))
 
 
 class SequentialTrajectoryEncoderV1(nn.Module):
@@ -279,12 +300,17 @@ def build_representation_model(
     dropout: float = 0.0,
 ) -> nn.Module:
     if repr_key == SINGLE_POINT_BINARY_V1:
-        return SinglePointBinaryClassifierV1(input_dim=input_dim)
+        return SinglePointBinaryClassifierV1(
+            input_dim=input_dim,
+            hidden_dim=hidden_dim,
+            dropout=dropout,
+        )
     if repr_key == TRAJECTORY_MLP_BINARY_V1:
         return TrajectoryMLPBinaryClassifierV1(
             input_dim=input_dim,
             layer_count=layer_count,
             hidden_dim=hidden_dim,
+            dropout=dropout,
         )
     if repr_key == TME_PROXY_ANCHOR_V1:
         return SphericalTMEV1(

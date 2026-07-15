@@ -184,6 +184,20 @@ and both class proxies must have norm greater than `1e-12` before normalization.
 zero or non-finite vector raises an explicit error containing its stage and sample (or
 proxy-class) identity; zero vectors are never silently mapped to zero by normalization.
 
+Single-Point and Trajectory MLP remain ordinary two-class cross-entropy baselines. Both
+expose a fixed `hidden_dim` penultimate feature before their two-logit classifier. Their
+held-out exporter streams cache batches, averages penultimate features and logits over
+all synchronized prompts for each sample, and writes one frozen row per sample. It never
+uses Proxy Anchor geometry or Misread labels:
+
+```bash
+python scripts/export_baseline_representations.py \
+  --dataset outputs/representation_data/<model>/<protocol>/<prompt_set>/relation_dataset.jsonl \
+  --checkpoint outputs/representation_train/<model>/<protocol>/<prompt_set>/<repr>/best_checkpoint.pt \
+  --representation-split official_test \
+  --output-dir outputs/frozen_baselines/<model>/<protocol>/<prompt_set>/<repr>
+```
+
 The trained representation smoke chain is:
 
 ```text

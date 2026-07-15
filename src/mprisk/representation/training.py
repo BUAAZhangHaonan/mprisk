@@ -22,8 +22,10 @@ from mprisk.representation.losses import ProxyAnchorLoss
 from mprisk.representation.relation_dataset import CONDITIONS, _reject_forbidden_fields
 from mprisk.representation.relation_models import (
     REPRESENTATION_KEYS,
+    SINGLE_POINT_BINARY_V1,
     TME_ARCHITECTURE_V1,
     TME_PROXY_ANCHOR_V1,
+    TRAJECTORY_MLP_BINARY_V1,
     build_representation_model,
 )
 from mprisk.utils.io import write_json
@@ -72,6 +74,13 @@ class TrainingResult:
 class FrozenRepresentationExportResult:
     manifest_path: Path
     bundle_manifest_path: Path
+    summary_path: Path
+    count: int
+
+
+@dataclass(frozen=True)
+class FrozenBaselineExportResult:
+    manifest_path: Path
     summary_path: Path
     count: int
 
@@ -349,6 +358,193 @@ def export_frozen_representations(
     return FrozenRepresentationExportResult(
         manifest_path, bundle_manifest_path, summary_path, len(samples)
     )
+
+
+def export_frozen_baseline_representations(
+    *,
+    dataset_path: str | Path,
+    checkpoint_path: str | Path,
+    output_dir: str | Path,
+    representation_split: str = "official_test",
+) -> FrozenBaselineExportResult:
+    if representation_split not in {"relation_val", "aligned_calibration", "official_test"}:
+        raise ValueError("baseline export requires a held-out representation split")
+    checkpoint_file = Path(checkpoint_path)
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    repr_key = str(checkpoint.get("repr_key", ""))
+    if repr_key not in {SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1}:
+        raise ValueError("baseline export requires a Single-Point or Trajectory MLP checkpoint")
+    if checkpoint.get("proxy_state_dict") is not None:
+        raise ValueError("baseline checkpoints must not contain Proxy Anchor state")
+    config = TrainingConfig(**checkpoint["training_config"])
+    rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
+    _validate_registered_splits(rows)
+    selected_rows = [
+        row for row in rows if row["representation_split"] == representation_split
+    ]
+    if not selected_rows:
+        raise ValueError(f"relation dataset has no rows for {representation_split}")
+    samples = sorted(
+        _rows_to_sample_refs(selected_rows),
+        key=lambda sample: (sample.sample_id, sample.prompt_id),
+    )
+    model = build_representation_model(
+        repr_key,
+        input_dim=int(checkpoint["model_config"]["input_dim"]),
+        layer_count=int(checkpoint["model_config"]["layer_count"]),
+        hidden_dim=config.hidden_dim,
+        condition_dim=config.condition_dim,
+        relation_dim=config.relation_dim,
+        dropout=config.dropout,
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_root / "frozen_baseline_representations.jsonl"
+    checkpoint_sha256 = _sha256(checkpoint_file)
+    sample_count, feature_dim = _stream_baseline_exports(
+        samples=samples,
+        model=model,
+        batch_size=config.batch_size,
+        model_key=config.model_key,
+        repr_key=repr_key,
+        checkpoint_sha256=checkpoint_sha256,
+        manifest_path=manifest_path,
+    )
+    summary_path = write_json(
+        output_root / "frozen_baseline_summary.json",
+        {
+            "schema": "mprisk_frozen_baseline_summary_v1",
+            "dataset": str(dataset_path),
+            "dataset_sha256": _sha256(Path(dataset_path)),
+            "checkpoint": str(checkpoint_file),
+            "encoder_checkpoint_sha256": checkpoint_sha256,
+            "manifest": str(manifest_path),
+            "manifest_sha256": _sha256(manifest_path),
+            "model_key": config.model_key,
+            "repr_key": repr_key,
+            "representation_split": representation_split,
+            "aggregation": "mean_over_synchronized_prompts",
+            "feature_dim": feature_dim,
+            "sample_count": sample_count,
+        },
+    )
+    return FrozenBaselineExportResult(manifest_path, summary_path, sample_count)
+
+
+def _stream_baseline_exports(
+    *,
+    samples: list[_Sample],
+    model: nn.Module,
+    batch_size: int,
+    model_key: str,
+    repr_key: str,
+    checkpoint_sha256: str,
+    manifest_path: Path,
+) -> tuple[int, int]:
+    temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    current_sample: _Sample | None = None
+    feature_sum: torch.Tensor | None = None
+    logits_sum: torch.Tensor | None = None
+    prompt_count = 0
+    prompt_counts: set[int] = set()
+    sample_count = 0
+    feature_dim = 0
+    with temporary.open("w", encoding="utf-8") as handle, torch.no_grad():
+        for batch in _batches(samples, batch_size):
+            trajectories, _labels = _load_trajectory_batch(
+                batch, device=next(model.parameters()).device
+            )
+            features = model.forward_features(trajectories)
+            logits = model.classifier(features)
+            for index, sample in enumerate(batch):
+                if current_sample is not None and sample.sample_id != current_sample.sample_id:
+                    row = _baseline_export_row(
+                        current_sample,
+                        feature_sum=feature_sum,
+                        logits_sum=logits_sum,
+                        prompt_count=prompt_count,
+                        model_key=model_key,
+                        repr_key=repr_key,
+                        checkpoint_sha256=checkpoint_sha256,
+                    )
+                    handle.write(json.dumps(row, sort_keys=True) + "\n")
+                    prompt_counts.add(prompt_count)
+                    sample_count += 1
+                    feature_dim = len(row["penultimate_feature"])
+                    feature_sum = None
+                    logits_sum = None
+                    prompt_count = 0
+                current_sample = sample
+                feature_sum = (
+                    features[index].clone()
+                    if feature_sum is None
+                    else feature_sum + features[index]
+                )
+                logits_sum = (
+                    logits[index].clone() if logits_sum is None else logits_sum + logits[index]
+                )
+                prompt_count += 1
+        if current_sample is not None:
+            row = _baseline_export_row(
+                current_sample,
+                feature_sum=feature_sum,
+                logits_sum=logits_sum,
+                prompt_count=prompt_count,
+                model_key=model_key,
+                repr_key=repr_key,
+                checkpoint_sha256=checkpoint_sha256,
+            )
+            handle.write(json.dumps(row, sort_keys=True) + "\n")
+            prompt_counts.add(prompt_count)
+            sample_count += 1
+            feature_dim = len(row["penultimate_feature"])
+        handle.flush()
+        os.fsync(handle.fileno())
+    if len(prompt_counts) != 1:
+        raise ValueError("held-out samples must have synchronized prompt counts")
+    os.replace(temporary, manifest_path)
+    return sample_count, feature_dim
+
+
+def _baseline_export_row(
+    sample: _Sample,
+    *,
+    feature_sum: torch.Tensor | None,
+    logits_sum: torch.Tensor | None,
+    prompt_count: int,
+    model_key: str,
+    repr_key: str,
+    checkpoint_sha256: str,
+) -> dict[str, Any]:
+    if feature_sum is None or logits_sum is None or prompt_count <= 0:
+        raise ValueError("baseline sample aggregate is empty")
+    mean_feature = feature_sum / prompt_count
+    mean_logits = logits_sum / prompt_count
+    prediction_id = int(mean_logits.argmax())
+    return {
+        "schema": "mprisk_frozen_baseline_representation_v1",
+        "sample_id": sample.sample_id,
+        "sample_type": sample.sample_type,
+        "label_id": sample.label_id,
+        "model_key": model_key,
+        "protocol": sample.protocol,
+        "prompt_set_key": sample.prompt_set_key,
+        "master_split": sample.master_split,
+        "representation_split": sample.representation_split,
+        "split_group_id": sample.split_group_id,
+        "split_assignment_key": sample.split_assignment_key,
+        "split_assignment_sha256": sample.split_assignment_sha256,
+        "repr_key": repr_key,
+        "encoder_checkpoint_sha256": checkpoint_sha256,
+        "aggregation": "mean_over_synchronized_prompts",
+        "prompt_count": prompt_count,
+        "penultimate_feature": _vector_values(mean_feature),
+        "mean_logits": _vector_values(mean_logits),
+        "prediction_id": prediction_id,
+        "prediction_label": "Conflict" if prediction_id == 1 else "Aligned",
+    }
 
 
 def _stream_frozen_exports(
