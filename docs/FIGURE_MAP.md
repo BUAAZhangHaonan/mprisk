@@ -1,8 +1,8 @@
 # Figure and Table Map
 
 All generated figures consume declared CSV or JSON evidence from `outputs/`. Missing
-inputs render an explicit vector-PDF `Pending` artifact and never receive illustrative
-numbers. `pdfinfo` must open every exported PDF. The locked terms are `Conflict`,
+inputs retain the final panel layout with explicit `Pending` cells and never receive
+invented numbers. `pdfinfo` must open every exported PDF. The locked terms are `Conflict`,
 `Aligned`, `Misread`, `Non-misread`, `V lean`, and `T/A lean`.
 
 Ready CSV inputs require a sibling `.csv.provenance.json` using
@@ -17,19 +17,19 @@ these masks.
 
 | Figure | Role | Output |
 |---|---|---|
-| Fig. 1 | Problem and protocol | `paper/figures/generated/fig01_problem_protocol.pdf` |
-| Fig. 2 | Single-Point, Trajectory MLP, and TME interfaces | `paper/figures/generated/fig02_representation_pipeline.pdf` |
+| Fig. 1 | Affective Misread before the First Token | `paper/figures/generated/fig01_problem_protocol.pdf` |
+| Fig. 2 | Overall Framework | `paper/figures/generated/fig02_representation_pipeline.pdf` |
 | Fig. 3 | Spherical S/D/R and hierarchical states | `paper/figures/generated/fig03_spherical_sdr.pdf` |
 | Fig. 4 | Conflict and Aligned S/D/R distributions | `paper/figures/generated/fig04_sdr_distributions.pdf` |
 | Fig. 5 | Four-state stacked proportions | `paper/figures/generated/fig05_four_state_stacks.pdf` |
 | Fig. 6 | Stable samples in D versus signed R | `paper/figures/generated/fig06_stable_d_signed_r.pdf` |
 | Fig. 7 | Misread Pending upper panel and artifact-backed modality bias lower panel | `paper/figures/generated/fig07_misread_bias.pdf` |
-| Fig. 8 | Three-representation `sample_type.Conflict` and `sample_type.Aligned` comparison (`class_code.A=Conflict`, `class_code.C=Aligned`) and Misread Pending panel | `paper/figures/generated/fig08_representation_comparison.pdf` |
-| Fig. 9 | Conflict case | `paper/figures/generated/fig09_conflict_case.pdf` |
-| Fig. 10 | Aligned case | `paper/figures/generated/fig10_aligned_case.pdf` |
+| Fig. 8 | Held-out sample-level UMAP and Misread sensitivity panels | `paper/figures/generated/fig08_representation_comparison.pdf` |
+| Fig. 9 | End-to-end Conflict case | `paper/figures/generated/fig09_conflict_case.pdf` |
+| Fig. 10 | Four state-pattern cases | `paper/figures/generated/fig10_four_pattern_cases.pdf` |
 
-The appendix begins with the independent Aligned calibration audit at
-`paper/figures/appendix/figA01_calibration_audit.pdf`.
+The appendix map contains the required A1, A2, B1-B3, C1-C5, D1, D3, E1, and E2
+layouts. D2 and E3 are explicitly excluded with reasons in the versioned map.
 
 ## Tables
 
@@ -37,9 +37,9 @@ The previous Table 1 mapping is removed. The remaining tables are renumbered I-I
 
 | Table | Key | Output |
 |---|---|---|
-| I | `tab01_main_results` | `paper/tables/generated/tab01_main_results.tex` |
-| II | `tab02_baselines` | `paper/tables/generated/tab02_baselines.tex` |
-| III | `tab03_stage2` | `paper/tables/generated/tab03_stage2.tex` |
+| I | `tab01_cross_backbone_results` | `paper/tables/generated/tab01_cross_backbone_results.tex` |
+| II | `tab02_conflict_misread_baselines` | `paper/tables/generated/tab02_conflict_misread_baselines.tex` |
+| III | `tab03_downstream_quality` | `paper/tables/generated/tab03_downstream_quality.tex` |
 
 ## Commands
 

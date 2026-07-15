@@ -9,7 +9,7 @@ import matplotlib.image as mpimg
 import pytest
 import yaml
 
-from mprisk.viz.bundle_figures import export_bundle_figures
+from mprisk.viz.bundle_figures import UMAP_CONFIG, export_bundle_figures
 from mprisk.viz.run_status import build_run_status
 
 EXPECTED_KEYS = [
@@ -22,7 +22,24 @@ EXPECTED_KEYS = [
     "fig07_misread_bias",
     "fig08_representation_comparison",
     "fig09_conflict_case",
-    "fig10_aligned_case",
+    "fig10_four_pattern_cases",
+]
+
+APPENDIX_KEYS = [
+    "figA1_case_types",
+    "figA2_misread_cases",
+    "figB1_representation_details",
+    "figB2_prompt_stability_latency",
+    "figB3_delta_bootstrap_geometry",
+    "figC1_ac_roc_pr",
+    "figC2_conflict_retention",
+    "figC3_seed_robustness",
+    "figC4_threshold_sensitivity",
+    "figC5_model_patterns",
+    "figD1_misread_pr",
+    "figD3_latency_breakdown",
+    "figE1_human_quality",
+    "figE2_pattern_cases",
 ]
 
 
@@ -38,11 +55,16 @@ def _config(tmp_path: Path) -> Path:
             for key in EXPECTED_KEYS
         },
         "appendix": {
-            "figA01_calibration_audit": {
-                "title": "Aligned calibration audit",
-                "input": str(tmp_path / "inputs/calibration.json"),
-                "output": str(tmp_path / "appendix/figA01_calibration_audit.pdf"),
+            key: {
+                "title": key,
+                "input": str(tmp_path / "inputs" / f"{key}.json"),
+                "output": str(tmp_path / "appendix" / f"{key}.pdf"),
             }
+            for key in APPENDIX_KEYS
+        },
+        "optional_excluded": {
+            "figD2_j_lens": {"reason": "No registered J-Lens artifact."},
+            "figE3_self_correction": {"reason": "Outside the preregistered analysis."},
         },
     }
     path = tmp_path / "figures.yaml"
@@ -53,8 +75,18 @@ def _config(tmp_path: Path) -> Path:
 def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tmp_path) -> None:
     result = export_bundle_figures(_config(tmp_path))
     assert list(result["figures"]) == EXPECTED_KEYS
-    assert all(row["status"] == "Pending" for row in result["figures"].values())
-    for row in result["figures"].values():
+    assert list(result["appendix"]) == APPENDIX_KEYS
+    assert len(result["figures"]) + len(result["appendix"]) == 24
+    assert all(
+        result["figures"][key]["status"] == "Ready"
+        for key in (
+            "fig01_problem_protocol",
+            "fig02_representation_pipeline",
+            "fig03_spherical_sdr",
+        )
+    )
+    assert result["appendix"]["figB1_representation_details"]["status"] == "Ready"
+    for row in [*result["figures"].values(), *result["appendix"].values()]:
         pdf = Path(row["output"])
         assert pdf.read_bytes().startswith(b"%PDF-")
         completed = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True)
@@ -70,6 +102,28 @@ def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tm
         pixels = mpimg.imread(raster_stem.with_suffix(".png"))[..., :3]
         black_fraction = float((pixels.mean(axis=-1) < 0.05).mean())
         assert black_fraction < 0.01
+
+
+def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
+    result = export_bundle_figures(_config(tmp_path))
+    expected_text = {
+        "fig04_sdr_distributions": ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B"),
+        "fig07_misread_bias": ("Pending Misread annotations", "V lean", "T/A lean"),
+        "fig08_representation_comparison": ("Single-Point", "Trajectory MLP", "TME", "UMAP"),
+        "fig09_conflict_case": ("Input", "Ground truth", "Baseline", "Ours"),
+        "fig10_four_pattern_cases": ("Confusion", "Consensus", "Balanced", "Dominant"),
+        "figC5_model_patterns": ("16 models", "Pending"),
+    }
+    for key, phrases in expected_text.items():
+        group = result["figures"] if key in result["figures"] else result["appendix"]
+        completed = subprocess.run(
+            ["pdftotext", group[key]["output"], "-"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        for phrase in phrases:
+            assert phrase in completed.stdout
 
 
 def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) -> None:
@@ -131,10 +185,19 @@ def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
     figure_map = yaml.safe_load((root / "configs/paper/figure_map.yaml").read_text())
     table_map = yaml.safe_load((root / "configs/paper/table_map.yaml").read_text())
     assert list(figure_map["figures"]) == EXPECTED_KEYS
+    assert list(figure_map["appendix"]) == APPENDIX_KEYS
+    assert set(figure_map["optional_excluded"]) == {"figD2_j_lens", "figE3_self_correction"}
+    assert UMAP_CONFIG == {
+        "random_state": 20260716,
+        "n_neighbors": 15,
+        "min_dist": 0.1,
+        "metric": "cosine",
+    }
+    assert "umap-learn==0.5.12" in (root / "pyproject.toml").read_text(encoding="utf-8")
     assert list(table_map["tables"]) == [
-        "tab01_main_results",
-        "tab02_baselines",
-        "tab03_stage2",
+        "tab01_cross_backbone_results",
+        "tab02_conflict_misread_baselines",
+        "tab03_downstream_quality",
     ]
 
 

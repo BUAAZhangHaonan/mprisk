@@ -42,6 +42,19 @@ FORBIDDEN_PDF_TEXT = (
     "divergence",
     "arbitration",
 )
+CONCEPTUAL_KEYS = {
+    "fig01_problem_protocol",
+    "fig02_representation_pipeline",
+    "fig03_spherical_sdr",
+    "figB1_representation_details",
+}
+MODEL_LABELS = ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B")
+UMAP_CONFIG = {
+    "random_state": 20260716,
+    "n_neighbors": 15,
+    "min_dist": 0.1,
+    "metric": "cosine",
+}
 
 
 def export_bundle_figures(config_path: str | Path) -> dict[str, Any]:
@@ -50,12 +63,19 @@ def export_bundle_figures(config_path: str | Path) -> dict[str, Any]:
     if config.get("schema") != FIGURE_SCHEMA:
         raise ValueError(f"figure config schema must be {FIGURE_SCHEMA}")
     figures = _export_group(config.get("figures"), expected_count=10)
-    appendix = _export_group(config.get("appendix", {}), expected_count=None)
+    appendix = _export_group(config.get("appendix", {}), expected_count=14)
+    excluded = config.get("optional_excluded")
+    if not isinstance(excluded, Mapping) or set(excluded) != {
+        "figD2_j_lens",
+        "figE3_self_correction",
+    }:
+        raise ValueError("figure map must explicitly exclude optional D2 and E3")
     return {
         "schema": "mprisk_bundle_figure_export_v1",
         "config": str(config_file),
         "figures": figures,
         "appendix": appendix,
+        "optional_excluded": dict(excluded),
     }
 
 
@@ -77,7 +97,10 @@ def _export_group(
         output_path = Path(_required_text(raw_spec, "output"))
         output_path.parent.mkdir(parents=True, exist_ok=True)
         status, rows, provenance = _load_figure_input(str(key), input_path)
-        if status == STATUS_READY:
+        if str(key) in CONCEPTUAL_KEYS:
+            status = STATUS_READY
+            _render_locked_layout(key=str(key), title=title, output_path=output_path)
+        elif status == STATUS_READY:
             _render_artifact(
                 key=str(key),
                 title=title,
@@ -86,7 +109,7 @@ def _export_group(
                 output_path=output_path,
             )
         else:
-            _render_pending(title=title, output_path=output_path)
+            _render_locked_layout(key=str(key), title=title, output_path=output_path)
         _validate_pdf_open(output_path)
         _validate_pdf_text(output_path)
         exported[str(key)] = {
@@ -98,12 +121,253 @@ def _export_group(
     return exported
 
 
-def _render_pending(*, title: str, output_path: Path) -> None:
-    figure, axis = plt.subplots(figsize=(7.0, 4.2), constrained_layout=True)
+def _render_locked_layout(*, key: str, title: str, output_path: Path) -> None:
+    if key == "fig01_problem_protocol":
+        _render_flow(
+            title,
+            ["Multimodal input", "First-token affect", "Misread\nPending annotations"],
+            output_path,
+        )
+        return
+    if key == "fig02_representation_pipeline":
+        _render_framework(title, output_path)
+        return
+    if key == "fig03_spherical_sdr":
+        _render_sdr_method(title, output_path)
+        return
+    if key == "figB1_representation_details":
+        _render_representation_details(title, output_path)
+        return
+    if key in {"fig04_sdr_distributions", "fig05_four_state_stacks", "fig06_stable_d_signed_r"}:
+        _render_model_facets(key, title, output_path)
+        return
+    if key in {"fig07_misread_bias", "fig08_representation_comparison"}:
+        _render_two_by_three(key, title, output_path)
+        return
+    if key == "fig09_conflict_case":
+        _render_cards(title, ("Input", "Ground truth", "Baseline", "Ours"), output_path)
+        return
+    if key == "fig10_four_pattern_cases":
+        _render_cards(title, ("Confusion", "Consensus", "Balanced", "Dominant"), output_path)
+        return
+    _render_appendix_layout(key, title, output_path)
+
+
+def _pending_axis(axis: Any, heading: str, message: str = STATUS_PENDING) -> None:
+    axis.set_title(heading, fontsize=9)
+    axis.set_xticks([])
+    axis.set_yticks([])
+    axis.text(0.5, 0.5, message, ha="center", va="center", fontsize=8, transform=axis.transAxes)
+    for spine in axis.spines.values():
+        spine.set_color("#9aa0a6")
+
+
+def _render_flow(title: str, labels: list[str], output_path: Path) -> None:
+    figure, axis = plt.subplots(figsize=(9.2, 3.2), constrained_layout=True)
     axis.axis("off")
-    axis.text(0.5, 0.62, title, ha="center", va="center", fontsize=14)
-    axis.text(0.5, 0.42, STATUS_PENDING, ha="center", va="center", fontsize=18)
-    figure.savefig(output_path, format="pdf", metadata={"Title": title, "Subject": STATUS_PENDING})
+    for index, label in enumerate(labels):
+        x = 0.17 + index * 0.33
+        axis.text(
+            x,
+            0.5,
+            label,
+            ha="center",
+            va="center",
+            bbox={"boxstyle": "round,pad=.5", "fc": "white", "ec": "#3b6f8f"},
+        )
+        if index < len(labels) - 1:
+            axis.annotate(
+                "",
+                xy=(x + 0.23, 0.5),
+                xytext=(x + 0.1, 0.5),
+                arrowprops={"arrowstyle": "->", "color": "#3b6f8f"},
+            )
+    axis.set_title(title, fontsize=14)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_framework(title: str, output_path: Path) -> None:
+    figure, axis = plt.subplots(figsize=(9.4, 4.2), constrained_layout=True)
+    axis.axis("off")
+    boxes = (
+        (0.12, "Input"),
+        (0.37, "Backbone\ntrajectories"),
+        (0.62, "S/D/R\nstate"),
+        (0.87, "Deployment\nsignal"),
+    )
+    for x, label in boxes:
+        axis.text(
+            x,
+            0.62,
+            label,
+            ha="center",
+            va="center",
+            bbox={"boxstyle": "round,pad=.45", "fc": "white", "ec": "#276678"},
+        )
+    for left, right in zip(boxes, boxes[1:], strict=False):
+        axis.annotate(
+            "",
+            xy=(right[0] - 0.08, 0.62),
+            xytext=(left[0] + 0.08, 0.62),
+            arrowprops={"arrowstyle": "->"},
+        )
+    axis.text(
+        0.38,
+        0.22,
+        "Offline A/C supervision",
+        ha="center",
+        bbox={"fc": "white", "ec": "#8b5e3c", "linestyle": "--"},
+    )
+    axis.text(
+        0.76,
+        0.22,
+        "Conflict-only Misread probe\nPending",
+        ha="center",
+        bbox={"fc": "white", "ec": "#8b5e3c", "linestyle": "--"},
+    )
+    axis.set_title(title, fontsize=14)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_sdr_method(title: str, output_path: Path) -> None:
+    figure, axes = plt.subplots(1, 2, figsize=(10.0, 4.2), constrained_layout=True)
+    axes[0].axis("off")
+    axes[0].set_title("Spherical geometry")
+    axes[0].text(0.05, 0.72, r"$d_g(a,b)=\arccos(\mathrm{clip}(a^Tb,-1,1))$", fontsize=11)
+    axes[0].text(0.05, 0.50, r"$S=(s_1+s_2+s_{12})/3$", fontsize=11)
+    axes[0].text(0.05, 0.30, r"$D=d_g(\mu_1,\mu_2)/(\sqrt{s_1+s_2}+\epsilon)$", fontsize=10)
+    axes[0].text(0.05, 0.10, r"$R>0$: V lean; $R<0$: T/A lean", fontsize=10)
+    axes[1].axis("off")
+    axes[1].set_title("Hierarchical decision")
+    axes[1].text(0.5, 0.82, "S > kappa?  Confusion", ha="center")
+    axes[1].text(0.5, 0.60, "D <= tau?  Consensus", ha="center")
+    axes[1].text(0.5, 0.38, "|R| <= delta_i?  Balanced", ha="center")
+    axes[1].text(0.5, 0.16, "otherwise  Dominant", ha="center")
+    figure.suptitle(title, fontsize=14)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_representation_details(title: str, output_path: Path) -> None:
+    figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.8), constrained_layout=True)
+    details = (
+        ("Single-Point", "M1/M2/M12 final points\n3H concat -> Linear"),
+        ("Trajectory MLP", "3 x L x H\nLinear + GELU -> hidden128"),
+        ("TME", "layer L2 -> GRU -> z\nordered u -> linear r\nProxy Anchor"),
+    )
+    for axis, (heading, body) in zip(axes, details, strict=True):
+        axis.axis("off")
+        axis.set_title(heading)
+        axis.text(
+            0.5,
+            0.5,
+            body,
+            ha="center",
+            va="center",
+            bbox={"fc": "white", "ec": "#3b6f8f", "pad": 10},
+        )
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_model_facets(key: str, title: str, output_path: Path) -> None:
+    columns = ("S", "D", "|R|") if key == "fig04_sdr_distributions" else MODEL_LABELS
+    if key == "fig04_sdr_distributions":
+        figure, axes = plt.subplots(3, 3, figsize=(10.2, 7.2), constrained_layout=True)
+        for row, model in enumerate(MODEL_LABELS):
+            for column, metric in enumerate(columns):
+                _pending_axis(axes[row, column], f"{model} | {metric}")
+    else:
+        figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.6), constrained_layout=True)
+        for axis, model in zip(axes, MODEL_LABELS, strict=True):
+            _pending_axis(axis, model)
+            if key == "fig06_stable_d_signed_r":
+                axis.set_xlabel("D")
+                axis.set_ylabel("signed R")
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_two_by_three(key: str, title: str, output_path: Path) -> None:
+    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
+    headings = (
+        MODEL_LABELS if key == "fig07_misread_bias" else ("Single-Point", "Trajectory MLP", "TME")
+    )
+    for column, heading in enumerate(headings):
+        top_heading = f"{heading} | Misread" if key == "fig07_misread_bias" else f"{heading} | UMAP"
+        _pending_axis(
+            axes[0, column],
+            top_heading,
+            "Pending Misread annotations" if key == "fig07_misread_bias" else STATUS_PENDING,
+        )
+        if key == "fig07_misread_bias":
+            _pending_axis(axes[1, column], f"{heading} | stable Conflict D-signed R")
+            axes[1, column].text(
+                0.95, 0.88, "V lean", ha="right", transform=axes[1, column].transAxes
+            )
+            axes[1, column].text(
+                0.95, 0.10, "T/A lean", ha="right", transform=axes[1, column].transAxes
+            )
+        else:
+            _pending_axis(
+                axes[1, column], f"{heading} | Misread AUPRC", "Pending Misread annotations"
+            )
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_cards(title: str, labels: tuple[str, ...], output_path: Path) -> None:
+    figure, axes = plt.subplots(1, len(labels), figsize=(11.0, 3.5), constrained_layout=True)
+    for axis, label in zip(axes, labels, strict=True):
+        _pending_axis(axis, label)
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
+    plt.close(figure)
+
+
+def _render_appendix_layout(key: str, title: str, output_path: Path) -> None:
+    layouts = {
+        "figA1_case_types": (1, 3, ("Conflict", "Aligned", "Ambiguous")),
+        "figA2_misread_cases": (1, 2, ("Misread", "Non-misread")),
+        "figB2_prompt_stability_latency": (1, 3, MODEL_LABELS),
+        "figB3_delta_bootstrap_geometry": (1, 2, ("delta_i bootstrap", "Spherical geometry")),
+        "figC1_ac_roc_pr": (1, 2, ("A/C ROC", "A/C PR")),
+        "figC2_conflict_retention": (1, 2, ("Nested budget", "A/C metrics")),
+        "figC3_seed_robustness": (1, 2, ("Three-seed correlation", "Pattern agreement")),
+        "figC4_threshold_sensitivity": (1, 2, ("kappa/tau/delta", "Pattern stack")),
+        "figD1_misread_pr": (1, 1, ("Conflict-only Misread PR",)),
+        "figD3_latency_breakdown": (1, 1, ("Latency components",)),
+        "figE1_human_quality": (1, 3, ("Relevance", "Helpfulness", "Safety")),
+        "figE2_pattern_cases": (1, 4, ("Confusion", "Consensus", "Balanced", "Dominant")),
+    }
+    if key == "figC5_model_patterns":
+        figure, axis = plt.subplots(figsize=(9.0, 6.2), constrained_layout=True)
+        _pending_axis(
+            axis,
+            "16 models | 100% pattern stacks",
+            "3 registered models Pending; 13 models Pending",
+        )
+    elif key in layouts:
+        rows, columns, headings = layouts[key]
+        figure, axes = plt.subplots(rows, columns, figsize=(10.0, 3.8), constrained_layout=True)
+        axes_list = [axes] if columns == 1 else list(axes)
+        for axis, heading in zip(axes_list, headings, strict=True):
+            message = (
+                "Pending Misread annotations"
+                if key in {"figA2_misread_cases", "figD1_misread_pr"}
+                else STATUS_PENDING
+            )
+            _pending_axis(axis, heading, message)
+    else:
+        figure, axis = plt.subplots(figsize=(7.0, 4.0), constrained_layout=True)
+        _pending_axis(axis, title)
+    figure.suptitle(title)
+    figure.savefig(output_path, format="pdf")
     plt.close(figure)
 
 
@@ -238,24 +502,34 @@ def _render_misread_bias(title: str, rows: list[dict[str, Any]], output_path: Pa
 def _render_representation_comparison(
     title: str, rows: list[dict[str, Any]], output_path: Path
 ) -> None:
-    _require_columns(rows, {"panel", "representation", "metric", "value", "status"})
-    figure, axes = plt.subplots(1, 2, figsize=(9.0, 4.0), constrained_layout=True)
-    ac_rows = [row for row in rows if row["panel"] == "ac"]
-    axes[0].bar(
-        [row["representation"] for row in ac_rows],
-        [float(row["value"]) for row in ac_rows],
-    )
-    axes[0].set_title("Conflict/Aligned")
-    misread_rows = [row for row in rows if row["panel"] == "misread"]
-    if not misread_rows or any(row["status"] != STATUS_READY for row in misread_rows):
-        axes[1].axis("off")
-        axes[1].text(0.5, 0.5, f"Misread: {STATUS_PENDING}", ha="center", va="center")
-    else:
-        axes[1].bar(
-            [row["representation"] for row in misread_rows],
-            [float(row["value"]) for row in misread_rows],
+    _require_columns(rows, {"panel", "representation", "sample_type", "feature", "status"})
+    try:
+        from umap import UMAP
+    except ImportError as exc:
+        raise RuntimeError("Fig. 8 requires pinned umap-learn; PCA fallback is forbidden") from exc
+    import numpy as np
+
+    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
+    for column, representation in enumerate(("Single-Point", "Trajectory MLP", "TME")):
+        selected = [
+            row for row in rows if row["panel"] == "ac" and row["representation"] == representation
+        ]
+        if len(selected) <= UMAP_CONFIG["n_neighbors"]:
+            raise ValueError("Fig. 8 UMAP requires more samples than fixed n_neighbors")
+        features = np.asarray([json.loads(str(row["feature"])) for row in selected], dtype=float)
+        projection = UMAP(**UMAP_CONFIG).fit_transform(features)
+        for sample_type, color in (("Aligned", "#2a9d8f"), ("Conflict", "#d1495b")):
+            indexes = [i for i, row in enumerate(selected) if row["sample_type"] == sample_type]
+            axes[0, column].scatter(
+                projection[indexes, 0], projection[indexes, 1], color=color, label=sample_type, s=14
+            )
+        axes[0, column].set_title(f"{representation} | UMAP")
+        axes[0, column].legend(fontsize=7)
+        _pending_axis(
+            axes[1, column],
+            f"{representation} | Misread AUPRC",
+            "Pending Misread annotations",
         )
-        axes[1].set_title("Misread")
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -378,9 +652,7 @@ def _validate_fig04_masks(rows: list[dict[str, Any]], provenance: dict[str, Any]
             raise ValueError("Fig. 4 metric must be S, D, or abs_R")
         if metric == "D" and float(row["S"]) > kappa:
             raise ValueError("Fig. 4 D row violates stable mask")
-        if metric == "abs_R" and (
-            float(row["S"]) > kappa or float(row["D"]) <= tau
-        ):
+        if metric == "abs_R" and (float(row["S"]) > kappa or float(row["D"]) <= tau):
             raise ValueError("Fig. 4 abs_R row violates stable directional mask")
         expected = (
             float(row["S"])

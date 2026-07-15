@@ -1,47 +1,62 @@
 schema: mprisk_bundle_figure_map_v1
 figures:
   fig01_problem_protocol:
-    title: Problem and protocol
+    title: Affective Misread before the First Token
     input: outputs/paper_exports/figures/fig01_problem_protocol.json
     output: paper/figures/generated/fig01_problem_protocol.pdf
   fig02_representation_pipeline:
-    title: Three representation interfaces
+    title: Overall Framework
     input: outputs/paper_exports/figures/fig02_representation_pipeline.json
     output: paper/figures/generated/fig02_representation_pipeline.pdf
   fig03_spherical_sdr:
-    title: Spherical S/D/R and hierarchical states
+    title: Spherical S/D/R and Four State Patterns
     input: outputs/paper_exports/figures/fig03_spherical_sdr.json
     output: paper/figures/generated/fig03_spherical_sdr.pdf
   fig04_sdr_distributions:
-    title: Conflict and Aligned S/D/R distributions
+    title: Per-Model S/D/|R| Distributions
     input: outputs/paper_exports/figures/fig04_sdr_distributions.csv
     output: paper/figures/generated/fig04_sdr_distributions.pdf
   fig05_four_state_stacks:
-    title: Four-state proportions by model and sample type
+    title: Per-Model Four-State Proportions
     input: outputs/paper_exports/figures/fig05_four_state_stacks.csv
     output: paper/figures/generated/fig05_four_state_stacks.pdf
   fig06_stable_d_signed_r:
-    title: Stable samples in D and signed R space
+    title: Per-Model Stable D and Signed R
     input: outputs/paper_exports/figures/fig06_stable_d_signed_r.csv
     output: paper/figures/generated/fig06_stable_d_signed_r.pdf
   fig07_misread_bias:
-    title: Misread status and real modality bias
+    title: Misread Relations and Modality Bias
     input: outputs/paper_exports/figures/fig07_misread_bias.csv
     output: paper/figures/generated/fig07_misread_bias.pdf
   fig08_representation_comparison:
-    title: Three-representation comparison
+    title: Held-Out Representation Geometry and Misread Sensitivity
     input: outputs/paper_exports/figures/fig08_representation_comparison.csv
     output: paper/figures/generated/fig08_representation_comparison.pdf
   fig09_conflict_case:
-    title: Conflict case
+    title: End-to-End Conflict Case
     input: outputs/paper_exports/figures/fig09_conflict_case.json
     output: paper/figures/generated/fig09_conflict_case.pdf
-  fig10_aligned_case:
-    title: Aligned case
-    input: outputs/paper_exports/figures/fig10_aligned_case.json
-    output: paper/figures/generated/fig10_aligned_case.pdf
+  fig10_four_pattern_cases:
+    title: Four State-Pattern Cases
+    input: outputs/paper_exports/figures/fig10_four_pattern_cases.json
+    output: paper/figures/generated/fig10_four_pattern_cases.pdf
 appendix:
-  figA01_calibration_audit:
-    title: Independent Aligned calibration audit
-    input: outputs/paper_exports/figures/figA01_calibration_audit.json
-    output: paper/figures/appendix/figA01_calibration_audit.pdf
+  figA1_case_types: {title: Conflict Aligned and Ambiguous Cases, input: outputs/paper_exports/figures/figA1_case_types.json, output: paper/figures/appendix/figA1_case_types.pdf}
+  figA2_misread_cases: {title: Misread and Non-misread Cases, input: outputs/paper_exports/figures/figA2_misread_cases.json, output: paper/figures/appendix/figA2_misread_cases.pdf}
+  figB1_representation_details: {title: Representation and Relation Details, input: outputs/paper_exports/figures/figB1_representation_details.json, output: paper/figures/appendix/figB1_representation_details.pdf}
+  figB2_prompt_stability_latency: {title: Prompt Count Stability and Latency, input: outputs/paper_exports/figures/figB2_prompt_stability_latency.csv, output: paper/figures/appendix/figB2_prompt_stability_latency.pdf}
+  figB3_delta_bootstrap_geometry: {title: Synchronous Bootstrap and Geometry, input: outputs/paper_exports/figures/figB3_delta_bootstrap_geometry.json, output: paper/figures/appendix/figB3_delta_bootstrap_geometry.pdf}
+  figC1_ac_roc_pr: {title: Held-Out Conflict Aligned ROC and PR, input: outputs/paper_exports/figures/figC1_ac_roc_pr.csv, output: paper/figures/appendix/figC1_ac_roc_pr.pdf}
+  figC2_conflict_retention: {title: Conflict Retention Budget, input: outputs/paper_exports/figures/figC2_conflict_retention.csv, output: paper/figures/appendix/figC2_conflict_retention.pdf}
+  figC3_seed_robustness: {title: Prompt Seed Robustness, input: outputs/paper_exports/figures/figC3_seed_robustness.csv, output: paper/figures/appendix/figC3_seed_robustness.pdf}
+  figC4_threshold_sensitivity: {title: Threshold Sensitivity, input: outputs/paper_exports/figures/figC4_threshold_sensitivity.csv, output: paper/figures/appendix/figC4_threshold_sensitivity.pdf}
+  figC5_model_patterns: {title: Complete 16-Model Pattern Comparison, input: outputs/paper_exports/figures/figC5_model_patterns.csv, output: paper/figures/appendix/figC5_model_patterns.pdf}
+  figD1_misread_pr: {title: Conflict-Only Misread Precision Recall, input: outputs/paper_exports/figures/figD1_misread_pr.csv, output: paper/figures/appendix/figD1_misread_pr.pdf}
+  figD3_latency_breakdown: {title: Real Latency Breakdown, input: outputs/paper_exports/figures/figD3_latency_breakdown.csv, output: paper/figures/appendix/figD3_latency_breakdown.pdf}
+  figE1_human_quality: {title: Human Response Quality, input: outputs/paper_exports/figures/figE1_human_quality.csv, output: paper/figures/appendix/figE1_human_quality.pdf}
+  figE2_pattern_cases: {title: Additional Four-Pattern Cases, input: outputs/paper_exports/figures/figE2_pattern_cases.json, output: paper/figures/appendix/figE2_pattern_cases.pdf}
+optional_excluded:
+  figD2_j_lens:
+    reason: No registered J-Lens artifact or preregistered analysis.
+  figE3_self_correction:
+    reason: Self-correction is outside the preregistered evaluation.

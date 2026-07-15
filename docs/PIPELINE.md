@@ -262,7 +262,7 @@ prompts. Let `d_g(a,b)=acos(clip(a^T b,-1,1))` and
 `mu_c=normalize(sum_p z_cp)`. Per-condition dispersion is
 `s_c=(1/P) sum_p d_g(z_cp,mu_c)^2`, with `S=(s_1+s_2+s_12)/3`.
 The normalized modality split is
-`D=d_g(mu_1,mu_2)/(sqrt(s_1+s_2)+eps)`, and signed arbitration is
+`D=d_g(mu_1,mu_2)/(sqrt(s_1+s_2)+eps)`, and signed Joint Lean is
 `R=(d_g(mu_12,mu_2)-d_g(mu_12,mu_1))/(d_g(mu_1,mu_2)+eps)`.
 Therefore `R>0` is V lean and `R<0` is T/A lean. Each sample uses
 `delta_i=1.96*SE` from a synchronous prompt bootstrap: every replicate resamples

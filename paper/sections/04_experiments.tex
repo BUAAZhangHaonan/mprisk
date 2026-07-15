@@ -8,9 +8,44 @@ This subsection covers datasets, protocols, models, prompt sets, baselines, and 
 
 This subsection tests whether Conflict and Aligned samples differ in pre-generation state.
 
-\subsection{Main Result: Relation to Wrong Answers}
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig04_sdr_distributions.pdf}
+  \caption{Per-model S, D, and absolute Joint Lean distributions.}
+  \label{fig:sdr-distributions}
+\end{figure*}
 
-This subsection tests whether state patterns predict later wrong answers.
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig05_four_state_stacks.pdf}
+  \caption{Per-model four-state proportions for Conflict and Aligned samples.}
+  \label{fig:state-stacks}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig06_stable_d_signed_r.pdf}
+  \caption{Stable samples in D and signed Joint Lean space.}
+  \label{fig:stable-joint-lean}
+\end{figure*}
+
+\subsection{Main Result: Relation to Misread Outcomes}
+
+This subsection tests whether state patterns predict later Misread outcomes.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig07_misread_bias.pdf}
+  \caption{Reserved Misread panels and artifact-backed modality-bias panels.}
+  \label{fig:misread-bias}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig08_representation_comparison.pdf}
+  \caption{Held-out sample-level UMAP for three representations and reserved Misread sensitivity panels.}
+  \label{fig:representation-umap}
+\end{figure*}
 
 \subsection{Baseline Comparison}
 
@@ -23,6 +58,41 @@ This subsection compares pre-generation analysis against full-output post-hoc an
 \subsection{Generalization and Case Studies}
 
 This subsection includes one Conflict case, one Aligned case, and one state-guided response case.
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig09_conflict_case.pdf}
+  \caption{End-to-end Conflict case with registered evidence slots.}
+  \label{fig:conflict-case}
+\end{figure*}
+
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=\textwidth]{figures/generated/fig10_four_pattern_cases.pdf}
+  \caption{Case slots for Confusion, Consensus, Balanced, and Dominant states.}
+  \label{fig:four-pattern-cases}
+\end{figure*}
+
+\begin{table*}[t]
+  \centering
+  \caption{Cross-backbone results.}
+  \label{tab:cross-backbone}
+  \input{tables/generated/tab01_cross_backbone_results}
+\end{table*}
+
+\begin{table*}[t]
+  \centering
+  \caption{Conflict-only Misread baselines.}
+  \label{tab:misread-baselines}
+  \input{tables/generated/tab02_conflict_misread_baselines}
+\end{table*}
+
+\begin{table*}[t]
+  \centering
+  \caption{Downstream response evaluation.}
+  \label{tab:downstream-quality}
+  \input{tables/generated/tab03_downstream_quality}
+\end{table*}
 
 \subsection{Limitations and Future Directions}
 

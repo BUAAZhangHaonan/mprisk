@@ -56,10 +56,33 @@ FIGURE_CSV_FIELDS = {
     "fig08_representation_comparison": [
         "panel",
         "representation",
-        "metric",
-        "value",
+        "sample_type",
+        "feature",
         "status",
     ],
+    "figB2_prompt_stability_latency": [
+        "model",
+        "prompt_count",
+        "stability",
+        "latency_ms",
+        "status",
+    ],
+    "figC1_ac_roc_pr": ["model", "representation", "curve", "x", "y", "status"],
+    "figC2_conflict_retention": ["model", "budget", "metric", "value", "status"],
+    "figC3_seed_robustness": ["model", "seed_a", "seed_b", "correlation", "agreement", "status"],
+    "figC4_threshold_sensitivity": [
+        "model",
+        "kappa",
+        "tau",
+        "delta",
+        "pattern",
+        "proportion",
+        "status",
+    ],
+    "figC5_model_patterns": ["model", "pattern", "proportion", "status"],
+    "figD1_misread_pr": ["representation", "recall", "precision", "status"],
+    "figD3_latency_breakdown": ["model", "component", "latency_ms", "status"],
+    "figE1_human_quality": ["model", "dimension", "score", "status"],
 }
 
 
@@ -211,9 +234,7 @@ def write_pending_figure_inputs(
     return written
 
 
-def _fig04_rows(
-    rows: list[dict[str, Any]], *, kappa: float, tau: float
-) -> list[dict[str, Any]]:
+def _fig04_rows(rows: list[dict[str, Any]], *, kappa: float, tau: float) -> list[dict[str, Any]]:
     exported: list[dict[str, Any]] = []
     for row in rows:
         base = _state_values(row)
@@ -227,8 +248,7 @@ def _fig04_rows(
 
 def _fig05_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     counts = Counter(
-        (str(row["model_key"]), str(row["sample_type"]), str(row["pattern"]))
-        for row in rows
+        (str(row["model_key"]), str(row["sample_type"]), str(row["pattern"])) for row in rows
     )
     totals = Counter((str(row["model_key"]), str(row["sample_type"])) for row in rows)
     return [
@@ -244,9 +264,7 @@ def _fig05_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _fig06_rows(
-    rows: list[dict[str, Any]], *, kappa: float, tau: float
-) -> list[dict[str, Any]]:
+def _fig06_rows(rows: list[dict[str, Any]], *, kappa: float, tau: float) -> list[dict[str, Any]]:
     exported: list[dict[str, Any]] = []
     for row in rows:
         base = _state_values(row)
@@ -276,9 +294,7 @@ def _state_values(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_state_rows(
-    scores: list[dict[str, Any]], patterns: list[dict[str, Any]]
-) -> None:
+def _validate_state_rows(scores: list[dict[str, Any]], patterns: list[dict[str, Any]]) -> None:
     if not scores or not patterns:
         raise ValueError("state figure inputs require non-empty real artifacts")
     score_ids = [str(row.get("sample_id", "")) for row in scores]
@@ -310,9 +326,7 @@ def _write_provenance(
         "figure_key": figure_key,
         "status": status,
         "generated_command": generated_command,
-        "sources": [
-            {"path": str(source), "sha256": _sha256(source)} for source in sources
-        ],
+        "sources": [{"path": str(source), "sha256": _sha256(source)} for source in sources],
         "sample_masks": sample_masks,
         "source_sample_count": source_sample_count,
         "included_sample_count": included_sample_count,

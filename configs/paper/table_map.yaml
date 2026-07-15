@@ -1,5 +1,17 @@
-schema: mprisk_paper_table_map_v1
+schema: mprisk_paper_table_map_v2
 tables:
-  tab01_main_results: paper/tables/generated/tab01_main_results.tex
-  tab02_baselines: paper/tables/generated/tab02_baselines.tex
-  tab03_stage2: paper/tables/generated/tab03_stage2.tex
+  tab01_cross_backbone_results:
+    title: Cross-Backbone Results
+    input: outputs/paper_exports/tables/tab01_cross_backbone_results.csv
+    output: paper/tables/generated/tab01_cross_backbone_results.tex
+    columns: [Model / Protocol, Diagnostic Acc. (Aligned), Diagnostic Acc. (Conflict), Dominant Modality Signature]
+  tab02_conflict_misread_baselines:
+    title: Conflict-Only Misread Baselines
+    input: outputs/paper_exports/tables/tab02_conflict_misread_baselines.csv
+    output: paper/tables/generated/tab02_conflict_misread_baselines.tex
+    columns: [Representation, Accuracy, Macro-F1, AUPRC, Latency]
+  tab03_downstream_quality:
+    title: Downstream Response Evaluation
+    input: outputs/paper_exports/tables/tab03_downstream_quality.csv
+    output: paper/tables/generated/tab03_downstream_quality.tex
+    columns: [Model, Setting, Misattribution, Quality]
