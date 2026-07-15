@@ -554,6 +554,9 @@ async def run_batch(
                         envelope["content"],
                         min_words=config.min_words,
                         max_words=config.max_words,
+                        allow_quoted_terminal_marks=isinstance(
+                            config, GTPromptContextV2Config
+                        ),
                     )
                     result = {**envelope, "GT_DESCRIPTION": description}
                     ledger.finish_attempt(sample_id, attempt, started, "completed", result)
@@ -599,7 +602,13 @@ async def run_batch(
         ledger.close()
 
 
-def validate_gt_content(content: Any, *, min_words: int, max_words: int) -> str:
+def validate_gt_content(
+    content: Any,
+    *,
+    min_words: int,
+    max_words: int,
+    allow_quoted_terminal_marks: bool = False,
+) -> str:
     if not isinstance(content, str) or not content:
         raise GTValidationError("response content must be a non-empty string")
     try:
@@ -611,7 +620,10 @@ def validate_gt_content(content: Any, *, min_words: int, max_words: int) -> str:
     value = payload["GT_DESCRIPTION"]
     if not isinstance(value, str) or not value or value != value.strip() or "\n" in value:
         raise GTValidationError("GT_DESCRIPTION must be one non-empty unpadded line")
-    if not value.endswith(".") or any(mark in value for mark in "?!"):
+    has_invalid_terminal_mark = any(mark in value for mark in "?!")
+    if allow_quoted_terminal_marks:
+        has_invalid_terminal_mark = _has_unquoted_terminal_mark(value)
+    if not value.endswith(".") or has_invalid_terminal_mark:
         raise GTValidationError(
             "GT_DESCRIPTION must be a declarative sentence ending in a period"
         )
@@ -623,6 +635,18 @@ def validate_gt_content(content: Any, *, min_words: int, max_words: int) -> str:
             f"GT_DESCRIPTION must contain {min_words}-{max_words} English words"
         )
     return value
+
+
+def _has_unquoted_terminal_mark(value: str) -> bool:
+    for index, mark in enumerate(value):
+        if mark not in "?!":
+            continue
+        if index + 1 >= len(value) or value[index + 1] not in "'\"":
+            return True
+        closing_quote = value[index + 1]
+        if closing_quote not in value[:index]:
+            return True
+    return False
 
 
 def verify_outputs(
@@ -671,6 +695,7 @@ def verify_outputs(
             _canonical_json({"GT_DESCRIPTION": row["GT_DESCRIPTION"]}),
             min_words=config.min_words,
             max_words=config.max_words,
+            allow_quoted_terminal_marks=isinstance(config, GTPromptContextV2Config),
         )
     for row in sidecar:
         if set(row) != {

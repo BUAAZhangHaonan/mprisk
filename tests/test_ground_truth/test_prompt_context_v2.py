@@ -8,6 +8,8 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from mprisk.ground_truth.deepseek_gt import (
     Ledger,
     load_config,
@@ -224,6 +226,26 @@ def test_invalid_model_response_is_preserved_in_attempt_evidence(tmp_path: Path)
         response = json.loads(attempt["response_json"])
         assert response["finish_reason"] == "stop"
         assert response["content"] == '{"GT_DESCRIPTION": "The person sounds angry!"}'
+
+
+def test_v2_accepts_quoted_dialogue_punctuation_but_v1_remains_strict() -> None:
+    content = json.dumps(
+        {
+            "GT_DESCRIPTION": (
+                "The woman expresses anger through her tense posture and the words "
+                "'I cannot believe this happened!' in the workshop."
+            )
+        }
+    )
+
+    with pytest.raises(ValueError, match="declarative sentence"):
+        validate_gt_content(content, min_words=6, max_words=80)
+    assert validate_gt_content(
+        content,
+        min_words=6,
+        max_words=80,
+        allow_quoted_terminal_marks=True,
+    ).endswith("workshop.")
 
 
 def test_v1_task_count_and_model_input_contract_remain_unchanged() -> None:
