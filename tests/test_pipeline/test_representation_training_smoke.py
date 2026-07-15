@@ -128,6 +128,8 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
                 "model_key": "qwen3_vl_8b",
+                "protocol": "vt",
+                "classification_objective": "proxy_anchor_only",
                 "prompt_set_key": "vt_primary_v1",
                 "prompt_set_artifact_sha256": "b" * 64,
                 "expected_prompt_count": 2,

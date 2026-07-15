@@ -155,7 +155,7 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
     assert csv_rows[2]["status"] == "missing"
 
 
-def test_repr_comparison_cli_accepts_config_and_output_dir(tmp_path: Path) -> None:
+def test_repr_comparison_cli_rejects_legacy_misread_input(tmp_path: Path) -> None:
     output_dir = tmp_path / "outputs/evaluation/main/qwen3_vl_8b/VT"
     config_path = tmp_path / "comparison_config.json"
     _write_json(
@@ -186,12 +186,12 @@ def test_repr_comparison_cli_accepts_config_and_output_dir(tmp_path: Path) -> No
             str(output_dir),
         ],
         cwd=Path(__file__).resolve().parents[2],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
 
-    assert "repr_comparison_json=" in completed.stdout
-    assert "repr_comparison_csv=" in completed.stdout
-    assert (output_dir / "repr_comparison.json").exists()
-    assert (output_dir / "repr_comparison.csv").exists()
+    assert completed.returncode != 0
+    assert "legacy representation comparison is disabled" in completed.stderr
+    assert not (output_dir / "repr_comparison.json").exists()
+    assert not (output_dir / "repr_comparison.csv").exists()

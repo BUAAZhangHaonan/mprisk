@@ -10,9 +10,12 @@ def main() -> int:
             "Use the official Conflict/Aligned downstream queue instead."
         )
     )
+    parser.add_argument("--config")
+    parser.add_argument("--output-dir")
     parser.parse_args()
     parser.error(
-        "legacy representation comparison is disabled; it cannot be used as a Misread paper input"
+        "legacy representation comparison is disabled; it cannot be used as a Misread "
+        "paper input"
     )
     return 2
 

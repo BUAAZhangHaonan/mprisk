@@ -57,6 +57,7 @@ def _write_representation_dataset(tmp_path) -> tuple[object, object]:
                     "protocol": "VT",
                     "prompt_id": prompt_id,
                     "prompt_set_key": "vt_primary_v1",
+                    "prompt_set_artifact_sha256": "b" * 64,
                     "split_group_id": sample_id,
                     "master_split": "val" if index >= 6 else "train",
                     "representation_split": (
@@ -93,6 +94,8 @@ def _write_representation_dataset(tmp_path) -> tuple[object, object]:
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
                 "model_key": "qwen3_vl_8b",
+                "protocol": "vt",
+                "classification_objective": "proxy_anchor_only",
                 "prompt_set_key": "vt_primary_v1",
                 "prompt_set_artifact_sha256": "b" * 64,
                 "expected_prompt_count": 2,

@@ -10,6 +10,9 @@ def main() -> int:
             "Misread labels. Use run_conflict_misread_probe.py after annotations exist."
         )
     )
+    parser.add_argument("--state-patterns")
+    parser.add_argument("--predictions")
+    parser.add_argument("--output-dir")
     parser.parse_args()
     parser.error(
         "legacy state-to-error analysis is disabled; Misread requires independent "

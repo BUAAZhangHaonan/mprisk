@@ -203,7 +203,7 @@ def test_state_to_error_csv_contains_overall_and_sample_type_rows(tmp_path: Path
     } in rows
 
 
-def test_state_to_error_cli_accepts_required_arguments(tmp_path: Path) -> None:
+def test_state_to_error_cli_rejects_generic_correctness_labels(tmp_path: Path) -> None:
     state_path, prediction_path = _sample_inputs(tmp_path)
     output_dir = tmp_path / "cli-analysis"
 
@@ -219,14 +219,15 @@ def test_state_to_error_cli_accepts_required_arguments(tmp_path: Path) -> None:
             str(output_dir),
         ],
         cwd=Path(__file__).resolve().parents[2],
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
     )
 
-    assert "state_to_error_json=" in completed.stdout
-    assert (output_dir / "state_to_error.json").exists()
-    assert (output_dir / "state_to_error.csv").exists()
+    assert completed.returncode != 0
+    assert "legacy state-to-error analysis is disabled" in completed.stderr
+    assert not (output_dir / "state_to_error.json").exists()
+    assert not (output_dir / "state_to_error.csv").exists()
 
 
 def test_state_to_error_requires_unique_sample_ids(tmp_path: Path) -> None:
