@@ -48,6 +48,17 @@ def test_run_status_aggregates_only_machine_readable_runtime_records(tmp_path) -
                 "reason": "recorded failure",
             }
         ],
+        "visual_qa": [
+            {
+                "qa_key": "pending_bundle_v1",
+                "status": "pass",
+                "pdf_count": 11,
+                "rendered_png_count": 11,
+                "embedded_font_pdf_count": 11,
+                "forbidden_match_count": 0,
+                "notes": "manual image inspection complete",
+            }
+        ],
     }
     records_path = tmp_path / "run_records.json"
     records_path.write_text(json.dumps(records), encoding="utf-8")
@@ -64,4 +75,5 @@ def test_run_status_aggregates_only_machine_readable_runtime_records(tmp_path) -
     assert "2048" in text
     assert "10" in text and "2" in text and "4" in text
     assert "qwen3_tme" in text and "failure" in text
+    assert "pending_bundle_v1" in text and "manual image inspection complete" in text
     assert "fig01_problem_protocol" in text and "Pending" in text

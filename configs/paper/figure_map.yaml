@@ -25,7 +25,7 @@ figures:
     input: outputs/paper_exports/figures/fig06_stable_d_signed_r.csv
     output: paper/figures/generated/fig06_stable_d_signed_r.pdf
   fig07_misread_bias:
-    title: Misread status and real arbitration bias
+    title: Misread status and real modality bias
     input: outputs/paper_exports/figures/fig07_misread_bias.csv
     output: paper/figures/generated/fig07_misread_bias.pdf
   fig08_representation_comparison:

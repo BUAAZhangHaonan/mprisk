@@ -33,6 +33,15 @@ LOCKED_TERMS = {
     "vision_lean": "V lean",
     "text_audio_lean": "T/A lean",
 }
+FORBIDDEN_PDF_TEXT = (
+    "illustrative",
+    "placeholder",
+    "[xx]",
+    "wrong-answer",
+    "state consistency",
+    "divergence",
+    "arbitration",
+)
 
 
 def export_bundle_figures(config_path: str | Path) -> dict[str, Any]:
@@ -79,6 +88,7 @@ def _export_group(
         else:
             _render_pending(title=title, output_path=output_path)
         _validate_pdf_open(output_path)
+        _validate_pdf_text(output_path)
         exported[str(key)] = {
             "status": status,
             "input": str(input_path),
@@ -438,6 +448,21 @@ def _validate_pdf_open(path: Path) -> None:
     )
     if completed.returncode != 0:
         raise ValueError(f"PDF validation failed for {path}: {completed.stderr.strip()}")
+
+
+def _validate_pdf_text(path: Path) -> None:
+    completed = subprocess.run(
+        ["pdftotext", str(path), "-"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"PDF text extraction failed for {path}: {completed.stderr.strip()}")
+    normalized = completed.stdout.casefold()
+    matches = [term for term in FORBIDDEN_PDF_TEXT if term in normalized]
+    if matches:
+        raise ValueError(f"PDF contains forbidden text: {', '.join(matches)}")
 
 
 def _sha256(path: Path) -> str:

@@ -5,6 +5,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import matplotlib.image as mpimg
+import pytest
 import yaml
 
 from mprisk.viz.bundle_figures import export_bundle_figures
@@ -58,6 +60,16 @@ def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tm
         completed = subprocess.run(["pdfinfo", str(pdf)], capture_output=True, text=True)
         assert completed.returncode == 0
         assert "Pending" not in completed.stderr
+        raster_stem = tmp_path / "raster" / pdf.stem
+        raster_stem.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(
+            ["pdftoppm", "-f", "1", "-singlefile", "-png", str(pdf), str(raster_stem)],
+            check=True,
+            capture_output=True,
+        )
+        pixels = mpimg.imread(raster_stem.with_suffix(".png"))[..., :3]
+        black_fraction = float((pixels.mean(axis=-1) < 0.05).mean())
+        assert black_fraction < 0.01
 
 
 def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) -> None:
@@ -124,3 +136,12 @@ def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
         "tab02_baselines",
         "tab03_stage2",
     ]
+
+
+def test_figure_export_rejects_forbidden_pdf_text(tmp_path) -> None:
+    config_path = _config(tmp_path)
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["figures"]["fig07_misread_bias"]["title"] = "Arbitration"
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    with pytest.raises(ValueError, match="forbidden text"):
+        export_bundle_figures(config_path)

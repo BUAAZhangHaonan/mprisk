@@ -73,6 +73,31 @@ def snapshot_gpu_records(path: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
+def record_visual_qa(
+    path: str | Path,
+    *,
+    qa_key: str,
+    status: str,
+    pdf_count: int,
+    rendered_png_count: int,
+    embedded_font_pdf_count: int,
+    forbidden_match_count: int,
+    notes: str,
+) -> dict[str, Any]:
+    row = {
+        "qa_key": qa_key,
+        "status": status,
+        "pdf_count": pdf_count,
+        "rendered_png_count": rendered_png_count,
+        "embedded_font_pdf_count": embedded_font_pdf_count,
+        "forbidden_match_count": forbidden_match_count,
+        "notes": notes,
+        "recorded_at": utc_now(),
+    }
+    _replace_keyed_record(path, "visual_qa", "qa_key", row)
+    return row
+
+
 def snapshot_cache_manifest(
     path: str | Path,
     *,
@@ -146,11 +171,12 @@ def load_run_records(path: str | Path) -> dict[str, Any]:
             "gpus": [],
             "caches": [],
             "experiments": [],
+            "visual_qa": [],
         }
     payload = json.loads(target.read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema") != RUN_RECORDS_SCHEMA:
         raise ValueError(f"run records schema must be {RUN_RECORDS_SCHEMA}")
-    for key in ("commands", "gpus", "caches", "experiments"):
+    for key in ("commands", "gpus", "caches", "experiments", "visual_qa"):
         payload.setdefault(key, [])
         if not isinstance(payload[key], list):
             raise ValueError(f"run records {key} must be a list")

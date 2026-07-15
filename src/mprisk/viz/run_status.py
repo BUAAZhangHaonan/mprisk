@@ -31,6 +31,7 @@ def build_run_status(
         *_gpu_lines(records["gpus"]),
         *_cache_lines(records["caches"]),
         *_experiment_lines(records["experiments"]),
+        *_visual_qa_lines(records["visual_qa"]),
     ]
     for heading, specs in groups:
         lines.extend(
@@ -58,12 +59,18 @@ def build_run_status(
 
 def _load_records(path: str | Path | None) -> dict[str, list[dict[str, Any]]]:
     if path is None:
-        return {"commands": [], "gpus": [], "caches": [], "experiments": []}
+        return {
+            "commands": [],
+            "gpus": [],
+            "caches": [],
+            "experiments": [],
+            "visual_qa": [],
+        }
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict) or payload.get("schema") != RUN_RECORDS_SCHEMA:
         raise ValueError(f"run records schema must be {RUN_RECORDS_SCHEMA}")
     result: dict[str, list[dict[str, Any]]] = {}
-    for key in ("commands", "gpus", "caches", "experiments"):
+    for key in ("commands", "gpus", "caches", "experiments", "visual_qa"):
         rows = payload.get(key, [])
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
             raise ValueError(f"run records {key} must be a list of objects")
@@ -148,6 +155,27 @@ def _experiment_lines(rows: list[dict[str, Any]]) -> list[str]:
         lines.append(
             f"| {row.get('experiment_key', '')} | {row.get('status', '')} | "
             f"{row.get('command_id', '')} | {row.get('reason', '')} |"
+        )
+    lines.append("")
+    return lines
+
+
+def _visual_qa_lines(rows: list[dict[str, Any]]) -> list[str]:
+    lines = [
+        "## PDF Visual QA",
+        "",
+        "| QA | Status | PDFs | PNGs | Embedded-font PDFs | Forbidden matches | Notes |",
+        "|---|---|---:|---:|---:|---:|---|",
+    ]
+    if not rows:
+        lines.extend(("| None recorded | Pending | - | - | - | - | - |", ""))
+        return lines
+    for row in rows:
+        lines.append(
+            f"| {row.get('qa_key', '')} | {row.get('status', '')} | "
+            f"{row.get('pdf_count', '')} | {row.get('rendered_png_count', '')} | "
+            f"{row.get('embedded_font_pdf_count', '')} | "
+            f"{row.get('forbidden_match_count', '')} | {row.get('notes', '')} |"
         )
     lines.append("")
     return lines
