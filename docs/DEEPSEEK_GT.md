@@ -8,6 +8,7 @@ The A and C prompts are fixed separately. Thinking is disabled, temperature is
 zero, and the response must be exact JSON with only `GT_DESCRIPTION`. Invalid
 JSON, extra keys, non-declarative text, or multi-sentence text fails without
 repair. Only timeouts, transport failures, 408/409/429, and 5xx responses retry.
+The sole accepted credential is `DEEPSEEK_API_KEY`; no alternate provider key is used.
 
 The SQLite ledger resumes interrupted work. Exports are atomic and keep raw
 request/response metadata, attempts, failures, provenance, and a review-status

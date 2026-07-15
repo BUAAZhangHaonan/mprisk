@@ -36,7 +36,7 @@ class GTConfig(StrictModel):
     model: Literal["deepseek-v4-flash"]
     api_url: str
     env_file: Path
-    api_key_variables: list[str]
+    api_key_variable: Literal["DEEPSEEK_API_KEY"]
     temperature: Literal[0]
     max_tokens: Literal[128]
     thinking: Literal["disabled"]
@@ -112,16 +112,14 @@ def load_config(path: str | Path) -> GTConfig:
 
 
 def load_api_key(config: GTConfig) -> str:
-    for name in config.api_key_variables:
-        value = os.environ.get(name)
-        if value:
-            return value
+    value = os.environ.get(config.api_key_variable)
+    if value:
+        return value
     values = _read_env_file(config.env_file)
-    for name in config.api_key_variables:
-        value = values.get(name)
-        if value:
-            return value
-    raise ValueError("No configured DeepSeek API key is available")
+    value = values.get(config.api_key_variable)
+    if value:
+        return value
+    raise ValueError("DEEPSEEK_API_KEY is required for ground-truth generation")
 
 
 def prepare_tasks(repo_root: str | Path, config: GTConfig) -> list[GTTask]:

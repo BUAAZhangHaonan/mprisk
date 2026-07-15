@@ -3,7 +3,7 @@ run_id: deepseek_gt_v1
 model: deepseek-v4-flash
 api_url: https://api.deepseek.com/v1/chat/completions
 env_file: /home/team/lvshuyang/prompt-make/.env
-api_key_variables: [DEEPSEEK_API_KEY, GLM_API_KEY]
+api_key_variable: DEEPSEEK_API_KEY
 temperature: 0
 max_tokens: 128
 thinking: disabled

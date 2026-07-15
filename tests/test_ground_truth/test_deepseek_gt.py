@@ -13,6 +13,7 @@ from mprisk.ground_truth.deepseek_gt import (
     GTValidationError,
     Ledger,
     PermanentAPIError,
+    load_api_key,
     load_config,
     prepare_tasks,
     run_batch,
@@ -99,6 +100,20 @@ def test_ledger_insert_matches_schema_and_failed_rows_require_opt_in(tmp_path: P
             ledger.prepare(tasks[:1])
     finally:
         ledger.close()
+
+
+def test_ground_truth_requires_deepseek_key_without_glm_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    config_path = _write_test_config(tmp_path)
+    config = load_config(config_path)
+    config.env_file.write_text("GLM_API_KEY=forbidden\n", encoding="utf-8")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setenv("GLM_API_KEY", "forbidden")
+    with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
+        load_api_key(config)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "accepted")
+    assert load_api_key(config) == "accepted"
 
 
 def test_pilot_resume_full_export_and_explicit_failed_retry(tmp_path: Path) -> None:
