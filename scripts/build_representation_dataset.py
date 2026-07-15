@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mprisk.representation.relation_dataset import build_relation_dataset
+from mprisk.representation.training import load_training_config
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -15,10 +16,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--bundle-manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--config", required=True)
     args = parser.parse_args(argv)
+    config = load_training_config(args.config)
     result = build_relation_dataset(
         bundle_manifest_path=Path(args.bundle_manifest),
         output_dir=Path(args.output_dir),
+        prompt_set_key=config.prompt_set_key,
+        prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+        expected_prompt_count=config.expected_prompt_count,
+        expected_prompt_ids=config.expected_prompt_ids,
     )
     print(f"relation_dataset={result.dataset_path}")
     print(f"relation_dataset_summary={result.summary_path}")

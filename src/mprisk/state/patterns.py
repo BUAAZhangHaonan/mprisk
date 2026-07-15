@@ -9,6 +9,8 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from mprisk.state.identity import CALIBRATION_IDENTITY_FIELDS, homogeneous_identity
+
 
 class StatePattern(StrEnum):
     CONFUSION = "Confusion"
@@ -22,6 +24,7 @@ class StateThresholds:
     kappa: float
     tau: float
     delta: float | None = None
+    identity: dict[str, str] | None = None
 
     @classmethod
     def from_dict(cls, config: Mapping[str, Any]) -> StateThresholds:
@@ -29,10 +32,16 @@ class StateThresholds:
         if missing:
             names = ", ".join(sorted(missing))
             raise ValueError(f"Threshold config is missing required key(s): {names}")
+        identity = None
+        if config.get("schema") == "mprisk_spherical_calibration_v2" or any(
+            field in config for field in CALIBRATION_IDENTITY_FIELDS
+        ):
+            identity = homogeneous_identity([config])
         return cls(
             kappa=float(config["kappa"]),
             tau=float(config["tau"]),
             delta=float(config["delta"]) if config.get("delta") is not None else None,
+            identity=identity,
         )
 
 

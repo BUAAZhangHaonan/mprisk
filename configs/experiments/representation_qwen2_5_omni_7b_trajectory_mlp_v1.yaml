@@ -2,6 +2,18 @@ schema: mprisk_representation_training_v3
 key: qwen2_5_omni_7b_trajectory_mlp_v1
 repr_key: trajectory_mlp_binary_v1
 model_key: qwen2_5_omni_7b
+prompt_set_key: va_main_p8_seed20260717
+prompt_set_artifact_sha256: 23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c
+expected_prompt_count: 8
+expected_prompt_ids:
+  - pregen_risk_v1_p001
+  - pregen_risk_v1_p008
+  - pregen_risk_v1_p012
+  - pregen_risk_v1_p018
+  - pregen_risk_v1_p022
+  - pregen_risk_v1_p054
+  - pregen_risk_v1_p056
+  - pregen_risk_v1_p067
 hidden_dim: 128
 condition_dim: 64
 relation_dim: 32

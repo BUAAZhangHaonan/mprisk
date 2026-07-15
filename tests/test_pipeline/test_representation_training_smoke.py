@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 import yaml
 from safetensors.numpy import save_file
 
@@ -127,6 +128,10 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
                 "model_key": "qwen3_vl_8b",
+                "prompt_set_key": "vt_primary_v1",
+                "prompt_set_artifact_sha256": "b" * 64,
+                "expected_prompt_count": 2,
+                "expected_prompt_ids": ["vt_primary_v1_t01", "vt_primary_v1_t02"],
                 "hidden_dim": 8,
                 "condition_dim": 4,
                 "relation_dim": 3,
@@ -145,32 +150,13 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
         encoding="utf-8",
     )
 
-    result = run_representation_training_smoke(
-        bundle_manifest_path=bundle_manifest,
-        config_path=config_path,
-        model_key="qwen3_vl_8b",
-        protocol="VT",
-        prompt_set_key="vt_primary_v1",
-        output_root=output_root,
-        thresholds={"kappa": 0.5, "tau": 0.01},
-    )
-
-    state_pattern_rows = _read_jsonl(result.state_patterns_path)
-    report = result.report_path.read_text(encoding="utf-8")
-
-    assert result.state_patterns_path == (
-        output_root
-        / "outputs/states/qwen3_vl_8b/VT/vt_primary_v1/tme_proxy_anchor_v1/state_patterns.jsonl"
-    )
-    assert state_pattern_rows
-    assert result.report_path == (
-        output_root / "outputs/representation_train/reports/REPRESENTATION_TRAINING_SMOKE.md"
-    )
-    assert report.strip()
-    assert "Relation dataset:" in report
-    assert "Checkpoint:" in report
-    assert "Frozen embedding manifest:" in report
-    assert "S/D/R scores:" in report
-    assert "State patterns:" in report
-    assert "Sample count: 8" in report
-    assert "Condition dim: 4" in report
+    with pytest.raises(ValueError, match="identity-bound calibration"):
+        run_representation_training_smoke(
+            bundle_manifest_path=bundle_manifest,
+            config_path=config_path,
+            model_key="qwen3_vl_8b",
+            protocol="VT",
+            prompt_set_key="vt_primary_v1",
+            output_root=output_root,
+            thresholds={"kappa": 0.5, "tau": 0.01},
+        )

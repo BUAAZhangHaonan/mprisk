@@ -6,6 +6,7 @@ import hashlib
 import json
 from typing import Any
 
+from mprisk.state.identity import homogeneous_identity
 from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 
 
@@ -64,9 +65,7 @@ def calibrate_registered_aligned_thresholds(
     """Select the registered calibration partition, then filter its Aligned rows."""
     if not rows:
         raise ValueError("registered calibration requires non-empty SDR rows")
-    checksums = {str(row.get("split_assignment_sha256", "")) for row in rows}
-    if len(checksums) != 1 or len(next(iter(checksums))) != 64:
-        raise ValueError("SDR rows require one valid split assignment checksum")
+    identity = homogeneous_identity(rows)
     registered = [
         row for row in rows if row.get("representation_split") == "aligned_calibration"
     ]
@@ -81,8 +80,8 @@ def calibrate_registered_aligned_thresholds(
             "input_count": len(rows),
             "registered_calibration_count": len(registered),
             "excluded_non_aligned_calibration_count": len(registered) - len(aligned),
-            "split_assignment_sha256": next(iter(checksums)),
             "selection_rule": "representation_split=aligned_calibration then sample_type=Aligned",
+            **identity,
         }
     )
     return payload

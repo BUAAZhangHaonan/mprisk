@@ -77,6 +77,10 @@ def run_representation_training_smoke(
     dataset_result = build_relation_dataset(
         bundle_manifest_path=bundle_manifest_path,
         output_dir=representation_data_dir,
+        prompt_set_key=config.prompt_set_key,
+        prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+        expected_prompt_count=config.expected_prompt_count,
+        expected_prompt_ids=config.expected_prompt_ids,
     )
     training_result = train_trajectory_encoder(
         dataset_path=dataset_result.dataset_path,

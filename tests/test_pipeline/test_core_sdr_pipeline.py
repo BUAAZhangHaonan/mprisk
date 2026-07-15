@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict
 
@@ -246,7 +247,7 @@ def test_core_sdr_pipeline_requires_checkpoint_for_tme_repr(tmp_path) -> None:
         )
 
 
-def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> None:
+def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path) -> None:
     labels = tmp_path / "manifests/final_manifest.jsonl"
     labels.parent.mkdir(parents=True)
     sample_ids = ["sample-conflict"]
@@ -273,6 +274,10 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
     training_config = TrainingConfig(
         repr_key=TME_PROXY_ANCHOR_V1,
         model_key="qwen3_vl_8b",
+        prompt_set_key="vt_primary_v1",
+        prompt_set_artifact_sha256=hashlib.sha256(prompt_set.read_bytes()).hexdigest(),
+        expected_prompt_count=2,
+        expected_prompt_ids=("vt_primary_v1_t01", "vt_primary_v1_t02"),
         hidden_dim=8,
         condition_dim=4,
         relation_dim=3,
@@ -289,24 +294,19 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
         checkpoint,
     )
 
-    result = run_core_sdr_pipeline(
-        model_key="qwen3_vl_8b",
-        protocol="VT",
-        prompt_set_key="vt_primary_v1",
-        repr_key=TME_PROXY_ANCHOR_V1,
-        manifest_paths=[labels],
-        full_cache_root=tmp_path,
-        prompt_cache_manifest=prompt_cache_manifest,
-        prompt_conditioned_cache_manifest=prompted_manifest,
-        prompt_set=prompt_set,
-        split_assignment=_split_assignment(tmp_path / "split.jsonl", sample_ids),
-        output_root=tmp_path,
-        thresholds={"kappa": 0.5, "tau": 0.01},
-        checkpoint=checkpoint,
-    )
-
-    scores = _read_jsonl(result.sdr_scores_path)
-
-    assert result.sdr_scores_path.name == "sdr_scores.jsonl"
-    assert scores[0]["repr_key"] == TME_PROXY_ANCHOR_V1
-    assert result.core_summary_path.exists()
+    with pytest.raises(ValueError, match="identity-bound calibration"):
+        run_core_sdr_pipeline(
+            model_key="qwen3_vl_8b",
+            protocol="VT",
+            prompt_set_key="vt_primary_v1",
+            repr_key=TME_PROXY_ANCHOR_V1,
+            manifest_paths=[labels],
+            full_cache_root=tmp_path,
+            prompt_cache_manifest=prompt_cache_manifest,
+            prompt_conditioned_cache_manifest=prompted_manifest,
+            prompt_set=prompt_set,
+            split_assignment=_split_assignment(tmp_path / "split.jsonl", sample_ids),
+            output_root=tmp_path,
+            thresholds={"kappa": 0.5, "tau": 0.01},
+            checkpoint=checkpoint,
+        )

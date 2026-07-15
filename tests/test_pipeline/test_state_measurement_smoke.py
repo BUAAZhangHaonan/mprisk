@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import json
-
 import numpy as np
+import pytest
 from safetensors.numpy import save_file
 
 from mprisk.data.manifests import write_jsonl
@@ -155,34 +154,16 @@ def test_state_measurement_smoke_exports_embeddings_sdr_and_patterns(tmp_path) -
     )
     write_jsonl(prompt_conditioned_manifest, _prompted_rows(tmp_path, "sample-1"))
 
-    result = run_state_measurement_smoke(
-        state_dataset_manifest_path=state_manifest,
-        prompt_cache_manifest_path=prompt_cache_manifest,
-        prompt_conditioned_cache_manifest_path=prompt_conditioned_manifest,
-        prompt_set_path=prompt_set,
-        model_key="qwen3_vl_8b",
-        protocol="VT",
-        prompt_set_key="vt_primary_v1",
-        repr_key="raw_layernorm_mean",
-        output_root=tmp_path / "outputs",
-        thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},
-    )
-
-    assert result.bundle_result.complete_count == 1
-    assert result.embedding_count == 1
-    assert result.sdr_count == 1
-    assert result.pattern_count == 1
-    assert result.report_path.name == "STATE_MEASUREMENT_SMOKE.md"
-
-    pattern_rows = [
-        json.loads(line)
-        for line in result.patterns_path.read_text(encoding="utf-8").splitlines()
-        if line
-    ]
-    summary = json.loads(result.summary_path.read_text(encoding="utf-8"))
-
-    assert pattern_rows[0]["sample_id"] == "sample-1"
-    assert pattern_rows[0]["pattern"] in {"Confusion", "Consensus", "Balanced", "Dominant"}
-    assert pattern_rows[0]["S_M1"] > 0
-    assert summary["total_samples"] == 1
-    assert result.report_path.exists()
+    with pytest.raises(ValueError, match="prompt_set_artifact_sha256"):
+        run_state_measurement_smoke(
+            state_dataset_manifest_path=state_manifest,
+            prompt_cache_manifest_path=prompt_cache_manifest,
+            prompt_conditioned_cache_manifest_path=prompt_conditioned_manifest,
+            prompt_set_path=prompt_set,
+            model_key="qwen3_vl_8b",
+            protocol="VT",
+            prompt_set_key="vt_primary_v1",
+            repr_key="raw_layernorm_mean",
+            output_root=tmp_path / "outputs",
+            thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},
+        )

@@ -14,6 +14,19 @@ from mprisk.utils.io import write_jsonl
 from scripts.compute_sdr_scores import compute_sdr_scores
 
 
+def _identity() -> dict[str, str]:
+    return {
+        "model_key": "qwen3_vl_8b",
+        "protocol": "VT",
+        "prompt_set_key": "p8",
+        "prompt_set_artifact_sha256": "c" * 64,
+        "repr_key": "tme_proxy_anchor_v1",
+        "encoder_checkpoint_sha256": "d" * 64,
+        "split_assignment_sha256": "a" * 64,
+        "embedding_manifest_sha256": "e" * 64,
+    }
+
+
 def _bundle(sample_id: str, *, sample_type: str = "Aligned") -> dict[str, object]:
     return {
         "sample_id": sample_id,
@@ -85,17 +98,17 @@ def test_calibration_filters_registered_split_before_aligned_label(tmp_path) -> 
     calibration = compute_spherical_state(_bundle("calibration"))
     calibration.update(
         representation_split="aligned_calibration",
-        split_assignment_sha256="a" * 64,
+        **_identity(),
     )
     relation_val = dict(
         compute_spherical_state(_bundle("relation-val")),
         representation_split="relation_val",
-        split_assignment_sha256="a" * 64,
+        **_identity(),
     )
     official_test = dict(
         compute_spherical_state(_bundle("official-test")),
         representation_split="official_test",
-        split_assignment_sha256="a" * 64,
+        **_identity(),
     )
 
     result = calibrate_registered_aligned_thresholds(
@@ -118,6 +131,8 @@ def test_sdr_score_export_preserves_registered_split_for_calibration(tmp_path) -
         representation_split="aligned_calibration",
         split_group_id="group-calibration",
         split_assignment_sha256="b" * 64,
+        prompt_set_artifact_sha256="c" * 64,
+        encoder_checkpoint_sha256="d" * 64,
     )
     source = write_jsonl(tmp_path / "embeddings.jsonl", [bundle])
 

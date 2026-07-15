@@ -71,11 +71,24 @@ def _bundle(sample_id: str = "sample-1", sample_type: str = "Conflict") -> dict[
     }
 
 
+def _prompt_contract() -> dict[str, object]:
+    return {
+        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_artifact_sha256": "b" * 64,
+        "expected_prompt_count": 2,
+        "expected_prompt_ids": ("p1", "p2"),
+    }
+
+
 def test_relation_dataset_uses_one_sample_label_for_all_three_conditions(tmp_path) -> None:
     source = tmp_path / "bundle.jsonl"
     source.write_text(json.dumps(_bundle()) + "\n", encoding="utf-8")
 
-    result = build_relation_dataset(bundle_manifest_path=source, output_dir=tmp_path / "out")
+    result = build_relation_dataset(
+        bundle_manifest_path=source,
+        output_dir=tmp_path / "out",
+        **_prompt_contract(),
+    )
     rows = [json.loads(line) for line in result.dataset_path.read_text().splitlines()]
     summary = json.loads(result.summary_path.read_text())
 
@@ -98,7 +111,11 @@ def test_relation_dataset_rejects_missing_registered_split(tmp_path) -> None:
     source.write_text(json.dumps(bundle) + "\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="master_split"):
-        build_relation_dataset(bundle_manifest_path=source, output_dir=tmp_path / "out")
+        build_relation_dataset(
+            bundle_manifest_path=source,
+            output_dir=tmp_path / "out",
+            **_prompt_contract(),
+        )
 
 
 @pytest.mark.parametrize("field", ["misread", "MISREAD", "binary_label", "final_decision"])
@@ -109,7 +126,11 @@ def test_relation_dataset_strictly_rejects_misread_fields(tmp_path, field: str) 
     source.write_text(json.dumps(bundle) + "\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="Misread fields are forbidden"):
-        build_relation_dataset(bundle_manifest_path=source, output_dir=tmp_path / "out")
+        build_relation_dataset(
+            bundle_manifest_path=source,
+            output_dir=tmp_path / "out",
+            **_prompt_contract(),
+        )
 
 
 def test_sequential_tme_normalizes_every_layer_and_all_outputs() -> None:

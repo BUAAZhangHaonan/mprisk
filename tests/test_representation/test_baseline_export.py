@@ -88,6 +88,10 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
     config = TrainingConfig(
         repr_key=repr_key,
         model_key="qwen3_vl_8b",
+        prompt_set_key="vt_primary_v1",
+        prompt_set_artifact_sha256="b" * 64,
+        expected_prompt_count=8,
+        expected_prompt_ids=tuple(f"p{index:02d}" for index in range(1, 9)),
         hidden_dim=6,
         dropout=0.0,
         batch_size=3,

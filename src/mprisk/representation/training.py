@@ -41,6 +41,10 @@ REGISTERED_SPLITS = frozenset(
 class TrainingConfig:
     repr_key: str
     model_key: str
+    prompt_set_key: str = ""
+    prompt_set_artifact_sha256: str = ""
+    expected_prompt_count: int = 8
+    expected_prompt_ids: tuple[str, ...] = ()
     hidden_dim: int = 128
     condition_dim: int = 64
     relation_dim: int = 32
@@ -125,6 +129,8 @@ def load_training_config(path: str | Path) -> TrainingConfig:
     unknown = set(payload) - set(TrainingConfig.__dataclass_fields__)
     if unknown:
         raise ValueError(f"unknown training config fields: {', '.join(sorted(unknown))}")
+    if isinstance(payload.get("expected_prompt_ids"), list):
+        payload["expected_prompt_ids"] = tuple(payload["expected_prompt_ids"])
     config = TrainingConfig(**payload)
     _validate_config(config)
     return config
@@ -158,6 +164,7 @@ def train_trajectory_encoder(
         if row["representation_split"] in {"relation_train", "relation_val"}
     ]
     samples = _rows_to_sample_refs(training_rows)
+    _validate_prompt_contract(samples, config=config)
     train_samples, val_samples = _registered_group_split(samples)
     layer_count, input_dim = _trajectory_shape(samples)
     torch_device = _resolve_device(device)
@@ -314,15 +321,18 @@ def export_frozen_representations(
     checkpoint_path: str | Path,
     output_dir: str | Path,
 ) -> FrozenRepresentationExportResult:
-    checkpoint = torch.load(Path(checkpoint_path), map_location="cpu")
+    checkpoint_file = Path(checkpoint_path)
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
     _validate_checkpoint_architecture(checkpoint)
     if checkpoint.get("repr_key") != TME_PROXY_ANCHOR_V1:
         raise ValueError(
             "condition z and relation r export requires a tme_proxy_anchor_v1 checkpoint"
         )
     config = TrainingConfig(**checkpoint["training_config"])
+    _validate_config(config)
     rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
     samples = _rows_to_sample_refs(rows)
+    _validate_prompt_contract(samples, config=config)
     model = build_representation_model(
         config.repr_key,
         input_dim=int(checkpoint["model_config"]["input_dim"]),
@@ -344,6 +354,7 @@ def export_frozen_representations(
         config=config,
         manifest_path=manifest_path,
         bundle_manifest_path=bundle_manifest_path,
+        encoder_checkpoint_sha256=_sha256(checkpoint_file),
     )
     summary_path = write_json(
         output_root / "frozen_representation_summary.json",
@@ -356,6 +367,9 @@ def export_frozen_representations(
             "bundle_manifest": str(bundle_manifest_path),
             "repr_key": config.repr_key,
             "model_key": config.model_key,
+            "prompt_set_key": config.prompt_set_key,
+            "prompt_set_artifact_sha256": config.prompt_set_artifact_sha256,
+            "encoder_checkpoint_sha256": _sha256(checkpoint_file),
         },
     )
     return FrozenRepresentationExportResult(
@@ -381,6 +395,7 @@ def export_frozen_baseline_representations(
     if checkpoint.get("proxy_state_dict") is not None:
         raise ValueError("baseline checkpoints must not contain Proxy Anchor state")
     config = TrainingConfig(**checkpoint["training_config"])
+    _validate_config(config)
     rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
     _validate_registered_splits(rows)
     selected_rows = [
@@ -392,7 +407,7 @@ def export_frozen_baseline_representations(
         _rows_to_sample_refs(selected_rows),
         key=lambda sample: (sample.sample_id, sample.prompt_id),
     )
-    _validate_exact_prompt_count(samples, expected_count=8)
+    _validate_prompt_contract(samples, config=config)
     model = build_representation_model(
         repr_key,
         input_dim=int(checkpoint["model_config"]["input_dim"]),
@@ -415,6 +430,7 @@ def export_frozen_baseline_representations(
         model_key=config.model_key,
         repr_key=repr_key,
         checkpoint_sha256=checkpoint_sha256,
+        prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
         manifest_path=manifest_path,
     )
     summary_path = write_json(
@@ -428,6 +444,8 @@ def export_frozen_baseline_representations(
             "manifest": str(manifest_path),
             "manifest_sha256": _sha256(manifest_path),
             "model_key": config.model_key,
+            "prompt_set_key": config.prompt_set_key,
+            "prompt_set_artifact_sha256": config.prompt_set_artifact_sha256,
             "repr_key": repr_key,
             "representation_split": representation_split,
             "aggregation": "mean_over_synchronized_prompts",
@@ -447,6 +465,7 @@ def _stream_baseline_exports(
     model_key: str,
     repr_key: str,
     checkpoint_sha256: str,
+    prompt_set_artifact_sha256: str,
     manifest_path: Path,
 ) -> tuple[int, int]:
     temporary = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
@@ -474,6 +493,7 @@ def _stream_baseline_exports(
                         model_key=model_key,
                         repr_key=repr_key,
                         checkpoint_sha256=checkpoint_sha256,
+                        prompt_set_artifact_sha256=prompt_set_artifact_sha256,
                     )
                     handle.write(json.dumps(row, sort_keys=True) + "\n")
                     prompt_counts.add(prompt_count)
@@ -501,6 +521,7 @@ def _stream_baseline_exports(
                 model_key=model_key,
                 repr_key=repr_key,
                 checkpoint_sha256=checkpoint_sha256,
+                prompt_set_artifact_sha256=prompt_set_artifact_sha256,
             )
             handle.write(json.dumps(row, sort_keys=True) + "\n")
             prompt_counts.add(prompt_count)
@@ -523,6 +544,7 @@ def _baseline_export_row(
     model_key: str,
     repr_key: str,
     checkpoint_sha256: str,
+    prompt_set_artifact_sha256: str,
 ) -> dict[str, Any]:
     if feature_sum is None or logits_sum is None or prompt_count <= 0:
         raise ValueError("baseline sample aggregate is empty")
@@ -544,6 +566,7 @@ def _baseline_export_row(
         "split_assignment_sha256": sample.split_assignment_sha256,
         "repr_key": repr_key,
         "encoder_checkpoint_sha256": checkpoint_sha256,
+        "prompt_set_artifact_sha256": prompt_set_artifact_sha256,
         "aggregation": "mean_over_synchronized_prompts",
         "feature_definition": _baseline_feature_definition(repr_key),
         "prompt_count": prompt_count,
@@ -561,6 +584,7 @@ def _stream_frozen_exports(
     config: TrainingConfig,
     manifest_path: Path,
     bundle_manifest_path: Path,
+    encoder_checkpoint_sha256: str,
 ) -> int:
     manifest_tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
     bundle_tmp = bundle_manifest_path.with_suffix(bundle_manifest_path.suffix + ".tmp")
@@ -586,6 +610,8 @@ def _stream_frozen_exports(
                     repr_key=config.repr_key,
                     condition_z=condition_z[index],
                     relation_r=relation_r[index],
+                    encoder_checkpoint_sha256=encoder_checkpoint_sha256,
+                    prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
                 )
                 manifest_handle.write(json.dumps(row, sort_keys=True) + "\n")
                 if current_bundle is None or current_bundle["sample_id"] != sample.sample_id:
@@ -613,6 +639,8 @@ def _frozen_row(
     repr_key: str,
     condition_z: torch.Tensor,
     relation_r: torch.Tensor,
+    encoder_checkpoint_sha256: str,
+    prompt_set_artifact_sha256: str,
 ) -> dict[str, Any]:
     return {
         "schema": "mprisk_frozen_spherical_representation_v1",
@@ -630,6 +658,8 @@ def _frozen_row(
         "split_assignment_sha256": sample.split_assignment_sha256,
         "prompt_id": sample.prompt_id,
         "repr_key": repr_key,
+        "encoder_checkpoint_sha256": encoder_checkpoint_sha256,
+        "prompt_set_artifact_sha256": prompt_set_artifact_sha256,
         "condition_z": {
             condition: _vector_values(condition_z[index])
             for index, condition in enumerate(CONDITIONS)
@@ -654,6 +684,8 @@ def _empty_frozen_bundle(row: dict[str, Any]) -> dict[str, Any]:
             "split_assignment_key",
             "split_assignment_sha256",
             "repr_key",
+            "encoder_checkpoint_sha256",
+            "prompt_set_artifact_sha256",
         )
     } | {
         "embeddings": {condition: {} for condition in CONDITIONS},
@@ -693,27 +725,29 @@ def _baseline_feature_definition(repr_key: str) -> str:
     raise ValueError(f"unsupported baseline representation: {repr_key}")
 
 
-def _validate_exact_prompt_count(
-    samples: list[_Sample], *, expected_count: int
-) -> None:
+def _validate_prompt_contract(samples: list[_Sample], *, config: TrainingConfig) -> None:
     grouped: dict[str, list[str]] = {}
     for sample in samples:
+        if sample.prompt_set_key != config.prompt_set_key:
+            raise ValueError(
+                f"sample {sample.sample_id} prompt_set_key does not match training config"
+            )
         grouped.setdefault(sample.sample_id, []).append(sample.prompt_id)
-    expected_prompt_ids: set[str] | None = None
+    expected_prompt_ids = set(config.expected_prompt_ids)
     for sample_id in sorted(grouped):
         prompt_ids = grouped[sample_id]
         unique_prompt_ids = set(prompt_ids)
         if len(unique_prompt_ids) != len(prompt_ids):
             raise ValueError(f"sample {sample_id} has duplicate prompt rows")
-        if len(prompt_ids) != expected_count:
+        if len(prompt_ids) != config.expected_prompt_count:
             raise ValueError(
-                f"sample {sample_id} must have exactly {expected_count} prompts; "
+                f"sample {sample_id} must have exactly {config.expected_prompt_count} prompts; "
                 f"found {len(prompt_ids)}"
             )
-        if expected_prompt_ids is None:
-            expected_prompt_ids = unique_prompt_ids
-        elif unique_prompt_ids != expected_prompt_ids:
-            raise ValueError("held-out samples must use the same prompt ID set")
+        if unique_prompt_ids != expected_prompt_ids:
+            raise ValueError(
+                f"sample {sample_id} prompt IDs do not match the configured prompt set"
+            )
 
 
 def _validate_checkpoint_architecture(checkpoint: dict[str, Any]) -> None:
@@ -1142,6 +1176,26 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError(f"repr_key must be one of {', '.join(REPRESENTATION_KEYS)}")
     if not config.model_key:
         raise ValueError("model_key is required")
+    if not config.prompt_set_key:
+        raise ValueError("prompt_set_key is required")
+    if (
+        len(config.prompt_set_artifact_sha256) != 64
+        or any(
+            character not in "0123456789abcdef"
+            for character in config.prompt_set_artifact_sha256
+        )
+    ):
+        raise ValueError("prompt_set_artifact_sha256 must be lowercase sha256")
+    if config.expected_prompt_count <= 0:
+        raise ValueError("expected_prompt_count must be positive")
+    if (
+        len(config.expected_prompt_ids) != config.expected_prompt_count
+        or len(set(config.expected_prompt_ids)) != config.expected_prompt_count
+        or any(not prompt_id for prompt_id in config.expected_prompt_ids)
+    ):
+        raise ValueError(
+            "expected_prompt_ids must contain exactly expected_prompt_count unique IDs"
+        )
     integer_fields = (
         config.hidden_dim,
         config.condition_dim,

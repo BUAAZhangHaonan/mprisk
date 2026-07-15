@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import torch
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 try:
@@ -28,6 +30,7 @@ from mprisk.representation.relation_dataset import (
 from mprisk.representation.relation_models import TME_PROXY_ANCHOR_V1
 from mprisk.representation.training import (
     FrozenRepresentationExportResult,
+    TrainingConfig,
     export_frozen_representations,
 )
 from mprisk.utils.io import ensure_parent
@@ -88,11 +91,17 @@ def run_core_sdr_pipeline(
         prompt_set_key=prompt_set_key,
         output_root=output_base / "state_bundles",
     )
+    checkpoint_payload = torch.load(Path(checkpoint), map_location="cpu")
+    training_config = TrainingConfig(**checkpoint_payload["training_config"])
     relation_dataset_result = build_relation_dataset(
         bundle_manifest_path=bundle_result.manifest_path,
         output_dir=(
             output_base / "representation_data" / model_key / normalized_protocol / prompt_set_key
         ),
+        prompt_set_key=training_config.prompt_set_key,
+        prompt_set_artifact_sha256=training_config.prompt_set_artifact_sha256,
+        expected_prompt_count=training_config.expected_prompt_count,
+        expected_prompt_ids=training_config.expected_prompt_ids,
     )
     embedding_result = _export_embeddings(
         relation_dataset_path=relation_dataset_result.dataset_path,

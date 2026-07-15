@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -115,6 +116,10 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
     return TrainingConfig(
         repr_key=TME_PROXY_ANCHOR_V1,
         model_key="qwen3_vl_8b",
+        prompt_set_key="vt_primary_v1",
+        prompt_set_artifact_sha256="b" * 64,
+        expected_prompt_count=2,
+        expected_prompt_ids=("p1", "p2"),
         hidden_dim=6,
         condition_dim=4,
         relation_dim=3,
@@ -377,6 +382,21 @@ def test_training_selects_one_reproducible_prompt_per_sample_and_epoch(
     for batch in training_impl._batches(epoch_one, 4):
         _load_trajectory_batch(batch, device=torch.device("cpu"))
     assert len(calls) == 6 * 3
+
+
+def test_tme_training_rejects_uniformly_truncated_seven_prompt_dataset(tmp_path) -> None:
+    config = replace(
+        _config(),
+        expected_prompt_count=8,
+        expected_prompt_ids=tuple(f"p{index}" for index in range(1, 9)),
+    )
+
+    with pytest.raises(ValueError, match=r"sample s0 must have exactly 8 prompts; found 7"):
+        train_trajectory_encoder(
+            dataset_path=_dataset(tmp_path, prompt_count=7),
+            config=config,
+            output_dir=tmp_path / "run-seven",
+        )
 
 
 def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> None:

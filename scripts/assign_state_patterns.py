@@ -10,6 +10,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mprisk.data.manifests import read_jsonl
+from mprisk.state.identity import require_matching_identity
 from mprisk.state.patterns import assign_state, load_thresholds_config
 from mprisk.state.spherical import require_exact_sdr_rows
 from mprisk.utils.io import write_json, write_jsonl
@@ -31,6 +32,9 @@ def assign_state_patterns(
     threshold_values = load_thresholds_config(thresholds)
     score_rows = read_jsonl(sdr_scores_path)
     require_exact_sdr_rows(score_rows)
+    if threshold_values.identity is None:
+        raise ValueError("state pattern assignment requires identity-bound calibration")
+    require_matching_identity(score_rows, threshold_values.identity)
     pattern_rows = [
         {
             **row,

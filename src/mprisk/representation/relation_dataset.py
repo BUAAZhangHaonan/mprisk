@@ -26,7 +26,20 @@ def build_relation_dataset(
     *,
     bundle_manifest_path: str | Path,
     output_dir: str | Path,
+    prompt_set_key: str,
+    prompt_set_artifact_sha256: str,
+    expected_prompt_count: int,
+    expected_prompt_ids: tuple[str, ...] | list[str],
 ) -> RelationDatasetBuildResult:
+    expected_ids = set(expected_prompt_ids)
+    if (
+        expected_prompt_count <= 0
+        or len(expected_prompt_ids) != expected_prompt_count
+        or len(expected_ids) != expected_prompt_count
+    ):
+        raise ValueError("prompt contract requires exact unique expected_prompt_ids")
+    if len(prompt_set_artifact_sha256) != 64:
+        raise ValueError("prompt_set_artifact_sha256 must be a SHA-256 digest")
     bundles = _read_jsonl(bundle_manifest_path)
     if not bundles:
         raise ValueError("bundle manifest is empty")
@@ -42,6 +55,8 @@ def build_relation_dataset(
         if sample_type not in LABEL_TO_ID:
             raise ValueError("relation samples must use Conflict or Aligned sample labels")
         model_key = _required_text(bundle, "model_key")
+        if _required_text(bundle, "prompt_set_key") != prompt_set_key:
+            raise ValueError("bundle prompt_set_key does not match the prompt contract")
         model_keys.add(model_key)
         sample_ids.add(sample_id)
         metadata = bundle.get("metadata") or {}
@@ -73,6 +88,11 @@ def build_relation_dataset(
         if calibration_split != expected_calibration:
             raise ValueError("calibration_split mismatches representation_split")
         prompt_ids = _prompt_ids(bundle)
+        if len(prompt_ids) != expected_prompt_count or set(prompt_ids) != expected_ids:
+            raise ValueError(
+                f"sample {sample_id} must use exactly the configured "
+                f"{expected_prompt_count} prompt IDs"
+            )
         _require_synchronized_prompts(bundle, prompt_ids)
         for prompt_id in prompt_ids:
             rows.append(
@@ -85,6 +105,7 @@ def build_relation_dataset(
                     "model_key": model_key,
                     "protocol": _required_text(bundle, "protocol"),
                     "prompt_set_key": _required_text(bundle, "prompt_set_key"),
+                    "prompt_set_artifact_sha256": prompt_set_artifact_sha256,
                     "prompt_id": prompt_id,
                     "split_group_id": split_group_id,
                     "master_split": master_split,
@@ -114,6 +135,10 @@ def build_relation_dataset(
             "schema": "mprisk_relation_dataset_summary_v1",
             "bundle_manifest": str(bundle_manifest_path),
             "model_key": next(iter(model_keys), None),
+            "prompt_set_key": prompt_set_key,
+            "prompt_set_artifact_sha256": prompt_set_artifact_sha256,
+            "expected_prompt_count": expected_prompt_count,
+            "expected_prompt_ids": list(expected_prompt_ids),
             "sample_count": len(sample_ids),
             "row_count": len(rows),
             "label_counts": {

@@ -175,6 +175,15 @@ versioned deterministic rule `(seed, epoch, sample_id)`; selection rotates acros
 synchronized prompt set and is identical after checkpoint resume. Validation and test
 continue to aggregate every prompt.
 
+Every representation config pins `expected_prompt_count=8`, the exact eight prompt
+IDs, `prompt_set_key`, and the prompt-set artifact SHA-256. Training, validation, and
+frozen export reject a sample whose M1/M2/M12 rows do not use that exact synchronized
+set; a uniformly truncated seven-prompt dataset is an error rather than a smaller run.
+Spherical calibration is bound to `model_key`, protocol, prompt-set identity,
+representation key, encoder checkpoint SHA-256, split assignment SHA-256, and embedding
+manifest SHA-256. Score-to-pattern assignment compares every field and rejects reused
+thresholds from another backbone, prompt seed, checkpoint, split, or embedding export.
+
 Training indexes only relation metadata in memory. M1/M2/M12 trajectories are sliced
 from safetensors with `safe_open` when each bounded batch is consumed; cache tensors
 are never converted to nested Python lists or retained for the full dataset. Frozen
