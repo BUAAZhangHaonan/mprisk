@@ -75,6 +75,13 @@ class CacheJob:
 
 
 @dataclass(frozen=True)
+class AllowedExternalGpuContext:
+    process_name: str
+    max_process_count: int
+    max_gpu_memory_mib_per_process: float
+
+
+@dataclass(frozen=True)
 class DownstreamPlan:
     repo_root: Path
     jobs: tuple[CacheJob, ...]
@@ -90,6 +97,8 @@ class DownstreamPlan:
     retention_fractions: tuple[float, ...]
     producer_tmux_sessions: tuple[str, ...]
     producer_command_substrings: tuple[str, ...]
+    allowed_external_gpu_contexts: tuple[AllowedExternalGpuContext, ...]
+    max_external_gpu_context_memory_mib: float
 
 
 def load_plan(path: str | Path) -> DownstreamPlan:
@@ -118,6 +127,30 @@ def load_plan(path: str | Path) -> DownstreamPlan:
     fraction = float(resource.get("max_gpu_memory_fraction", 0.9))
     if not 0 < fraction < 0.9:
         raise ValueError("max_gpu_memory_fraction must be strictly below 0.90")
+    external_context_rows = resource.get("allowed_external_gpu_contexts")
+    if not isinstance(external_context_rows, list):
+        raise ValueError("allowed_external_gpu_contexts must be an explicit list")
+    external_contexts = tuple(
+        AllowedExternalGpuContext(
+            process_name=str(row["process_name"]),
+            max_process_count=int(row["max_process_count"]),
+            max_gpu_memory_mib_per_process=float(row["max_gpu_memory_mib_per_process"]),
+        )
+        for row in external_context_rows
+    )
+    if any(not rule.process_name for rule in external_contexts):
+        raise ValueError("allowed external GPU context process_name cannot be empty")
+    if len({rule.process_name for rule in external_contexts}) != len(external_contexts):
+        raise ValueError("allowed external GPU context process_name values must be unique")
+    if any(rule.max_process_count <= 0 for rule in external_contexts):
+        raise ValueError("allowed external GPU context max_process_count must be positive")
+    if any(rule.max_gpu_memory_mib_per_process <= 0 for rule in external_contexts):
+        raise ValueError(
+            "allowed external GPU context max_gpu_memory_mib_per_process must be positive"
+        )
+    max_external_memory = float(resource["max_external_gpu_context_memory_mib"])
+    if max_external_memory <= 0:
+        raise ValueError("max_external_gpu_context_memory_mib must be positive")
     return DownstreamPlan(
         repo_root=root,
         jobs=jobs,
@@ -139,6 +172,8 @@ def load_plan(path: str | Path) -> DownstreamPlan:
         producer_command_substrings=tuple(
             str(value) for value in resource.get("producer_command_substrings", [])
         ),
+        allowed_external_gpu_contexts=external_contexts,
+        max_external_gpu_context_memory_mib=max_external_memory,
     )
 
 
@@ -877,17 +912,40 @@ def _gpu_available(plan: DownstreamPlan) -> bool:
         [
             "nvidia-smi",
             f"--id={plan.physical_gpu}",
-            "--query-compute-apps=pid",
+            "--query-compute-apps=pid,process_name,used_gpu_memory",
             "--format=csv,noheader,nounits",
         ],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.strip()
-    processes = {
-        int(line.strip()) for line in process_output.splitlines() if line.strip().isdigit()
-    }
-    return processes <= {os.getpid()}
+    rules = {rule.process_name: rule for rule in plan.allowed_external_gpu_contexts}
+    process_counts: Counter[str] = Counter()
+    external_memory_mib = 0.0
+    for line in process_output.splitlines():
+        if not line.strip():
+            continue
+        fields = [field.strip() for field in line.split(",")]
+        if len(fields) != 3 or not fields[0].isdigit():
+            raise RuntimeError(f"invalid nvidia-smi compute-app row: {line!r}")
+        pid = int(fields[0])
+        process_name = fields[1]
+        try:
+            process_memory_mib = float(fields[2])
+        except ValueError as exc:
+            raise RuntimeError(f"invalid nvidia-smi process memory: {line!r}") from exc
+        if pid == os.getpid():
+            continue
+        rule = rules.get(process_name)
+        if rule is None:
+            return False
+        if process_memory_mib > rule.max_gpu_memory_mib_per_process:
+            return False
+        process_counts[process_name] += 1
+        if process_counts[process_name] > rule.max_process_count:
+            return False
+        external_memory_mib += process_memory_mib
+    return external_memory_mib <= plan.max_external_gpu_context_memory_mib
 
 
 def _cache_producer_can_launch_gpu_work(plan: DownstreamPlan) -> bool:
@@ -932,7 +990,9 @@ def _write_runtime_status(plan: DownstreamPlan, ready: list[tuple[CacheJob, Path
             "cache_total_runs": len(plan.jobs),
             "completed_representation_runs": completed,
             "total_representation_runs": 27,
-            "waiting_reason": (None if completed == 27 else "cache_or_exclusive_gpu_gate"),
+            "waiting_reason": (
+                None if completed == 27 else "cache_or_registered_gpu_resource_gate"
+            ),
             "updated_unix": time.time(),
         },
     )
