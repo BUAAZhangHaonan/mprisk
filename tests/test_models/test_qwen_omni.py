@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 import torch
 
+from mprisk.models.base_wrapper import GenerationRequest
 from mprisk.models.qwen_omni import QwenOmniWrapper, build_condition_request
 
 
@@ -125,6 +126,66 @@ class _FakeThinker:
             torch.full((1, 4, 3584), float(index), dtype=torch.float32) for index in range(29)
         )
         return SimpleNamespace(hidden_states=states)
+
+
+def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(tmp_path) -> None:
+    class Processor(_FakeProcessor):
+        tokenizer = SimpleNamespace(eos_token_id=99)
+
+        def batch_decode(self, token_ids, *, skip_special_tokens, clean_up_tokenization_spaces):
+            assert skip_special_tokens is True
+            assert clean_up_tokenization_spaces is False
+            assert token_ids.tolist() == [[42, 99]]
+            return ["The person appears emotionally unsettled."]
+
+    class Thinker(_FakeThinker):
+        generation_config = SimpleNamespace(eos_token_id=None)
+
+        def generate(self, **kwargs):
+            self.generate_kwargs = kwargs
+            return torch.tensor([[0, 10, 11, 12, 42, 99]])
+
+    model = Thinker()
+    wrapper = QwenOmniWrapper(
+        model_key="qwen2_5_omni_7b",
+        model_path=_model_dir(tmp_path),
+        device="cpu",
+        model=model,
+        processor=Processor(),
+        process_mm_info_fn=lambda messages, use_audio_in_video: (None, None, None),
+        runtime_versions={"transformers": "test", "qwen-omni-utils": "test"},
+    )
+    request = GenerationRequest(
+        sample_id="sample-1",
+        model_key="qwen2_5_omni_7b",
+        protocol="va",
+        condition="M12",
+        messages=(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video", "video": "sample.mp4"},
+                    {"type": "text", "text": "Prompt"},
+                ],
+            },
+        ),
+        media_paths={"vision": "sample.mp4", "audio": "sample.mp4"},
+        use_audio_in_video=True,
+        generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 32},
+    )
+
+    result = wrapper.generate_conditioned(request)
+
+    assert result.token_ids == (42, 99)
+    assert result.text == "The person appears emotionally unsettled."
+    assert result.eos_token_ids == (99,)
+    assert result.finish_reason == "eos"
+    assert model.generate_kwargs["do_sample"] is False
+    assert model.generate_kwargs["num_beams"] == 1
+    assert model.generate_kwargs["max_new_tokens"] == 32
+    assert model.generate_kwargs["eos_token_id"] == 99
+    assert "temperature" not in model.generate_kwargs
+    assert "top_p" not in model.generate_kwargs
 
 
 def test_wrapper_extracts_last_non_padding_token_from_28_thinker_blocks(tmp_path) -> None:

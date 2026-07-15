@@ -13,7 +13,13 @@ from typing import Any, Literal
 
 import numpy as np
 
-from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
+from mprisk.models.base_wrapper import (
+    BaseModelWrapper,
+    GenerationRequest,
+    GenerationResult,
+    PrefillRequest,
+    PrefillResult,
+)
 
 JointAudioMode = Literal["embedded_video", "separate_file"]
 
@@ -287,6 +293,93 @@ class QwenOmniWrapper(BaseModelWrapper):
             provenance=provenance,
         )
 
+    def generate_conditioned(self, request: GenerationRequest) -> GenerationResult:
+        """Generate only with the Thinker and retain only newly generated tokens."""
+        if request.model_key != self.model_key:
+            raise ValueError(
+                f"Request model_key {request.model_key!r} does not match {self.model_key!r}"
+            )
+        if self.model is None:
+            self.load()
+        if self.processor is None or self._process_mm_info is None:
+            raise RuntimeError("Qwen Omni wrapper is not fully loaded")
+
+        import torch
+
+        _validate_generation_audio_contract(request)
+        prompt = self.processor.apply_chat_template(
+            list(request.messages), tokenize=False, add_generation_prompt=True
+        )
+        audios, images, videos = self._process_mm_info(
+            list(request.messages), use_audio_in_video=request.use_audio_in_video
+        )
+        model_inputs = self.processor(
+            text=[prompt],
+            audio=audios,
+            images=images,
+            videos=videos,
+            padding=True,
+            return_tensors="pt",
+            use_audio_in_video=request.use_audio_in_video,
+        )
+        model_inputs = _move_inputs_to_device(model_inputs, self.device)
+        _require_attention_mask(model_inputs)
+        input_ids = model_inputs.get("input_ids")
+        if input_ids is None or input_ids.ndim != 2 or int(input_ids.shape[0]) != 1:
+            raise ValueError("Qwen Omni generation requires input_ids with batch size exactly one")
+        input_token_count = int(input_ids.shape[-1])
+        eos_token_ids = _tokenizer_eos_token_ids(self.processor)
+        eos_token_id = eos_token_ids[0] if len(eos_token_ids) == 1 else list(eos_token_ids)
+        track_cuda = self.device.startswith("cuda") and torch.cuda.is_available()
+        if track_cuda:
+            torch.cuda.reset_peak_memory_stats(torch.device(self.device))
+        started_at = time.perf_counter()
+        with torch.inference_mode():
+            generated = self.model.generate(
+                **model_inputs,
+                **dict(request.generation_kwargs),
+                eos_token_id=eos_token_id,
+                use_audio_in_video=request.use_audio_in_video,
+            )
+        if generated.ndim != 2 or int(generated.shape[0]) != 1:
+            raise ValueError("Qwen Omni generation requires a single generated sequence")
+        new_token_ids = generated[:, input_token_count:]
+        if int(new_token_ids.shape[-1]) == 0:
+            raise ValueError("Qwen Omni generated no new tokens")
+        token_ids = tuple(int(token) for token in new_token_ids[0].detach().cpu().tolist())
+        text = self.processor.batch_decode(
+            new_token_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+        finish_reason = "eos" if token_ids[-1] in eos_token_ids else "max_new_tokens"
+        peak_gpu_memory_bytes = (
+            int(torch.cuda.max_memory_allocated(torch.device(self.device))) if track_cuda else None
+        )
+        return GenerationResult(
+            request=request,
+            text=text,
+            token_ids=token_ids,
+            eos_token_ids=eos_token_ids,
+            finish_reason=finish_reason,
+            input_token_count=input_token_count,
+            provenance={
+                "schema": "mprisk_qwen_omni_generation_provenance_v1",
+                "model_path": str(self.model_path),
+                "model_class": self.model.__class__.__name__,
+                "processor_class": self.processor.__class__.__name__,
+                "talker_loaded": False,
+                "source_dtype": self.dtype_name,
+                "device": self.device,
+                "attn_implementation": self.attn_implementation,
+                "do_sample": False,
+                "num_beams": 1,
+                "max_new_tokens": request.generation_kwargs["max_new_tokens"],
+                "elapsed_seconds": time.perf_counter() - started_at,
+                "peak_gpu_memory_bytes": peak_gpu_memory_bytes,
+            },
+        )
+
     def close(self) -> None:
         if self._injected:
             return
@@ -375,6 +468,28 @@ def _validate_message_audio_contract(request: PrefillRequest) -> None:
             raise ValueError("use_audio_in_video=True requires an explicit video message")
         if "audio" in content_types:
             raise ValueError("Embedded-video audio and explicit audio must not be enabled together")
+
+
+def _validate_generation_audio_contract(request: GenerationRequest) -> None:
+    content_types = [
+        str(item.get("type"))
+        for message in request.messages
+        for item in message.get("content", [])
+        if isinstance(item, Mapping)
+    ]
+    if request.use_audio_in_video:
+        if "video" not in content_types or "audio" in content_types:
+            raise ValueError("Embedded-video generation requires video without explicit audio")
+
+
+def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
+    tokenizer = getattr(processor, "tokenizer", None)
+    value = getattr(tokenizer, "eos_token_id", None)
+    if isinstance(value, int):
+        return (value,)
+    if isinstance(value, tuple | list) and all(isinstance(token_id, int) for token_id in value):
+        return tuple(sorted(set(value)))
+    raise ValueError("Qwen Omni tokenizer must define one or more integer eos_token_id values")
 
 
 def _require_attention_mask(model_inputs: Any) -> Any:
