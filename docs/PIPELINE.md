@@ -178,6 +178,12 @@ are never converted to nested Python lists or retained for the full dataset. Fro
 `z`/`r` manifests and sample bundles are written incrementally through atomic temporary
 files, with at most one sample's prompt bundle accumulated at a time.
 
+Every spherical normalization is a hard contract. Per-layer trajectory vectors, TME
+condition projections `z`, ordered relation projections `r`, Proxy Anchor embeddings,
+and both class proxies must have norm greater than `1e-12` before normalization. A
+zero or non-finite vector raises an explicit error containing its stage and sample (or
+proxy-class) identity; zero vectors are never silently mapped to zero by normalization.
+
 The trained representation smoke chain is:
 
 ```text

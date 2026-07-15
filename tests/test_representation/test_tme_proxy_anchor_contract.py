@@ -186,6 +186,66 @@ def test_proxy_anchor_is_two_proxy_tme_objective() -> None:
     assert embeddings.grad is not None
 
 
+def test_tme_rejects_zero_norm_vectors_at_every_spherical_stage() -> None:
+    encoder = SequentialTrajectoryEncoderV1(
+        input_dim=3,
+        sequence_hidden_dim=4,
+        embed_dim=2,
+        dropout=0.0,
+    )
+    zero_layer = torch.ones(1, 3, 2, 3)
+    zero_layer[0, 1, 0] = 0.0
+    with pytest.raises(ValueError, match=r"stage=tme_layer_input.*sample=sample-0"):
+        encoder.normalize_layers(zero_layer, sample_ids=["sample-0"])
+
+    with torch.no_grad():
+        encoder.projection.weight.zero_()
+        encoder.projection.bias.zero_()
+    with pytest.raises(ValueError, match=r"stage=tme_z_projection.*sample=sample-0"):
+        encoder(torch.ones(1, 3, 2, 3), sample_ids=["sample-0"])
+
+    relation = OrderedLinearRelationV1(relation_dim=2)
+    with torch.no_grad():
+        relation.projection.weight.zero_()
+        relation.projection.bias.zero_()
+    z1 = torch.tensor([[1.0, 0.0]])
+    z2 = torch.tensor([[0.0, 1.0]])
+    z12 = torch.tensor([[2**-0.5, 2**-0.5]])
+    with pytest.raises(
+        ValueError, match=r"stage=ordered_relation_r_projection.*sample=sample-0"
+    ):
+        relation(z1, z2, z12, sample_ids=["sample-0"])
+
+    with pytest.raises(ValueError, match=r"stage=ordered_relation_z1.*sample=sample-0"):
+        ordered_relation_features(
+            torch.zeros_like(z1), z2, z12, sample_ids=["sample-0"]
+        )
+
+
+def test_proxy_anchor_rejects_zero_embeddings_and_proxies_before_normalization() -> None:
+    objective = ProxyAnchorLoss(embed_dim=2, num_classes=2)
+    labels = torch.tensor([0, 1])
+    with pytest.raises(
+        ValueError, match=r"stage=proxy_anchor_embeddings.*sample=sample-a"
+    ):
+        objective(
+            torch.tensor([[0.0, 0.0], [0.0, 1.0]]),
+            labels,
+            sample_ids=["sample-a", "sample-c"],
+        )
+
+    with torch.no_grad():
+        objective.proxies[0].zero_()
+    with pytest.raises(
+        ValueError, match=r"stage=proxy_anchor_proxies.*sample=proxy_class_0"
+    ):
+        objective(
+            torch.tensor([[1.0, 0.0], [0.0, 1.0]]),
+            labels,
+            sample_ids=["sample-a", "sample-c"],
+        )
+
+
 def test_tme_training_config_rejects_architecture_version_drift(tmp_path) -> None:
     config = {
         "schema": "mprisk_representation_training_v3",

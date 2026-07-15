@@ -372,7 +372,10 @@ def _stream_frozen_exports(
             trajectories, _labels = _load_trajectory_batch(
                 batch, device=next(model.parameters()).device
             )
-            condition_z, relation_r = model(trajectories)
+            condition_z, relation_r = model(
+                trajectories,
+                sample_ids=[sample.sample_id for sample in batch],
+            )
             for index, sample in enumerate(batch):
                 row = _frozen_row(
                     sample,
@@ -725,8 +728,9 @@ def _batch_loss_and_outputs(
     device = next(model.parameters()).device
     trajectories, labels = _load_trajectory_batch(batch, device=device)
     if objective is not None:
-        _condition_z, relation_r = model(trajectories)
-        loss = objective(relation_r, labels)
+        sample_ids = [sample.sample_id for sample in batch]
+        _condition_z, relation_r = model(trajectories, sample_ids=sample_ids)
+        loss = objective(relation_r, labels, sample_ids=sample_ids)
         return loss, relation_r
     logits = model(trajectories)
     return F.cross_entropy(logits, labels), logits
@@ -765,7 +769,7 @@ def _aggregate_sample_outputs(
         norms = torch.linalg.vector_norm(aggregate, dim=-1)
         if bool((norms <= 1e-12).any()):
             raise ValueError("sample-level relation aggregate cannot have zero norm")
-        aggregate = F.normalize(aggregate, dim=-1)
+        aggregate = aggregate / norms.unsqueeze(-1)
     return order, [labels[sample_id] for sample_id in order], aggregate
 
 
@@ -776,9 +780,7 @@ def _sample_level_predictions(
 ) -> torch.Tensor:
     if objective is None:
         return aggregate.argmax(dim=-1)
-    similarities = F.normalize(aggregate, dim=-1) @ F.normalize(
-        objective.proxies, dim=-1
-    ).T
+    similarities = aggregate @ objective.normalized_proxies().T
     return similarities.argmax(dim=-1)
 
 
