@@ -54,6 +54,18 @@ class FakeClient:
         }
 
 
+class InvalidClient:
+    async def complete(self, task: Any) -> dict[str, Any]:
+        return {
+            "response_id": f"invalid-{task.sample_id}",
+            "response_model": "deepseek-v4-flash",
+            "system_fingerprint": None,
+            "finish_reason": "stop",
+            "content": json.dumps({"GT_DESCRIPTION": "The person sounds angry!"}),
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+        }
+
+
 def test_context_priority_is_setting_then_natural_trigger_then_ltx2_prompt() -> None:
     assert CONTEXT_PRIORITY == ("setting", "trigger", "ltx2_prompt")
     assert resolve_context(
@@ -190,6 +202,28 @@ def test_v2_mock_run_is_exactly_eight_one_sentence_rows(tmp_path: Path) -> None:
             min_words=6,
             max_words=80,
         )
+
+
+def test_invalid_model_response_is_preserved_in_attempt_evidence(tmp_path: Path) -> None:
+    config_path = _v2_test_config(tmp_path)
+
+    result = asyncio.run(
+        run_batch(
+            repo_root=ROOT,
+            config_path=config_path,
+            mode="pilot",
+            client=InvalidClient(),
+            sleep=_no_sleep,
+        )
+    )
+
+    assert (result.completed, result.failed) == (0, 8)
+    attempts = _read_jsonl(result.output_root / "attempts.jsonl")
+    assert len(attempts) == 8
+    for attempt in attempts:
+        response = json.loads(attempt["response_json"])
+        assert response["finish_reason"] == "stop"
+        assert response["content"] == '{"GT_DESCRIPTION": "The person sounds angry!"}'
 
 
 def test_v1_task_count_and_model_input_contract_remain_unchanged() -> None:

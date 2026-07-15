@@ -547,6 +547,7 @@ async def run_batch(
             for retry_index in range(len(config.retry_delays_seconds) + 1):
                 attempt = ledger.start(sample_id)
                 started = _now()
+                envelope: dict[str, Any] | None = None
                 try:
                     envelope = await client.complete(task)
                     description = validate_gt_content(
@@ -567,7 +568,14 @@ async def run_batch(
                     break
                 except Exception as exc:
                     last_error = exc
-                    ledger.finish_attempt(sample_id, attempt, started, "failed", exc=exc)
+                    ledger.finish_attempt(
+                        sample_id,
+                        attempt,
+                        started,
+                        "failed",
+                        response=envelope,
+                        exc=exc,
+                    )
                     break
             assert last_error is not None
             ledger.fail(sample_id, last_error)
