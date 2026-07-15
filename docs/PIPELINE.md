@@ -166,6 +166,12 @@ before making one prediction: TME averages and unit-normalizes `r` before proxy 
 while baseline classifiers average logits. Early stopping therefore counts each held-out
 sample exactly once.
 
+Prompt rows are training augmentations, not independent supervised examples. In each
+epoch, every training `sample_id` contributes exactly one prompt selected by the
+versioned deterministic rule `(seed, epoch, sample_id)`; selection rotates across the
+synchronized prompt set and is identical after checkpoint resume. Validation and test
+continue to aggregate every prompt.
+
 Training indexes only relation metadata in memory. M1/M2/M12 trajectories are sliced
 from safetensors with `safe_open` when each bounded batch is consumed; cache tensors
 are never converted to nested Python lists or retained for the full dataset. Frozen

@@ -269,6 +269,8 @@ def train_trajectory_encoder(
         "val_rows": len(val_samples),
         "train_sample_count": len({sample.sample_id for sample in train_samples}),
         "val_sample_count": len({sample.sample_id for sample in val_samples}),
+        "train_examples_per_epoch": len({sample.sample_id for sample in train_samples}),
+        "prompt_augmentation": "one_deterministic_prompt_per_sample_per_epoch",
         "train_group_count": len({sample.split_group_id for sample in train_samples}),
         "val_group_count": len({sample.split_group_id for sample in val_samples}),
         "train_groups_sha256": _group_checksum(train_samples),
@@ -642,7 +644,11 @@ def _train_epoch(
     model.train()
     if objective is not None:
         objective.train()
-    shuffled = list(samples)
+    shuffled = _sample_prompt_augmentations(
+        samples,
+        seed=config.seed,
+        epoch=epoch,
+    )
     random.Random(config.seed + epoch).shuffle(shuffled)
     losses: list[float] = []
     for batch in _batches(shuffled, config.batch_size):
@@ -652,6 +658,34 @@ def _train_epoch(
         optimizer.step()
         losses.append(float(loss.detach()))
     return float(np.mean(losses))
+
+
+def _sample_prompt_augmentations(
+    samples: list[_Sample],
+    *,
+    seed: int,
+    epoch: int,
+) -> list[_Sample]:
+    if epoch <= 0:
+        raise ValueError("prompt augmentation epoch must be positive")
+    grouped: dict[str, list[_Sample]] = {}
+    for sample in samples:
+        grouped.setdefault(sample.sample_id, []).append(sample)
+    selected: list[_Sample] = []
+    prompt_counts: set[int] = set()
+    for sample_id in sorted(grouped):
+        prompt_rows = sorted(grouped[sample_id], key=lambda sample: sample.prompt_id)
+        if len({sample.prompt_id for sample in prompt_rows}) != len(prompt_rows):
+            raise ValueError(f"sample {sample_id} has duplicate prompt rows")
+        if len({sample.label_id for sample in prompt_rows}) != 1:
+            raise ValueError(f"sample {sample_id} prompt rows disagree on the A/C label")
+        prompt_counts.add(len(prompt_rows))
+        base = int(hashlib.sha256(f"{seed}:{sample_id}".encode()).hexdigest(), 16)
+        prompt_index = (base + epoch - 1) % len(prompt_rows)
+        selected.append(prompt_rows[prompt_index])
+    if len(prompt_counts) != 1:
+        raise ValueError("training samples must have synchronized prompt counts")
+    return selected
 
 
 def _evaluate(

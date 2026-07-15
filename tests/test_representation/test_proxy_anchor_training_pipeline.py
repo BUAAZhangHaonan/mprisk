@@ -18,6 +18,7 @@ from mprisk.representation.training import (
     _load_trajectory_batch,
     _rows_to_sample_refs,
     _sample_level_predictions,
+    _sample_prompt_augmentations,
     export_frozen_representations,
     train_trajectory_encoder,
 )
@@ -62,13 +63,15 @@ def _state(
     }
 
 
-def _dataset(tmp_path: Path, *, direct_2d: bool = False) -> Path:
+def _dataset(
+    tmp_path: Path, *, direct_2d: bool = False, prompt_count: int = 2
+) -> Path:
     rows = []
     for index in range(8):
         sample_type = "Aligned" if index % 2 == 0 else "Conflict"
         split = "val" if index >= 6 else "train"
         base = [1.0, 0.1 + index * 0.02, 0.2]
-        for prompt_index in range(2):
+        for prompt_index in range(prompt_count):
             prompt_id = f"p{prompt_index + 1}"
             conditions = {
                 condition: _state(
@@ -313,6 +316,50 @@ def test_validation_aggregates_eight_prompts_to_one_prediction_per_sample() -> N
     assert relation_labels == [0, 1]
     torch.testing.assert_close(torch.linalg.vector_norm(aggregate_r, dim=-1), torch.ones(2))
     assert relation_predicted.cpu().numpy().tolist() == [0, 1]
+
+
+def test_training_selects_one_reproducible_prompt_per_sample_and_epoch(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path, prompt_count=8)
+    rows = training_impl._read_relation_rows(
+        dataset, expected_model_key="qwen3_vl_8b"
+    )
+    refs = _rows_to_sample_refs(
+        [row for row in rows if row["representation_split"] == "relation_train"]
+    )
+
+    epoch_one = _sample_prompt_augmentations(refs, seed=7, epoch=1)
+    epoch_one_repeated = _sample_prompt_augmentations(refs, seed=7, epoch=1)
+    epoch_two = _sample_prompt_augmentations(refs, seed=7, epoch=2)
+    resumed_epoch_two = _sample_prompt_augmentations(refs, seed=7, epoch=2)
+
+    assert len(epoch_one) == 6
+    assert len({sample.sample_id for sample in epoch_one}) == 6
+    assert [(sample.sample_id, sample.prompt_id) for sample in epoch_one] == [
+        (sample.sample_id, sample.prompt_id) for sample in epoch_one_repeated
+    ]
+    assert [(sample.sample_id, sample.prompt_id) for sample in epoch_two] == [
+        (sample.sample_id, sample.prompt_id) for sample in resumed_epoch_two
+    ]
+    assert {
+        sample.sample_id: sample.prompt_id for sample in epoch_one
+    }.keys() == {sample.sample_id: sample.prompt_id for sample in epoch_two}.keys()
+    assert all(
+        first.prompt_id != second.prompt_id
+        for first, second in zip(epoch_one, epoch_two, strict=True)
+    )
+
+    calls = []
+
+    def fake_extract(entry):
+        calls.append((entry.sample_id, entry.condition))
+        return np.ones((entry.layer_count, entry.hidden_dim), dtype=np.float32)
+
+    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    for batch in training_impl._batches(epoch_one, 4):
+        _load_trajectory_batch(batch, device=torch.device("cpu"))
+    assert len(calls) == 6 * 3
 
 
 def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> None:
