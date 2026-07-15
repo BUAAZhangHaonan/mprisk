@@ -35,6 +35,8 @@ def build_condition_request(
     media_paths: Mapping[str, str],
     transcript: str | None,
     task_prompt: str,
+    prompt_set_key: str = "adhoc",
+    prompt_id: str = "adhoc",
     joint_audio_mode: JointAudioMode = "embedded_video",
     video_fps: float = 1.0,
 ) -> PrefillRequest:
@@ -90,6 +92,8 @@ def build_condition_request(
         messages=({"role": "user", "content": content},),
         media_paths=media_paths,
         use_audio_in_video=use_audio_in_video,
+        prompt_set_key=prompt_set_key,
+        prompt_id=prompt_id,
     )
 
 

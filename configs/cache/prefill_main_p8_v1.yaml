@@ -1,0 +1,23 @@
+schema: mprisk_prefill_main_p8_v1
+version: v1
+seed: 20260717
+asset_config: configs/assets/model_assets.yaml
+prompt_sets:
+  vt: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
+  va: configs/prompts/equiv_sets/va_main_p8_seed20260717.yaml
+main_manifests:
+  vt: data/processed/manifests/protocol_manifests/vt_primary.jsonl
+  va: data/processed/manifests/protocol_manifests/va_aux.jsonl
+models:
+  qwen3_vl_8b:
+    protocol: vt
+    smoke_manifest: data/frozen/prefill_smoke_v1/qwen3_vl_8b.jsonl
+    output_root: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717
+  internvl3_5_8b:
+    protocol: vt
+    smoke_manifest: data/frozen/prefill_smoke_v1/internvl3_5_8b.jsonl
+    output_root: outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717
+  qwen2_5_omni_7b:
+    protocol: va
+    smoke_manifest: data/frozen/prefill_smoke_v1/qwen2_5_omni_7b.jsonl
+    output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717

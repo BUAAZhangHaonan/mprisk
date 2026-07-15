@@ -103,6 +103,8 @@ class PrefillRequest:
     messages: Sequence[Mapping[str, Any]]
     media_paths: Mapping[str, str]
     use_audio_in_video: bool
+    prompt_set_key: str = "adhoc"
+    prompt_id: str = "adhoc"
 
     def __post_init__(self) -> None:
         protocol = self.protocol.lower()
@@ -111,7 +113,14 @@ class PrefillRequest:
             raise ValueError(f"Unsupported prefill protocol: {self.protocol!r}")
         if condition not in SUPPORTED_PREFILL_CONDITIONS:
             raise ValueError(f"Unsupported prefill condition: {self.condition!r}")
-        if not self.sample_id or not self.model_key or not self.dataset_key or not self.split:
+        if (
+            not self.sample_id
+            or not self.model_key
+            or not self.dataset_key
+            or not self.split
+            or not self.prompt_set_key
+            or not self.prompt_id
+        ):
             raise ValueError("Prefill request identifiers must be non-empty")
         if not isinstance(self.use_audio_in_video, bool):
             raise TypeError("use_audio_in_video must be an explicit bool")

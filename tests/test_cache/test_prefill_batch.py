@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
 
-from mprisk.cache.prefill_batch import BatchLedger, build_batch_plan, build_parser
+from mprisk.cache.prefill_batch import BatchLedger, build_batch_plan, build_parser, main
 from mprisk.cache.prefill_writer import write_full_cache_manifest, write_prefill_result
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
 
@@ -129,6 +130,8 @@ def test_writer_can_defer_and_atomically_materialize_manifest(tmp_path) -> None:
         model_key="model",
         protocol="va",
         condition="M12",
+        prompt_set_key="va",
+        prompt_id="p1",
         dataset_key="dataset",
         split="test",
         messages=({"role": "user", "content": [{"type": "text", "text": "task"}]},),
@@ -151,3 +154,106 @@ def test_writer_can_defer_and_atomically_materialize_manifest(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="duplicate"):
         write_full_cache_manifest([artifact.entry, artifact.entry], artifact.manifest_path)
+
+
+def test_plan_signature_records_family_and_prompt_identity(tmp_path) -> None:
+    args = _args(tmp_path, question="judge emotion")
+    plan = build_batch_plan(args)
+
+    assert plan.signature["family"] == "qwen_omni"
+    assert all(task.prompt_set_key == "va" for task in plan.tasks)
+
+
+def test_batch_resume_uses_checksums_and_records_full_identity(tmp_path, capsys) -> None:
+    class FakeWrapper:
+        extracted = 0
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def load(self):
+            return None
+
+        def extract_prefill(self, request):
+            type(self).extracted += 1
+            return PrefillResult(
+                request=request,
+                trajectory=np.ones((2, 3), dtype=np.float32),
+                token_count=4,
+                t0_token_index=3,
+                provenance={"elapsed_seconds": 0.1, "peak_gpu_memory_bytes": 1234},
+            )
+
+        def close(self):
+            return None
+
+    args = _args(tmp_path, question="judge emotion")
+    argv = [
+        "--manifest",
+        str(args.manifest),
+        "--prompt-set",
+        str(args.prompt_set),
+        "--prompt-variable",
+        "question=judge emotion",
+        "--model-path",
+        str(args.model_path),
+        "--output-root",
+        str(args.output_root),
+        "--device",
+        "cpu",
+    ]
+
+    assert main(argv, wrapper_factory=FakeWrapper) == 0
+    capsys.readouterr()
+    assert FakeWrapper.extracted == 12
+    combined = [
+        json.loads(line)
+        for line in (args.output_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(combined) == 12
+    assert all(entry["prompt_set_key"] == "va" for entry in combined)
+    assert {entry["prompt_id"] for entry in combined} == {"p1", "p2"}
+    assert all(entry["t0_token_index"] == 3 for entry in combined)
+    assert all(entry["elapsed_seconds"] == 0.1 for entry in combined)
+    assert all(entry["peak_gpu_memory_bytes"] == 1234 for entry in combined)
+
+    ledger = BatchLedger(args.output_root / "batch_state.sqlite3")
+    columns = {row[1] for row in ledger.connection.execute("PRAGMA table_info(tasks)")}
+    identity_columns = {
+        "sample_id",
+        "model_key",
+        "protocol",
+        "prompt_set_key",
+        "prompt_id",
+        "condition",
+    }
+    assert identity_columns <= columns
+    row = ledger.connection.execute(
+        """SELECT layer_count,hidden_dim,token_count,t0_token_index,elapsed_seconds,
+                  peak_gpu_memory_bytes,checksum
+           FROM tasks WHERE status='completed' LIMIT 1"""
+    ).fetchone()
+    assert tuple(row[:6]) == (2, 3, 4, 3, 0.1, 1234)
+    assert len(row[6]) == 64
+    ledger.close()
+
+    assert main(argv, wrapper_factory=FakeWrapper) == 0
+    capsys.readouterr()
+    assert FakeWrapper.extracted == 12
+
+    first = combined[0]
+    shard = Path(first["cache_root"]) / first["shard_path"]
+    shard.write_bytes(b"corrupt")
+    with pytest.raises(ValueError, match="checksum mismatch"):
+        main(argv, wrapper_factory=FakeWrapper)
+
+
+def test_ledger_rejects_signature_changes(tmp_path) -> None:
+    first = build_batch_plan(_args(tmp_path, question="first question"))
+    ledger = BatchLedger(tmp_path / "output" / "batch_state.sqlite3")
+    ledger.prepare(first, retry_failed=False)
+    second = build_batch_plan(_args(tmp_path, question="different question"))
+
+    with pytest.raises(ValueError, match="signature does not match"):
+        ledger.prepare(second, retry_failed=False)
+    ledger.close()

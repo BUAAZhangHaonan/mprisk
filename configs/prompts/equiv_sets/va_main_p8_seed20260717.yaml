@@ -1,0 +1,39 @@
+schema: mprisk_equiv_prompt_set_v1
+key: va_main_p8_seed20260717
+protocol: va
+version: v1
+active: true
+canonical_prompt: "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning."
+templates:
+  - prompt_id: pregen_risk_v1_p001
+    role: user
+    enabled: true
+    template_text: "Formulate one concise sentence that describes the person's overall emotional condition from the full input."
+  - prompt_id: pregen_risk_v1_p008
+    role: user
+    enabled: true
+    template_text: "Using the full source input, depict the individual's overall emotional condition in one concise sentence."
+  - prompt_id: pregen_risk_v1_p012
+    role: user
+    enabled: true
+    template_text: "Based on the full received input, outline the individual's overall emotional state in one concise sentence."
+  - prompt_id: pregen_risk_v1_p018
+    role: user
+    enabled: true
+    template_text: "In one concise sentence, outline the person's overall emotional condition from the complete given input."
+  - prompt_id: pregen_risk_v1_p022
+    role: user
+    enabled: true
+    template_text: "Capture the person's overall emotional state based on the complete source input in one concise sentence."
+  - prompt_id: pregen_risk_v1_p054
+    role: user
+    enabled: true
+    template_text: "Summarize the person's overall emotional state indicated by the full received input in one concise sentence."
+  - prompt_id: pregen_risk_v1_p056
+    role: user
+    enabled: true
+    template_text: "Using the complete received input, describe the individual's overall emotional state in one concise sentence."
+  - prompt_id: pregen_risk_v1_p067
+    role: user
+    enabled: true
+    template_text: "From the full received input, distill the person's overall emotional condition in one concise sentence."

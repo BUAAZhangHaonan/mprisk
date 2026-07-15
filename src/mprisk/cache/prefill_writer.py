@@ -65,6 +65,8 @@ def write_prefill_result(
         result.request.model_key,
         result.request.protocol,
         result.request.condition,
+        result.request.prompt_set_key,
+        result.request.prompt_id,
     )
     existing_indices = (
         [
@@ -115,6 +117,8 @@ def write_prefill_result(
             "model_key": result.request.model_key,
             "protocol": result.request.protocol,
             "condition": result.request.condition,
+            "prompt_set_key": result.request.prompt_set_key,
+            "prompt_id": result.request.prompt_id,
             "dataset_key": result.request.dataset_key,
             "split": result.request.split,
             "messages": list(result.request.messages),
@@ -199,6 +203,8 @@ def _manifest_entry(
         "model_key": result.request.model_key,
         "protocol": result.request.protocol,
         "condition": result.request.condition,
+        "prompt_set_key": result.request.prompt_set_key,
+        "prompt_id": result.request.prompt_id,
         "dataset_key": result.request.dataset_key,
         "split": result.request.split,
         "shard_path": relative_shard.as_posix(),
@@ -206,6 +212,9 @@ def _manifest_entry(
         "layer_count": result.layer_count,
         "hidden_dim": result.hidden_dim,
         "token_count": result.token_count,
+        "t0_token_index": result.t0_token_index,
+        "elapsed_seconds": result.provenance.get("elapsed_seconds"),
+        "peak_gpu_memory_bytes": result.provenance.get("peak_gpu_memory_bytes"),
         "cache_root": str(root),
         "checksum": checksum,
         "metadata": {
@@ -237,12 +246,14 @@ def _resolve_manifest(root: Path, manifest_path: str | Path | None) -> Path:
     return path.expanduser().resolve() if path.is_absolute() else root / path
 
 
-def _entry_key(entry: dict[str, Any]) -> tuple[str, str, str, str]:
+def _entry_key(entry: dict[str, Any]) -> tuple[str, str, str, str, str, str]:
     return (
         str(entry.get("sample_id")),
         str(entry.get("model_key")),
         str(entry.get("protocol")).lower(),
         str(entry.get("condition")).upper(),
+        str(entry.get("prompt_set_key", "adhoc")),
+        str(entry.get("prompt_id", "adhoc")),
     )
 
 

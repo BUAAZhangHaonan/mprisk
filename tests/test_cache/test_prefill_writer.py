@@ -18,6 +18,8 @@ def _result() -> PrefillResult:
         model_key="qwen2_5_omni_7b",
         protocol="VA",
         condition="m12",
+        prompt_set_key="main_p8",
+        prompt_id="p01",
         dataset_key="ch_sims_v2",
         split="test",
         messages=({"role": "user", "content": [{"type": "text", "text": "task"}]},),
@@ -39,6 +41,8 @@ def test_prefill_writer_round_trips_through_full_cache_manifest(tmp_path) -> Non
     assert load_file(artifact.shard_path)["hidden_states"].shape == (2, 3)
     sidecar = json.loads(artifact.sidecar_path.read_text(encoding="utf-8"))
     assert sidecar["request"]["use_audio_in_video"] is True
+    assert sidecar["request"]["prompt_set_key"] == "main_p8"
+    assert sidecar["entry"]["prompt_id"] == "p01"
     assert sidecar["entry"]["metadata"]["t0_token_index"] == 3
 
     manifest = load_full_cache_manifest(

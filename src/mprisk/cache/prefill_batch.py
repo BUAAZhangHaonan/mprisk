@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 from safetensors.numpy import load_file
 
+from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.cache.prefill_writer import (
     prefill_artifact_paths,
     write_full_cache_manifest,
@@ -33,12 +34,14 @@ from mprisk.prompts.template_bank import PromptTemplate, load_equiv_prompt_set
 
 WrapperFactory = Callable[..., Any]
 CONDITIONS = ("M1", "M2", "M12")
+DEFAULT_ASSET_CONFIG = Path("configs/assets/model_assets.yaml")
 
 
 @dataclass(frozen=True)
 class BatchTask:
     task_id: str
     sample_id: str
+    prompt_set_key: str
     prompt_id: str
     prompt_text: str | None
     condition: str
@@ -54,6 +57,12 @@ class BatchPlan:
     signature: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RecoveredArtifact:
+    entry: dict[str, Any]
+    provenance: dict[str, Any]
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run resumable manifest-wide prefill extraction.")
     parser.add_argument("--manifest", required=True, type=Path)
@@ -65,12 +74,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--joint-audio-mode", default="embedded_video", choices=("embedded_video", "separate_file")
     )
     parser.add_argument("--video-fps", type=float, default=1.0)
+    parser.add_argument("--video-num-segments", type=int, default=8)
+    parser.add_argument("--internvl-max-num", type=int, default=1)
     parser.add_argument("--model-key", default="qwen2_5_omni_7b")
-    parser.add_argument("--family", default="qwen_omni", choices=("qwen_omni",))
-    parser.add_argument("--model-path", required=True, type=Path)
+    parser.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
+    parser.add_argument("--family", choices=("qwen_omni", "qwen_vl", "internvl"))
+    parser.add_argument("--model-path", type=Path)
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
-    parser.add_argument("--attn-implementation", default="sdpa", choices=("sdpa", "eager"))
+    parser.add_argument("--attn-implementation", choices=("sdpa", "eager"))
     parser.add_argument("--min-pixels", type=int)
     parser.add_argument("--max-pixels", type=int)
     parser.add_argument("--output-root", required=True, type=Path)
@@ -115,6 +127,8 @@ def main(
         attn_implementation=args.attn_implementation,
         min_pixels=args.min_pixels,
         max_pixels=args.max_pixels,
+        video_num_segments=args.video_num_segments,
+        internvl_max_num=args.internvl_max_num,
     )
     output_root = args.output_root.expanduser().resolve()
     ledger = BatchLedger(output_root / "batch_state.sqlite3")
@@ -125,7 +139,7 @@ def main(
         recovered_entry = _recover_entry(request, prompt_root)
         if recovered_entry is None:
             raise FileNotFoundError(f"Completed task has no cache artifact: {task.task_id}")
-        if recovered_entry != recorded_entry:
+        if recovered_entry.entry != recorded_entry:
             raise ValueError(f"Completed task ledger entry mismatch: {task.task_id}")
     processed = 0
     try:
@@ -143,11 +157,11 @@ def main(
                         update_manifest=False,
                     )
                     entry = artifact.entry
-                    elapsed = result.provenance.get("elapsed_seconds")
+                    provenance = dict(result.provenance)
                 else:
-                    entry = recovered
-                    elapsed = None
-                ledger.complete(task.task_id, entry, elapsed)
+                    entry = recovered.entry
+                    provenance = recovered.provenance
+                ledger.complete(task.task_id, entry, provenance)
             except Exception as exc:
                 ledger.fail(task.task_id, exc)
                 _materialize_failures(ledger, output_root)
@@ -170,6 +184,7 @@ def main(
 
 
 def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
+    _resolve_runtime_asset(args)
     rows = _read_jsonl(args.manifest)
     _validate_rows(rows, args.protocol)
     prompt_set = load_equiv_prompt_set(args.prompt_set)
@@ -211,6 +226,7 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
                     BatchTask(
                         task_id=task_id,
                         sample_id=str(row["sample_id"]),
+                        prompt_set_key=prompt_set.key,
                         prompt_id=template.prompt_id,
                         prompt_text=prompt_text,
                         condition=condition,
@@ -218,7 +234,8 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
                     )
                 )
     signature = {
-        "schema": "mprisk_prefill_batch_signature_v1",
+        "schema": "mprisk_prefill_batch_signature_v2",
+        "asset_config_sha256": _sha256(args.asset_config),
         "manifest_sha256": _sha256(args.manifest),
         "prompt_set_sha256": _sha256(args.prompt_set),
         "prompt_ids": prompt_ids,
@@ -226,6 +243,7 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
         "protocol": args.protocol,
         "conditions": conditions,
         "model_key": args.model_key,
+        "family": args.family,
         "model_path": str(args.model_path.expanduser().resolve()),
         "dtype": args.dtype,
         "attn_implementation": args.attn_implementation,
@@ -233,6 +251,8 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
         "max_pixels": args.max_pixels,
         "joint_audio_mode": args.joint_audio_mode,
         "video_fps": args.video_fps,
+        "video_num_segments": args.video_num_segments,
+        "internvl_max_num": args.internvl_max_num,
     }
     return BatchPlan(tasks, prompt_ids, unresolved, rows, signature)
 
@@ -248,12 +268,15 @@ class BatchLedger:
             """
             CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS tasks (
-              task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL, prompt_id TEXT NOT NULL,
+              task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL, model_key TEXT NOT NULL,
+              protocol TEXT NOT NULL, prompt_set_key TEXT NOT NULL, prompt_id TEXT NOT NULL,
               condition TEXT NOT NULL, sample_type TEXT NOT NULL, use_in_main INTEGER NOT NULL,
               annotation_count INTEGER NOT NULL, split TEXT NOT NULL, source_dataset TEXT NOT NULL,
               status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
               attempts INTEGER NOT NULL DEFAULT 0, error_type TEXT, error_message TEXT,
-              traceback TEXT, elapsed_seconds REAL, entry_json TEXT
+              traceback TEXT, layer_count INTEGER, hidden_dim INTEGER, token_count INTEGER,
+              t0_token_index INTEGER, elapsed_seconds REAL, peak_gpu_memory_bytes INTEGER,
+              checksum TEXT, entry_json TEXT
             );
             """
         )
@@ -271,13 +294,17 @@ class BatchLedger:
             )
             self.connection.executemany(
                 """INSERT OR IGNORE INTO tasks(
-                   task_id,sample_id,prompt_id,condition,sample_type,use_in_main,
+                   task_id,sample_id,model_key,protocol,prompt_set_key,prompt_id,
+                   condition,sample_type,use_in_main,
                    annotation_count,split,source_dataset,status)
-                   VALUES(?,?,?,?,?,?,?,?,?,'pending')""",
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'pending')""",
                 [
                     (
                         task.task_id,
                         task.sample_id,
+                        str(plan.signature["model_key"]),
+                        str(plan.signature["protocol"]),
+                        task.prompt_set_key,
                         task.prompt_id,
                         task.condition,
                         str(task.row.get("sample_type", "")),
@@ -326,12 +353,28 @@ class BatchLedger:
                 raise ValueError(f"Completed task has no ledger entry: {row['task_id']}")
             yield by_id[row["task_id"]], json.loads(row["entry_json"])
 
-    def complete(self, task_id: str, entry: dict[str, Any], elapsed: Any) -> None:
+    def complete(
+        self,
+        task_id: str,
+        entry: dict[str, Any],
+        provenance: dict[str, Any],
+    ) -> None:
         with self.connection:
             self.connection.execute(
-                """UPDATE tasks SET status='completed', entry_json=?, elapsed_seconds=?,
+                """UPDATE tasks SET status='completed',entry_json=?,layer_count=?,hidden_dim=?,
+                   token_count=?,t0_token_index=?,elapsed_seconds=?,peak_gpu_memory_bytes=?,checksum=?,
                    error_type=NULL,error_message=NULL,traceback=NULL WHERE task_id=?""",
-                (_canonical_json(entry), elapsed, task_id),
+                (
+                    _canonical_json(entry),
+                    int(entry["layer_count"]),
+                    int(entry["hidden_dim"]),
+                    int(entry["token_count"]),
+                    int(entry["t0_token_index"]),
+                    provenance.get("elapsed_seconds"),
+                    provenance.get("peak_gpu_memory_bytes"),
+                    str(entry["checksum"]),
+                    task_id,
+                ),
             )
 
     def fail(self, task_id: str, error: Exception) -> None:
@@ -350,11 +393,18 @@ class BatchLedger:
         ).fetchall()
         return [json.loads(row["entry_json"]) for row in rows]
 
+    def completed_entries_all(self) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """SELECT entry_json FROM tasks WHERE status='completed' ORDER BY rowid"""
+        ).fetchall()
+        return [json.loads(row["entry_json"]) for row in rows]
+
     def failures(self) -> list[dict[str, Any]]:
         return [
             dict(row)
             for row in self.connection.execute(
-                """SELECT task_id,sample_id,prompt_id,condition,sample_type,use_in_main,
+                """SELECT task_id,sample_id,model_key,protocol,prompt_set_key,prompt_id,
+               condition,sample_type,use_in_main,
                annotation_count,split,source_dataset,attempts,error_type,error_message,traceback
                FROM tasks WHERE status='failed' ORDER BY rowid"""
             ).fetchall()
@@ -390,12 +440,14 @@ def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillReque
         media_paths={str(key): str(value) for key, value in media.items()},
         transcript=None if task.row.get("text_content") is None else str(task.row["text_content"]),
         task_prompt=task.prompt_text,
+        prompt_set_key=task.prompt_set_key,
+        prompt_id=task.prompt_id,
         joint_audio_mode=args.joint_audio_mode,
         video_fps=args.video_fps,
     )
 
 
-def _recover_entry(request: PrefillRequest, prompt_root: Path) -> dict[str, Any] | None:
+def _recover_entry(request: PrefillRequest, prompt_root: Path) -> RecoveredArtifact | None:
     paths = prefill_artifact_paths(request, output_root=prompt_root)
     existing = (paths.shard_path.is_file(), paths.sidecar_path.is_file())
     if existing == (False, False):
@@ -410,6 +462,8 @@ def _recover_entry(request: PrefillRequest, prompt_root: Path) -> dict[str, Any]
         "model_key": request.model_key,
         "protocol": request.protocol,
         "condition": request.condition,
+        "prompt_set_key": request.prompt_set_key,
+        "prompt_id": request.prompt_id,
         "dataset_key": request.dataset_key,
         "split": request.split,
         "messages": list(request.messages),
@@ -425,13 +479,18 @@ def _recover_entry(request: PrefillRequest, prompt_root: Path) -> dict[str, Any]
     hidden = tensors.get("hidden_states")
     if hidden is None or list(hidden.shape) != [entry.get("layer_count"), entry.get("hidden_dim")]:
         raise ValueError(f"Existing cache tensor shape mismatch: {paths.shard_path}")
-    return entry
+    provenance = payload.get("provenance")
+    if not isinstance(provenance, dict):
+        raise ValueError(f"Existing sidecar provenance is invalid: {paths.sidecar_path}")
+    return RecoveredArtifact(entry=entry, provenance=provenance)
 
 
 def _materialize_outputs(ledger: BatchLedger, root: Path, prompt_ids: Sequence[str]) -> None:
     for prompt_id in prompt_ids:
         manifest = root / "prompts" / prompt_id / "manifests" / "unified_full_cache_manifest.json"
         write_full_cache_manifest(ledger.completed_entries(prompt_id), manifest)
+    entries = ledger.completed_entries_all()
+    _atomic_text(root / "manifest.jsonl", "".join(_canonical_json(row) + "\n" for row in entries))
     _materialize_failures(ledger, root)
     _atomic_json(root / "batch_summary.json", ledger.summary())
 
@@ -516,6 +575,8 @@ def _validate_rows(rows: list[dict[str, Any]], protocol: str) -> None:
         seen.add(sample_id)
         if not isinstance(row["media_paths"], dict):
             raise ValueError(f"Manifest row has invalid media_paths: {sample_id}")
+        if str(row.get("sample_type", "")).lower() == "misread":
+            raise ValueError(f"Prefill extraction must not process Misread rows: {sample_id}")
 
 
 def _validate_media(rows: list[dict[str, Any]]) -> None:
@@ -529,6 +590,22 @@ def _validate_media(rows: list[dict[str, Any]]) -> None:
     )
     if missing:
         raise FileNotFoundError(f"Manifest references missing media files: {missing[:10]}")
+
+
+def _resolve_runtime_asset(args: argparse.Namespace) -> None:
+    assets = index_assets(load_model_assets(args.asset_config))
+    asset = assets.get(args.model_key)
+    if asset is None:
+        raise KeyError(f"Model key is absent from asset config: {args.model_key}")
+    if args.family is not None and args.family != asset.family:
+        raise ValueError(
+            f"Configured family for {args.model_key} is {asset.family!r}, not {args.family!r}"
+        )
+    args.family = asset.family
+    if args.model_path is None:
+        args.model_path = asset.local_model_path
+    if args.attn_implementation is None:
+        args.attn_implementation = "eager" if asset.family == "internvl" else "sdpa"
 
 
 def _parse_variables(items: Sequence[str]) -> dict[str, str]:
