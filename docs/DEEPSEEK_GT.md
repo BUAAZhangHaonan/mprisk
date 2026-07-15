@@ -30,9 +30,11 @@ never retried implicitly; use `--retry-failed` after reviewing its recorded erro
 The versioned v2 context resolver records one of three explicit sources in order:
 `setting`, then a natural non-template `trigger`, then `source_row.ltx2_prompt`.
 The source name is retained in the frozen input manifest and raw prompt text is
-never relabeled as a setting or trigger. The deterministic pilot contains two
-rows per A/C by VT/VA cell and has its own config, expected count, manifest hash,
-output root, and ledger signature. The v1 162-row path is unchanged.
+never relabeled as a setting or trigger. The deterministic pilot contains two rows for
+`class_code.A=sample_type.Conflict` and two rows for
+`class_code.C=sample_type.Aligned` in each VT and VA cell, and has its own config,
+expected count, manifest hash, output root, and ledger signature. The v1 162-row path is
+unchanged.
 
 ```bash
 python scripts/build_prompt_context_v2_pilot.py

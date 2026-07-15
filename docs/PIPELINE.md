@@ -132,7 +132,8 @@ TME computes only the ordered relation features
 concatenation, activation, or nonlinear branch. Its only objective is standard Proxy
 Anchor with exactly two proxies (`Aligned=0`, `Conflict=1`). SupCon, prompt-consistency,
 and cross-entropy are not part of the TME objective. Checkpoint selection uses only
-validation A/C balanced accuracy.
+validation balanced accuracy over `sample_type.Aligned` and `sample_type.Conflict`, with
+class-code mapping `C=Aligned` and `A=Conflict`.
 
 The trained representation smoke chain is:
 

@@ -55,7 +55,9 @@ The LLM step is only a screening assistant. Human adjudication is the final labe
 - `CMU-MOSI`: candidate pool. It needs LLM screening and human review before receiving relation labels.
 - `CMU-MOSEI`: larger candidate and generalization pool. It also needs LLM screening and human review.
 - `DFEW`: visual-anchor source. It enters the main conflict pool only when paired with natural text or another modality.
-- Generated A/C data: supplemental and stress-test source. Planned labels are candidate labels, not final labels.
+- Generated `sample_type.Conflict` and `sample_type.Aligned` data: supplemental and
+  stress-test source. The class-code mapping is `A=Conflict` and `C=Aligned`; planned
+  labels are candidate labels, not final labels.
 
 ## Normalized Sample Fields
 

@@ -24,7 +24,7 @@ these masks.
 | Fig. 5 | Four-state stacked proportions | `paper/figures/generated/fig05_four_state_stacks.pdf` |
 | Fig. 6 | Stable samples in D versus signed R | `paper/figures/generated/fig06_stable_d_signed_r.pdf` |
 | Fig. 7 | Misread Pending upper panel and artifact-backed modality bias lower panel | `paper/figures/generated/fig07_misread_bias.pdf` |
-| Fig. 8 | Three-representation A/C comparison and Misread Pending panel | `paper/figures/generated/fig08_representation_comparison.pdf` |
+| Fig. 8 | Three-representation `sample_type.Conflict` and `sample_type.Aligned` comparison (`class_code.A=Conflict`, `class_code.C=Aligned`) and Misread Pending panel | `paper/figures/generated/fig08_representation_comparison.pdf` |
 | Fig. 9 | Conflict case | `paper/figures/generated/fig09_conflict_case.pdf` |
 | Fig. 10 | Aligned case | `paper/figures/generated/fig10_aligned_case.pdf` |
 
