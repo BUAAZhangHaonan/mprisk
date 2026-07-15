@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import torch
+import yaml
 
 from mprisk.representation import training as training_impl
 from mprisk.representation.relation_models import (
@@ -103,6 +104,7 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
         {
             "schema": "mprisk_representation_checkpoint_v2",
             "repr_key": repr_key,
+            "architecture_version": repr_key,
             "model_key": "qwen3_vl_8b",
             "model_config": {"input_dim": 3, "layer_count": 2},
             "training_config": asdict(config),
@@ -157,7 +159,9 @@ def test_single_point_feature_is_unprojected_three_condition_concat() -> None:
     assert not hasattr(model, "feature_projection")
 
 
-@pytest.mark.parametrize("repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1])
+@pytest.mark.parametrize(
+    "repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1]
+)
 def test_baseline_export_streams_and_aggregates_held_out_prompts_once(
     tmp_path: Path, monkeypatch, repr_key: str
 ) -> None:
@@ -197,3 +201,57 @@ def test_baseline_export_streams_and_aggregates_held_out_prompts_once(
     assert summary["feature_dim"] == expected_dim
     assert summary["aggregation"] == "mean_over_synchronized_prompts"
     assert summary["feature_definition"] == expected_definition
+
+
+def test_baseline_export_rejects_seven_prompt_samples(tmp_path: Path) -> None:
+    dataset = _official_test_dataset(tmp_path)
+    rows = [json.loads(line) for line in dataset.read_text().splitlines()]
+    dataset.write_text(
+        "".join(
+            json.dumps(row) + "\n"
+            for row in rows
+            if not (row["sample_id"] == "sample-c" and row["prompt_id"] == "p08")
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"sample-c.*exactly 8 prompts.*found 7"):
+        export_frozen_baseline_representations(
+            dataset_path=dataset,
+            checkpoint_path=_checkpoint(tmp_path, TRAJECTORY_MLP_BINARY_V1),
+            output_dir=tmp_path / "export-seven",
+        )
+
+
+def test_single_point_export_rejects_hidden_projection_checkpoint_drift(
+    tmp_path: Path,
+) -> None:
+    checkpoint_path = _checkpoint(tmp_path, SINGLE_POINT_BINARY_V1)
+    checkpoint = torch.load(checkpoint_path, map_location="cpu")
+    checkpoint["architecture_version"] = SINGLE_POINT_BINARY_V1
+    checkpoint["model_state_dict"]["feature_projection.weight"] = torch.randn(6, 9)
+    checkpoint["model_state_dict"]["feature_projection.bias"] = torch.randn(6)
+    torch.save(checkpoint, checkpoint_path)
+
+    with pytest.raises(ValueError, match="Single-Point checkpoint architecture drift"):
+        export_frozen_baseline_representations(
+            dataset_path=_official_test_dataset(tmp_path),
+            checkpoint_path=checkpoint_path,
+            output_dir=tmp_path / "export-drift",
+        )
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    [
+        "representation_qwen2_5_omni_7b_single_point_v1.yaml",
+        "representation_qwen3_vl_8b_single_point_v1.yaml",
+        "representation_internvl3_5_8b_single_point_v1.yaml",
+    ],
+)
+def test_single_point_configs_pin_direct_linear_architecture(config_name: str) -> None:
+    config_path = Path("configs/experiments") / config_name
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+
+    assert payload["repr_key"] == SINGLE_POINT_BINARY_V1
+    assert payload["architecture_version"] == SINGLE_POINT_BINARY_V1

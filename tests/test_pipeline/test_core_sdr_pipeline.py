@@ -10,7 +10,11 @@ from safetensors.numpy import save_file
 
 from mprisk.data.manifests import write_jsonl
 from mprisk.prompts.prompt_cache_builder import prompt_cache_key
-from mprisk.representation.relation_models import TME_PROXY_ANCHOR_V1, SphericalTMEV1
+from mprisk.representation.relation_models import (
+    TME_ARCHITECTURE_V1,
+    TME_PROXY_ANCHOR_V1,
+    SphericalTMEV1,
+)
 from mprisk.representation.training import TrainingConfig
 from scripts.run_core_sdr_pipeline import run_core_sdr_pipeline
 
@@ -277,6 +281,7 @@ def test_core_sdr_pipeline_uses_existing_checkpoint_for_tme_repr(tmp_path) -> No
     torch.save(
         {
             "repr_key": TME_PROXY_ANCHOR_V1,
+            "architecture_version": TME_ARCHITECTURE_V1,
             "model_config": {"input_dim": 3, "layer_count": 2},
             "training_config": asdict(training_config),
             "model_state_dict": model.state_dict(),

@@ -1,6 +1,7 @@
 schema: mprisk_representation_training_v3
 key: qwen3_vl_8b_single_point_v1
 repr_key: single_point_binary_v1
+architecture_version: single_point_binary_v1
 model_key: qwen3_vl_8b
 hidden_dim: 128
 condition_dim: 64

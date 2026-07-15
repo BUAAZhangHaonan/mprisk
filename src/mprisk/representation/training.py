@@ -147,6 +147,7 @@ def train_trajectory_encoder(
     if resume_checkpoint is not None:
         resumed_from_path = Path(resume_checkpoint)
         resume_payload = torch.load(resumed_from_path, map_location="cpu")
+        _validate_checkpoint_architecture(resume_payload)
         if resume_payload.get("training_signature") != signature:
             raise ValueError("resume signature mismatch")
     rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
@@ -314,6 +315,7 @@ def export_frozen_representations(
     output_dir: str | Path,
 ) -> FrozenRepresentationExportResult:
     checkpoint = torch.load(Path(checkpoint_path), map_location="cpu")
+    _validate_checkpoint_architecture(checkpoint)
     if checkpoint.get("repr_key") != TME_PROXY_ANCHOR_V1:
         raise ValueError(
             "condition z and relation r export requires a tme_proxy_anchor_v1 checkpoint"
@@ -372,6 +374,7 @@ def export_frozen_baseline_representations(
         raise ValueError("baseline export requires a held-out representation split")
     checkpoint_file = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    _validate_checkpoint_architecture(checkpoint)
     repr_key = str(checkpoint.get("repr_key", ""))
     if repr_key not in {SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1}:
         raise ValueError("baseline export requires a Single-Point or Trajectory MLP checkpoint")
@@ -389,6 +392,7 @@ def export_frozen_baseline_representations(
         _rows_to_sample_refs(selected_rows),
         key=lambda sample: (sample.sample_id, sample.prompt_id),
     )
+    _validate_exact_prompt_count(samples, expected_count=8)
     model = build_representation_model(
         repr_key,
         input_dim=int(checkpoint["model_config"]["input_dim"]),
@@ -687,6 +691,62 @@ def _baseline_feature_definition(repr_key: str) -> str:
     if repr_key == TRAJECTORY_MLP_BINARY_V1:
         return "mean_prompt_first_linear_gelu_hidden"
     raise ValueError(f"unsupported baseline representation: {repr_key}")
+
+
+def _validate_exact_prompt_count(
+    samples: list[_Sample], *, expected_count: int
+) -> None:
+    grouped: dict[str, list[str]] = {}
+    for sample in samples:
+        grouped.setdefault(sample.sample_id, []).append(sample.prompt_id)
+    expected_prompt_ids: set[str] | None = None
+    for sample_id in sorted(grouped):
+        prompt_ids = grouped[sample_id]
+        unique_prompt_ids = set(prompt_ids)
+        if len(unique_prompt_ids) != len(prompt_ids):
+            raise ValueError(f"sample {sample_id} has duplicate prompt rows")
+        if len(prompt_ids) != expected_count:
+            raise ValueError(
+                f"sample {sample_id} must have exactly {expected_count} prompts; "
+                f"found {len(prompt_ids)}"
+            )
+        if expected_prompt_ids is None:
+            expected_prompt_ids = unique_prompt_ids
+        elif unique_prompt_ids != expected_prompt_ids:
+            raise ValueError("held-out samples must use the same prompt ID set")
+
+
+def _validate_checkpoint_architecture(checkpoint: dict[str, Any]) -> None:
+    repr_key = str(checkpoint.get("repr_key", ""))
+    architecture_version = str(checkpoint.get("architecture_version", ""))
+    expected_architecture = (
+        TME_ARCHITECTURE_V1 if repr_key == TME_PROXY_ANCHOR_V1 else repr_key
+    )
+    if architecture_version != expected_architecture:
+        raise ValueError(
+            "checkpoint architecture_version does not match its representation"
+        )
+    if repr_key != SINGLE_POINT_BINARY_V1:
+        return
+    model_state = checkpoint.get("model_state_dict")
+    model_config = checkpoint.get("model_config")
+    if not isinstance(model_state, dict) or not isinstance(model_config, dict):
+        raise ValueError("Single-Point checkpoint architecture drift: metadata is incomplete")
+    input_dim = model_config.get("input_dim")
+    weight = model_state.get("classifier.weight")
+    bias = model_state.get("classifier.bias")
+    if (
+        not isinstance(input_dim, int)
+        or input_dim <= 0
+        or set(model_state) != {"classifier.weight", "classifier.bias"}
+        or not isinstance(weight, torch.Tensor)
+        or tuple(weight.shape) != (2, 3 * input_dim)
+        or not isinstance(bias, torch.Tensor)
+        or tuple(bias.shape) != (2,)
+    ):
+        raise ValueError(
+            "Single-Point checkpoint architecture drift: expected direct Linear(3H, 2)"
+        )
 
 
 def _vector_values(vector: torch.Tensor) -> list[float]:

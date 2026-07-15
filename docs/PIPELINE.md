@@ -150,7 +150,10 @@ python scripts/build_representation_splits.py \
 
 The three independent backbone-specific interfaces are:
 
-- `single_point_binary_v1`: final-layer points from M1/M2/M12 and a two-logit linear classifier.
+- `single_point_binary_v1`: versioned final-layer M1/M2/M12 concatenation (`3H`)
+  passed directly to a two-logit linear classifier. Configs pin the same explicit
+  `architecture_version`; checkpoints containing the retired hidden-projection drift
+  are rejected before state loading.
 - `trajectory_mlp_binary_v1`: complete per-layer L2-normalized M1/M2/M12 trajectories and a two-logit MLP classifier.
 - `tme_proxy_anchor_v1`: architecture `layer_l2_gru_linear_relation_v1`, a shared one-layer GRU over the complete normalized layer sequence, followed by a compact linear projection and unit-normalized condition embedding `z`.
 
