@@ -1,0 +1,42 @@
+schema: mprisk_equiv_prompt_set_v1
+key: vt_p8_seed20260716
+protocol: vt
+version: v1
+active: true
+selection_seed: 20260716
+selection_seed_semantics: immutable_prompt_subset_selection_seed_not_run_date
+source_subset: data/processed/prompt_banks/pregen_risk_v1_agent/subset_p8_seed20260716.yaml
+canonical_prompt: "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning."
+templates:
+  - prompt_id: pregen_risk_v1_p009
+    role: user
+    enabled: true
+    template_text: "Phrase a concise sentence describing the individual's overall emotional state from the complete input."
+  - prompt_id: pregen_risk_v1_p011
+    role: user
+    enabled: true
+    template_text: "Summarize the person's overall emotional condition based on the entire provided input in one concise sentence."
+  - prompt_id: pregen_risk_v1_p053
+    role: user
+    enabled: true
+    template_text: "Using only the full source input, express the person's overall emotional state in one concise sentence."
+  - prompt_id: pregen_risk_v1_p067
+    role: user
+    enabled: true
+    template_text: "From the full received input, distill the person's overall emotional condition in one concise sentence."
+  - prompt_id: pregen_risk_v1_p068
+    role: user
+    enabled: true
+    template_text: "Give a single concise sentence describing the person's overall emotional state from the full source input."
+  - prompt_id: pregen_risk_v1_p070
+    role: user
+    enabled: true
+    template_text: "Describe the person's overall emotional state indicated by the complete available input in one concise sentence."
+  - prompt_id: pregen_risk_v1_p090
+    role: user
+    enabled: true
+    template_text: "In a single concise sentence, portray the individual's overall emotional condition from the complete input."
+  - prompt_id: pregen_risk_v1_p102
+    role: user
+    enabled: true
+    template_text: "Convey the individual's overall feeling condition from the entire supplied input in one concise sentence."
