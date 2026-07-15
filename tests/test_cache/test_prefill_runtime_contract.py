@@ -39,13 +39,20 @@ def test_main_prompt_config_freezes_p8_seed_for_vt_and_va() -> None:
     config = yaml.safe_load(PROMPT_CONFIG.read_text(encoding="utf-8"))
     assert config["schema"] == "mprisk_prefill_main_p8_v1"
     assert config["seed"] == 20260717
+    assert config["seed_semantics"] == "immutable_prompt_subset_selection_seed_not_run_date"
     assert set(config["models"]) == {
         "qwen3_vl_8b",
         "internvl3_5_8b",
         "qwen2_5_omni_7b",
     }
     for protocol in ("vt", "va"):
-        prompt_set = load_equiv_prompt_set(config["prompt_sets"][protocol])
+        prompt_path = Path(config["prompt_sets"][protocol])
+        prompt_provenance = yaml.safe_load(prompt_path.read_text(encoding="utf-8"))
+        assert prompt_provenance["selection_seed"] == 20260717
+        assert prompt_provenance["selection_seed_semantics"] == (
+            "immutable_prompt_subset_selection_seed_not_run_date"
+        )
+        prompt_set = load_equiv_prompt_set(prompt_path)
         assert prompt_set.protocol == protocol
         assert len(prompt_set.enabled_templates()) == 8
 

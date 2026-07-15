@@ -1,6 +1,7 @@
 schema: mprisk_prefill_main_p8_v1
 version: v1
 seed: 20260717
+seed_semantics: immutable_prompt_subset_selection_seed_not_run_date
 asset_config: configs/assets/model_assets.yaml
 prompt_sets:
   vt: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml

@@ -5,8 +5,9 @@ The fixed runtime panel is `qwen3_vl_8b` and `internvl3_5_8b` for VT, plus
 `configs/assets/model_assets.yaml`; batch commands must not substitute Qwen2.5-VL for
 Qwen3-VL.
 
-`configs/cache/prefill_main_p8_v1.yaml` freezes prompt subset seed `20260717`, the VT/VA
-P=8 prompt sets, protocol manifests, smoke manifests, and output roots. Each smoke manifest
+`configs/cache/prefill_main_p8_v1.yaml` freezes immutable prompt-subset selection seed
+`20260717`; it is an identifier, not a run date. The config also freezes the VT/VA P=8
+prompt sets, protocol manifests, smoke manifests, and output roots. Each smoke manifest
 contains one Conflict and one Aligned sample. Two samples times M1/M2/M12 times P=8 gives
 48 cache tasks per model. Misread rows are rejected.
 

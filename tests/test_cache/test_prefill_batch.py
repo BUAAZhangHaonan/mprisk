@@ -168,8 +168,26 @@ def test_batch_resume_uses_checksums_and_records_full_identity(tmp_path, capsys)
     class FakeWrapper:
         extracted = 0
 
-        def __init__(self, **kwargs):
-            self.kwargs = kwargs
+        def __init__(
+            self,
+            *,
+            model_key,
+            model_path,
+            device,
+            dtype,
+            attn_implementation,
+            min_pixels,
+            max_pixels,
+        ):
+            self.kwargs = {
+                "model_key": model_key,
+                "model_path": model_path,
+                "device": device,
+                "dtype": dtype,
+                "attn_implementation": attn_implementation,
+                "min_pixels": min_pixels,
+                "max_pixels": max_pixels,
+            }
 
         def load(self):
             return None

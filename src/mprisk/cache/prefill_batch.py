@@ -119,17 +119,21 @@ def main(
         )
     _validate_media(plan.rows)
     factory = wrapper_factory or get_wrapper(args.family)
-    wrapper = factory(
-        model_key=args.model_key,
-        model_path=args.model_path,
-        device=args.device,
-        dtype=args.dtype,
-        attn_implementation=args.attn_implementation,
-        min_pixels=args.min_pixels,
-        max_pixels=args.max_pixels,
-        video_num_segments=args.video_num_segments,
-        internvl_max_num=args.internvl_max_num,
-    )
+    wrapper_kwargs = {
+        "model_key": args.model_key,
+        "model_path": args.model_path,
+        "device": args.device,
+        "dtype": args.dtype,
+        "attn_implementation": args.attn_implementation,
+        "min_pixels": args.min_pixels,
+        "max_pixels": args.max_pixels,
+    }
+    if args.family == "internvl":
+        wrapper_kwargs.update(
+            video_num_segments=args.video_num_segments,
+            internvl_max_num=args.internvl_max_num,
+        )
+    wrapper = factory(**wrapper_kwargs)
     output_root = args.output_root.expanduser().resolve()
     ledger = BatchLedger(output_root / "batch_state.sqlite3")
     ledger.prepare(plan, retry_failed=args.retry_failed)

@@ -3,6 +3,9 @@ key: vt_main_p8_seed20260717
 protocol: vt
 version: v1
 active: true
+selection_seed: 20260717
+selection_seed_semantics: immutable_prompt_subset_selection_seed_not_run_date
+source_subset: data/processed/prompt_banks/pregen_risk_v1_agent/subset_p8_seed20260717.yaml
 canonical_prompt: "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning."
 templates:
   - prompt_id: pregen_risk_v1_p001
