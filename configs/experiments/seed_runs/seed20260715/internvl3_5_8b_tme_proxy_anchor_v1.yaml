@@ -3,6 +3,8 @@ key: internvl3_5_8b_tme_proxy_anchor_v1_seed20260715
 architecture_version: layer_l2_gru_linear_relation_v1
 repr_key: tme_proxy_anchor_v1
 model_key: internvl3_5_8b
+protocol: vt
+classification_objective: proxy_anchor_only
 prompt_set_key: vt_p8_seed20260715
 prompt_set_artifact_sha256: 3c0bd5dcb83ae6d996149ec449dfdce9e0134af83902a0b0ac84ae0d5aba9aaa
 expected_prompt_count: 8

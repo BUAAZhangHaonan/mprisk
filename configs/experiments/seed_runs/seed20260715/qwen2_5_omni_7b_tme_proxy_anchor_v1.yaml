@@ -3,6 +3,8 @@ key: qwen2_5_omni_7b_tme_proxy_anchor_v1_seed20260715
 architecture_version: layer_l2_gru_linear_relation_v1
 repr_key: tme_proxy_anchor_v1
 model_key: qwen2_5_omni_7b
+protocol: va
+classification_objective: proxy_anchor_only
 prompt_set_key: va_p8_seed20260715
 prompt_set_artifact_sha256: 323dd0b795a29c5a393729d13105f192d47a95d4f6e44555f1bb7efa72781e33
 expected_prompt_count: 8

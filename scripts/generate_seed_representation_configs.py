@@ -7,7 +7,6 @@ from typing import Any
 
 import yaml
 
-
 MODELS = {
     "qwen3_vl_8b": "vt",
     "internvl3_5_8b": "vt",
@@ -56,6 +55,12 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
                     ),
                     "repr_key": repr_key,
                     "model_key": model_key,
+                    "protocol": protocol,
+                    "classification_objective": (
+                        "proxy_anchor_only"
+                        if repr_key == "tme_proxy_anchor_v1"
+                        else "inverse_frequency_cross_entropy"
+                    ),
                     "prompt_set_key": str(prompt_payload["key"]),
                     "prompt_set_artifact_sha256": prompt_sha,
                     "expected_prompt_count": 8,
@@ -84,6 +89,26 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
     return written
 
 
+def synchronize_main_configs(repo_root: Path) -> list[Path]:
+    updated: list[Path] = []
+    experiment_root = repo_root / "configs/experiments"
+    for model_key, protocol in MODELS.items():
+        for path in sorted(experiment_root.glob(f"representation_{model_key}_*.yaml")):
+            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+            payload["protocol"] = protocol
+            payload["classification_objective"] = (
+                "proxy_anchor_only"
+                if payload["repr_key"] == "tme_proxy_anchor_v1"
+                else "inverse_frequency_cross_entropy"
+            )
+            path.write_text(
+                yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+                encoding="utf-8",
+            )
+            updated.append(path)
+    return updated
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate immutable model x seed x representation training configs."
@@ -94,9 +119,12 @@ def main() -> int:
         type=Path,
         default=Path("configs/experiments/seed_runs"),
     )
+    parser.add_argument("--no-sync-main", action="store_true")
     args = parser.parse_args()
     paths = generate_configs(args.repo_root.resolve(), args.output_dir)
+    main_paths = [] if args.no_sync_main else synchronize_main_configs(args.repo_root.resolve())
     print(f"generated={len(paths)}")
+    print(f"updated_main={len(main_paths)}")
     return 0
 
 

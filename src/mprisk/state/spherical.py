@@ -39,17 +39,14 @@ def spherical_center(vectors: Sequence[Sequence[float]]) -> list[float]:
 
 def require_exact_sdr_rows(rows: Sequence[Mapping[str, Any]]) -> None:
     if not rows or any(
-        row.get("sdr_schema") != SDR_SCHEMA
-        or row.get("distance_metric") != DISTANCE_METRIC
+        row.get("sdr_schema") != SDR_SCHEMA or row.get("distance_metric") != DISTANCE_METRIC
         for row in rows
     ):
-        raise ValueError(
-            "state rows must use exact spherical SDR v2 with geodesic acos distance"
-        )
+        raise ValueError("state rows must use exact spherical SDR v2 with geodesic acos distance")
 
 
 def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
-    """Compute prompt dispersion, modality split, signed arbitration, and prompt SE."""
+    """Compute State Dispersion, Modality Split, signed Joint Lean, and prompt SE."""
     _reject_misread_fields(bundle)
     embeddings = bundle.get("embeddings")
     if not isinstance(embeddings, Mapping) or set(embeddings) != set(CONDITIONS):
@@ -83,9 +80,7 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     }
     s_mean = sum(s_by_condition.values()) / len(CONDITIONS)
     m1_m2_distance = spherical_distance(centers["M1"], centers["M2"])
-    d_score = m1_m2_distance / (
-        math.sqrt(s_by_condition["M1"] + s_by_condition["M2"]) + EPSILON
-    )
+    d_score = m1_m2_distance / (math.sqrt(s_by_condition["M1"] + s_by_condition["M2"]) + EPSILON)
     m12_m1_distance = spherical_distance(centers["M12"], centers["M1"])
     m12_m2_distance = spherical_distance(centers["M12"], centers["M2"])
     r_score = _signed_r(m12_m1_distance, m12_m2_distance, m1_m2_distance)

@@ -61,6 +61,7 @@ def _official_test_dataset(tmp_path: Path) -> Path:
                     "model_key": "qwen3_vl_8b",
                     "protocol": "VT",
                     "prompt_set_key": "vt_primary_v1",
+                    "prompt_set_artifact_sha256": "b" * 64,
                     "prompt_id": prompt_id,
                     "split_group_id": f"group-{sample_id}",
                     "master_split": "test",
@@ -88,6 +89,8 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
     config = TrainingConfig(
         repr_key=repr_key,
         model_key="qwen3_vl_8b",
+        protocol="vt",
+        classification_objective="inverse_frequency_cross_entropy",
         prompt_set_key="vt_primary_v1",
         prompt_set_artifact_sha256="b" * 64,
         expected_prompt_count=8,
@@ -124,9 +127,7 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
     ("repr_key", "expected_dim"),
     [(SINGLE_POINT_BINARY_V1, 9), (TRAJECTORY_MLP_BINARY_V1, 6)],
 )
-def test_baselines_expose_locked_frozen_features(
-    repr_key: str, expected_dim: int
-) -> None:
+def test_baselines_expose_locked_frozen_features(repr_key: str, expected_dim: int) -> None:
     model = build_representation_model(
         repr_key,
         input_dim=3,
@@ -163,9 +164,7 @@ def test_single_point_feature_is_unprojected_three_condition_concat() -> None:
     assert not hasattr(model, "feature_projection")
 
 
-@pytest.mark.parametrize(
-    "repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1]
-)
+@pytest.mark.parametrize("repr_key", [SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1])
 def test_baseline_export_streams_and_aggregates_held_out_prompts_once(
     tmp_path: Path, monkeypatch, repr_key: str
 ) -> None:

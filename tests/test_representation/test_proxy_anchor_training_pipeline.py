@@ -64,9 +64,7 @@ def _state(
     }
 
 
-def _dataset(
-    tmp_path: Path, *, direct_2d: bool = False, prompt_count: int = 2
-) -> Path:
+def _dataset(tmp_path: Path, *, direct_2d: bool = False, prompt_count: int = 2) -> Path:
     rows = []
     for index in range(8):
         sample_type = "Aligned" if index % 2 == 0 else "Conflict"
@@ -95,6 +93,7 @@ def _dataset(
                     "model_key": "qwen3_vl_8b",
                     "protocol": "VT",
                     "prompt_set_key": "vt_primary_v1",
+                    "prompt_set_artifact_sha256": "b" * 64,
                     "prompt_id": prompt_id,
                     "split_group_id": f"g{index}",
                     "master_split": split,
@@ -116,6 +115,8 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
     return TrainingConfig(
         repr_key=TME_PROXY_ANCHOR_V1,
         model_key="qwen3_vl_8b",
+        protocol="vt",
+        classification_objective="proxy_anchor_only",
         prompt_set_key="vt_primary_v1",
         prompt_set_artifact_sha256="b" * 64,
         expected_prompt_count=2,
@@ -154,8 +155,7 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     logs = [json.loads(line) for line in result.log_path.read_text().splitlines()]
     assert 1 <= len(logs) <= 3
     assert all(
-        set(row) >= {"epoch", "train_loss", "val_loss", "val_balanced_accuracy_ac"}
-        for row in logs
+        set(row) >= {"epoch", "train_loss", "val_loss", "val_balanced_accuracy_ac"} for row in logs
     )
 
     exported = export_frozen_representations(
@@ -164,10 +164,7 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
         output_dir=tmp_path / "frozen",
     )
     rows = [json.loads(line) for line in exported.manifest_path.read_text().splitlines()]
-    bundles = [
-        json.loads(line)
-        for line in exported.bundle_manifest_path.read_text().splitlines()
-    ]
+    bundles = [json.loads(line) for line in exported.bundle_manifest_path.read_text().splitlines()]
     assert len(rows) == 16
     assert len(bundles) == 8
     assert all(set(row["condition_z"]) == {"M1", "M2", "M12"} for row in rows)
@@ -186,10 +183,7 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
         assert relation_feature == pytest.approx(expected)
         assert np.linalg.norm(relation_feature) == pytest.approx(1.0)
         assert bundle["aggregation"] == "mean_over_synchronized_prompts_then_l2"
-        assert (
-            bundle["feature_definition"]
-            == "unit_normalized_mean_prompt_ordered_relation_r"
-        )
+        assert bundle["feature_definition"] == "unit_normalized_mean_prompt_ordered_relation_r"
     assert result.metrics["train_group_count"] == 6
     assert result.metrics["val_group_count"] == 2
     assert result.metrics["val_rows"] == 4
@@ -250,12 +244,13 @@ def test_relation_training_reads_direct_float32_layer_hidden_cache(tmp_path) -> 
     assert checkpoint["model_config"] == {"input_dim": 3, "layer_count": 2}
 
 
-def test_relation_index_is_metadata_only_and_loads_one_bounded_batch(
-    tmp_path, monkeypatch
-) -> None:
+def test_relation_index_is_metadata_only_and_loads_one_bounded_batch(tmp_path, monkeypatch) -> None:
     dataset = _dataset(tmp_path)
     rows = training_impl._read_relation_rows(
-        dataset, expected_model_key="qwen3_vl_8b"
+        dataset,
+        expected_model_key="qwen3_vl_8b",
+        expected_protocol="vt",
+        expected_prompt_set_artifact_sha256="b" * 64,
     )
     calls: list[tuple[str, str, str]] = []
 
@@ -284,7 +279,10 @@ def test_relation_index_rejects_cross_prompt_condition_pairing_before_cache_io(
 ) -> None:
     dataset = _dataset(tmp_path)
     rows = training_impl._read_relation_rows(
-        dataset, expected_model_key="qwen3_vl_8b"
+        dataset,
+        expected_model_key="qwen3_vl_8b",
+        expected_protocol="vt",
+        expected_prompt_set_artifact_sha256="b" * 64,
     )
     rows[0]["conditions"]["M12"]["prompt_id"] = "wrong-prompt"
     monkeypatch.setattr(
@@ -311,9 +309,7 @@ def test_validation_aggregates_eight_prompts_to_one_prediction_per_sample() -> N
             self.sample_id = sample_id
             self.label_id = label_id
 
-    samples = [Ref("aligned", 0) for _ in range(8)] + [
-        Ref("conflict", 1) for _ in range(8)
-    ]
+    samples = [Ref("aligned", 0) for _ in range(8)] + [Ref("conflict", 1) for _ in range(8)]
     baseline_outputs = torch.tensor([[3.0, 1.0]] * 8 + [[1.0, 4.0]] * 8)
 
     sample_ids, labels, aggregate = _aggregate_sample_outputs(
@@ -345,7 +341,10 @@ def test_training_selects_one_reproducible_prompt_per_sample_and_epoch(
 ) -> None:
     dataset = _dataset(tmp_path, prompt_count=8)
     rows = training_impl._read_relation_rows(
-        dataset, expected_model_key="qwen3_vl_8b"
+        dataset,
+        expected_model_key="qwen3_vl_8b",
+        expected_protocol="vt",
+        expected_prompt_set_artifact_sha256="b" * 64,
     )
     refs = _rows_to_sample_refs(
         [row for row in rows if row["representation_split"] == "relation_train"]
@@ -364,9 +363,9 @@ def test_training_selects_one_reproducible_prompt_per_sample_and_epoch(
     assert [(sample.sample_id, sample.prompt_id) for sample in epoch_two] == [
         (sample.sample_id, sample.prompt_id) for sample in resumed_epoch_two
     ]
-    assert {
-        sample.sample_id: sample.prompt_id for sample in epoch_one
-    }.keys() == {sample.sample_id: sample.prompt_id for sample in epoch_two}.keys()
+    assert {sample.sample_id: sample.prompt_id for sample in epoch_one}.keys() == {
+        sample.sample_id: sample.prompt_id for sample in epoch_two
+    }.keys()
     assert all(
         first.prompt_id != second.prompt_id
         for first, second in zip(epoch_one, epoch_two, strict=True)

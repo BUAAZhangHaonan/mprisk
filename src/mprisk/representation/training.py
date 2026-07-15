@@ -41,6 +41,8 @@ REGISTERED_SPLITS = frozenset(
 class TrainingConfig:
     repr_key: str
     model_key: str
+    protocol: str
+    classification_objective: str
     prompt_set_key: str = ""
     prompt_set_artifact_sha256: str = ""
     expected_prompt_count: int = 8
@@ -121,9 +123,7 @@ def load_training_config(path: str | Path) -> TrainingConfig:
     architecture_version = payload.pop("architecture_version", None)
     if payload.get("repr_key") == TME_PROXY_ANCHOR_V1:
         if architecture_version != TME_ARCHITECTURE_V1:
-            raise ValueError(
-                f"TME architecture_version must be {TME_ARCHITECTURE_V1}"
-            )
+            raise ValueError(f"TME architecture_version must be {TME_ARCHITECTURE_V1}")
     elif architecture_version is not None and architecture_version != payload.get("repr_key"):
         raise ValueError("baseline architecture_version must match repr_key when provided")
     unknown = set(payload) - set(TrainingConfig.__dataclass_fields__)
@@ -156,12 +156,15 @@ def train_trajectory_encoder(
         _validate_checkpoint_architecture(resume_payload)
         if resume_payload.get("training_signature") != signature:
             raise ValueError("resume signature mismatch")
-    rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
+    rows = _read_relation_rows(
+        dataset_path,
+        expected_model_key=config.model_key,
+        expected_protocol=config.protocol,
+        expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+    )
     split_contract = _validate_registered_splits(rows)
     training_rows = [
-        row
-        for row in rows
-        if row["representation_split"] in {"relation_train", "relation_val"}
+        row for row in rows if row["representation_split"] in {"relation_train", "relation_val"}
     ]
     samples = _rows_to_sample_refs(training_rows)
     _validate_prompt_contract(samples, config=config)
@@ -192,6 +195,12 @@ def train_trajectory_encoder(
         lr=config.lr,
         weight_decay=config.weight_decay,
     )
+    class_weights = _baseline_class_weights(
+        train_samples,
+        config=config,
+        device=torch_device,
+    )
+    train_label_counts = _sample_label_counts(train_samples)
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -230,8 +239,15 @@ def train_trajectory_encoder(
             train_samples,
             config=config,
             epoch=epoch,
+            class_weights=class_weights,
         )
-        val_loss, val_score = _evaluate(model, objective, val_samples, config=config)
+        val_loss, val_score = _evaluate(
+            model,
+            objective,
+            val_samples,
+            config=config,
+            class_weights=class_weights,
+        )
         improved = val_score > best_score + config.min_delta
         if improved:
             best_score = val_score
@@ -264,6 +280,8 @@ def train_trajectory_encoder(
             best_score=best_score,
             best_epoch=best_epoch,
             stale_epochs=stale_epochs,
+            class_weights=class_weights,
+            train_label_counts=train_label_counts,
         )
         _atomic_torch_save(last_path, checkpoint)
         if improved:
@@ -289,6 +307,13 @@ def train_trajectory_encoder(
         "val_sample_count": len({sample.sample_id for sample in val_samples}),
         "train_examples_per_epoch": len({sample.sample_id for sample in train_samples}),
         "prompt_augmentation": "one_deterministic_prompt_per_sample_per_epoch",
+        "classification_objective": config.classification_objective,
+        "train_sample_label_counts": train_label_counts,
+        "baseline_class_weights": (
+            [float(value) for value in class_weights.detach().cpu().tolist()]
+            if class_weights is not None
+            else None
+        ),
         "train_group_count": len({sample.split_group_id for sample in train_samples}),
         "val_group_count": len({sample.split_group_id for sample in val_samples}),
         "train_groups_sha256": _group_checksum(train_samples),
@@ -330,7 +355,12 @@ def export_frozen_representations(
         )
     config = TrainingConfig(**checkpoint["training_config"])
     _validate_config(config)
-    rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
+    rows = _read_relation_rows(
+        dataset_path,
+        expected_model_key=config.model_key,
+        expected_protocol=config.protocol,
+        expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+    )
     samples = _rows_to_sample_refs(rows)
     _validate_prompt_contract(samples, config=config)
     model = build_representation_model(
@@ -396,11 +426,14 @@ def export_frozen_baseline_representations(
         raise ValueError("baseline checkpoints must not contain Proxy Anchor state")
     config = TrainingConfig(**checkpoint["training_config"])
     _validate_config(config)
-    rows = _read_relation_rows(dataset_path, expected_model_key=config.model_key)
+    rows = _read_relation_rows(
+        dataset_path,
+        expected_model_key=config.model_key,
+        expected_protocol=config.protocol,
+        expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+    )
     _validate_registered_splits(rows)
-    selected_rows = [
-        row for row in rows if row["representation_split"] == representation_split
-    ]
+    selected_rows = [row for row in rows if row["representation_split"] == representation_split]
     if not selected_rows:
         raise ValueError(f"relation dataset has no rows for {representation_split}")
     samples = sorted(
@@ -647,6 +680,7 @@ def _frozen_row(
         "row_id": sample.row_id,
         "sample_id": sample.sample_id,
         "sample_type": sample.sample_type,
+        "label_id": sample.label_id,
         "model_key": model_key,
         "protocol": sample.protocol,
         "prompt_set_key": sample.prompt_set_key,
@@ -674,6 +708,7 @@ def _empty_frozen_bundle(row: dict[str, Any]) -> dict[str, Any]:
         for key in (
             "sample_id",
             "sample_type",
+            "label_id",
             "model_key",
             "protocol",
             "prompt_set_key",
@@ -753,13 +788,9 @@ def _validate_prompt_contract(samples: list[_Sample], *, config: TrainingConfig)
 def _validate_checkpoint_architecture(checkpoint: dict[str, Any]) -> None:
     repr_key = str(checkpoint.get("repr_key", ""))
     architecture_version = str(checkpoint.get("architecture_version", ""))
-    expected_architecture = (
-        TME_ARCHITECTURE_V1 if repr_key == TME_PROXY_ANCHOR_V1 else repr_key
-    )
+    expected_architecture = TME_ARCHITECTURE_V1 if repr_key == TME_PROXY_ANCHOR_V1 else repr_key
     if architecture_version != expected_architecture:
-        raise ValueError(
-            "checkpoint architecture_version does not match its representation"
-        )
+        raise ValueError("checkpoint architecture_version does not match its representation")
     if repr_key != SINGLE_POINT_BINARY_V1:
         return
     model_state = checkpoint.get("model_state_dict")
@@ -787,7 +818,13 @@ def _vector_values(vector: torch.Tensor) -> list[float]:
     return [float(value) for value in vector.detach().cpu().numpy()]
 
 
-def _read_relation_rows(path: str | Path, *, expected_model_key: str) -> list[dict[str, Any]]:
+def _read_relation_rows(
+    path: str | Path,
+    *,
+    expected_model_key: str,
+    expected_protocol: str,
+    expected_prompt_set_artifact_sha256: str,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with Path(path).open("r", encoding="utf-8") as handle:
         for line_number, line in enumerate(handle, start=1):
@@ -801,6 +838,12 @@ def _read_relation_rows(path: str | Path, *, expected_model_key: str) -> list[di
                 raise ValueError("relation row schema mismatch")
             if row.get("model_key") != expected_model_key:
                 raise ValueError("relation dataset model_key does not match training backbone")
+            if str(row.get("protocol", "")).lower() != expected_protocol.lower():
+                raise ValueError("relation dataset protocol does not match training config")
+            if row.get("prompt_set_artifact_sha256") != expected_prompt_set_artifact_sha256:
+                raise ValueError(
+                    "relation dataset prompt artifact SHA does not match training config"
+                )
             if row.get("sample_type") not in {"Aligned", "Conflict"}:
                 raise ValueError("relation training labels must be Conflict or Aligned")
             expected_label = int(row["sample_type"] == "Conflict")
@@ -882,9 +925,7 @@ def _load_trajectory_batch(
         for sample in batch
     ]
     trajectories = torch.from_numpy(np.stack(arrays).astype(np.float32, copy=False)).to(device)
-    labels = torch.tensor(
-        [sample.label_id for sample in batch], dtype=torch.long, device=device
-    )
+    labels = torch.tensor([sample.label_id for sample in batch], dtype=torch.long, device=device)
     return trajectories, labels
 
 
@@ -963,6 +1004,7 @@ def _train_epoch(
     *,
     config: TrainingConfig,
     epoch: int,
+    class_weights: torch.Tensor | None,
 ) -> float:
     model.train()
     if objective is not None:
@@ -976,7 +1018,9 @@ def _train_epoch(
     losses: list[float] = []
     for batch in _batches(shuffled, config.batch_size):
         optimizer.zero_grad(set_to_none=True)
-        loss, _outputs = _batch_loss_and_outputs(model, objective, batch)
+        loss, _outputs = _batch_loss_and_outputs(
+            model, objective, batch, class_weights=class_weights
+        )
         loss.backward()
         optimizer.step()
         losses.append(float(loss.detach()))
@@ -1017,6 +1061,7 @@ def _evaluate(
     samples: list[_Sample],
     *,
     config: TrainingConfig,
+    class_weights: torch.Tensor | None,
 ) -> tuple[float, float]:
     model.eval()
     if objective is not None:
@@ -1026,7 +1071,9 @@ def _evaluate(
     metric_outputs: list[torch.Tensor] = []
     with torch.no_grad():
         for batch in _batches(samples, config.batch_size):
-            loss, outputs = _batch_loss_and_outputs(model, objective, batch)
+            loss, outputs = _batch_loss_and_outputs(
+                model, objective, batch, class_weights=class_weights
+            )
             losses.append(float(loss))
             metric_samples.extend(batch)
             metric_outputs.append(outputs)
@@ -1044,16 +1091,60 @@ def _batch_loss_and_outputs(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
     batch: list[_Sample],
+    *,
+    class_weights: torch.Tensor | None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     device = next(model.parameters()).device
     trajectories, labels = _load_trajectory_batch(batch, device=device)
     if objective is not None:
+        if class_weights is not None:
+            raise ValueError("TME Proxy Anchor must not receive cross-entropy class weights")
         sample_ids = [sample.sample_id for sample in batch]
         _condition_z, relation_r = model(trajectories, sample_ids=sample_ids)
         loss = objective(relation_r, labels, sample_ids=sample_ids)
         return loss, relation_r
     logits = model(trajectories)
-    return F.cross_entropy(logits, labels), logits
+    if class_weights is None:
+        raise ValueError("baseline cross-entropy requires pre-registered class weights")
+    return F.cross_entropy(logits, labels, weight=class_weights), logits
+
+
+def _baseline_class_weights(
+    samples: list[_Sample],
+    *,
+    config: TrainingConfig,
+    device: torch.device,
+) -> torch.Tensor | None:
+    if config.repr_key == TME_PROXY_ANCHOR_V1:
+        if config.classification_objective != "proxy_anchor_only":
+            raise ValueError("TME classification_objective must be proxy_anchor_only")
+        return None
+    if config.classification_objective != "inverse_frequency_cross_entropy":
+        raise ValueError(
+            "baseline classification_objective must be inverse_frequency_cross_entropy"
+        )
+    counts_by_label = _sample_label_counts(samples)
+    counts = [counts_by_label["Aligned"], counts_by_label["Conflict"]]
+    if any(count <= 0 for count in counts):
+        raise ValueError("inverse-frequency baseline weights require both A/C classes")
+    total = sum(counts)
+    return torch.tensor(
+        [total / (2.0 * count) for count in counts],
+        dtype=torch.float32,
+        device=device,
+    )
+
+
+def _sample_label_counts(samples: list[_Sample]) -> dict[str, int]:
+    labels_by_sample: dict[str, int] = {}
+    for sample in samples:
+        previous = labels_by_sample.setdefault(sample.sample_id, sample.label_id)
+        if previous != sample.label_id:
+            raise ValueError("training prompts disagree on the sample-level A/C label")
+    return {
+        "Aligned": sum(label == 0 for label in labels_by_sample.values()),
+        "Conflict": sum(label == 1 for label in labels_by_sample.values()),
+    }
 
 
 def _aggregate_sample_outputs(
@@ -1127,6 +1218,8 @@ def _checkpoint_payload(
     best_score: float,
     best_epoch: int,
     stale_epochs: int,
+    class_weights: torch.Tensor | None,
+    train_label_counts: dict[str, int],
 ) -> dict[str, Any]:
     return {
         "schema": "mprisk_representation_checkpoint_v2",
@@ -1147,6 +1240,13 @@ def _checkpoint_payload(
         "best_score": best_score,
         "best_epoch": best_epoch,
         "stale_epochs": stale_epochs,
+        "classification_objective": config.classification_objective,
+        "train_sample_label_counts": dict(train_label_counts),
+        "baseline_class_weights": (
+            [float(value) for value in class_weights.detach().cpu().tolist()]
+            if class_weights is not None
+            else None
+        ),
     }
 
 
@@ -1176,14 +1276,21 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError(f"repr_key must be one of {', '.join(REPRESENTATION_KEYS)}")
     if not config.model_key:
         raise ValueError("model_key is required")
+    if config.protocol not in {"vt", "va", "vta"}:
+        raise ValueError("protocol must be one of vt, va, or vta")
+    expected_objective = (
+        "proxy_anchor_only"
+        if config.repr_key == TME_PROXY_ANCHOR_V1
+        else "inverse_frequency_cross_entropy"
+    )
+    if config.classification_objective != expected_objective:
+        raise ValueError(
+            f"classification_objective for {config.repr_key} must be {expected_objective}"
+        )
     if not config.prompt_set_key:
         raise ValueError("prompt_set_key is required")
-    if (
-        len(config.prompt_set_artifact_sha256) != 64
-        or any(
-            character not in "0123456789abcdef"
-            for character in config.prompt_set_artifact_sha256
-        )
+    if len(config.prompt_set_artifact_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in config.prompt_set_artifact_sha256
     ):
         raise ValueError("prompt_set_artifact_sha256 must be lowercase sha256")
     if config.expected_prompt_count <= 0:

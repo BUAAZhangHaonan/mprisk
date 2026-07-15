@@ -3,6 +3,8 @@ key: internvl3_5_8b_single_point_binary_v1_seed20260717
 architecture_version: single_point_binary_v1
 repr_key: single_point_binary_v1
 model_key: internvl3_5_8b
+protocol: vt
+classification_objective: inverse_frequency_cross_entropy
 prompt_set_key: vt_main_p8_seed20260717
 prompt_set_artifact_sha256: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
 expected_prompt_count: 8

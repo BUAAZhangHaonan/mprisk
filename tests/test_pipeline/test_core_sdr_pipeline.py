@@ -138,9 +138,7 @@ def _prompted_entry(
     shard = root / shard_path
     shard.parent.mkdir(parents=True, exist_ok=True)
     hidden_states = np.zeros((1, 2, 4, 3), dtype=np.float32)
-    hidden_states[0, :, -1, :] = np.asarray(
-        [value, value + 0.1, value + 0.2], dtype=np.float32
-    )
+    hidden_states[0, :, -1, :] = np.asarray([value, value + 0.1, value + 0.2], dtype=np.float32)
     save_file({"hidden_states": hidden_states}, shard)
     return {
         "sample_id": sample_id,
@@ -274,6 +272,8 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
     training_config = TrainingConfig(
         repr_key=TME_PROXY_ANCHOR_V1,
         model_key="qwen3_vl_8b",
+        protocol="vt",
+        classification_objective="proxy_anchor_only",
         prompt_set_key="vt_primary_v1",
         prompt_set_artifact_sha256=hashlib.sha256(prompt_set.read_bytes()).hexdigest(),
         expected_prompt_count=2,

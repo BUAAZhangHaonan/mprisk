@@ -3,6 +3,8 @@ key: internvl3_5_8b_trajectory_mlp_binary_v1_seed20260716
 architecture_version: trajectory_mlp_binary_v1
 repr_key: trajectory_mlp_binary_v1
 model_key: internvl3_5_8b
+protocol: vt
+classification_objective: inverse_frequency_cross_entropy
 prompt_set_key: vt_p8_seed20260716
 prompt_set_artifact_sha256: dce5ba11ce149dda2632845e1a1e543b3e4b6b638efb857b3130e8e11dcfb4f1
 expected_prompt_count: 8

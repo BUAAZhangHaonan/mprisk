@@ -5,13 +5,13 @@ from pathlib import Path
 
 import yaml
 
+from mprisk.representation.training import load_training_config
 from scripts.generate_seed_representation_configs import (
     MODELS,
     PROMPT_FILES,
     REPRESENTATIONS,
     generate_configs,
 )
-from mprisk.representation.training import load_training_config
 
 
 def test_generator_locks_every_seed_model_and_representation(tmp_path: Path) -> None:
@@ -29,9 +29,16 @@ def test_generator_locks_every_seed_model_and_representation(tmp_path: Path) -> 
                 config = load_training_config(path)
                 assert config.seed == seed
                 assert config.model_key == model_key
+                assert config.protocol == protocol
+                assert config.classification_objective == (
+                    "proxy_anchor_only"
+                    if repr_key == "tme_proxy_anchor_v1"
+                    else "inverse_frequency_cross_entropy"
+                )
                 assert config.repr_key == repr_key
                 assert config.prompt_set_key == prompt_payload["key"]
                 assert config.expected_prompt_ids == expected_ids
-                assert config.prompt_set_artifact_sha256 == hashlib.sha256(
-                    prompt_path.read_bytes()
-                ).hexdigest()
+                assert (
+                    config.prompt_set_artifact_sha256
+                    == hashlib.sha256(prompt_path.read_bytes()).hexdigest()
+                )

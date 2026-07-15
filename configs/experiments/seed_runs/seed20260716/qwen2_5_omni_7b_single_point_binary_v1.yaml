@@ -3,6 +3,8 @@ key: qwen2_5_omni_7b_single_point_binary_v1_seed20260716
 architecture_version: single_point_binary_v1
 repr_key: single_point_binary_v1
 model_key: qwen2_5_omni_7b
+protocol: va
+classification_objective: inverse_frequency_cross_entropy
 prompt_set_key: va_p8_seed20260716
 prompt_set_artifact_sha256: c7c21aead65b56dd9308b019154a8aab192fe98677d0ca241ecb589f8f2cf104
 expected_prompt_count: 8
