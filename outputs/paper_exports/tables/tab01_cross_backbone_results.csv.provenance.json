@@ -1,0 +1,19 @@
+{
+  "columns": [
+    "Model / Protocol",
+    "Diagnostic Acc. (Aligned)",
+    "Diagnostic Acc. (Conflict)",
+    "Dominant Modality Signature"
+  ],
+  "generated_command": [
+    "export_paper_tables",
+    "materialize-pending",
+    "tab01_cross_backbone_results"
+  ],
+  "input_sha256": "64d5298cfed8bb6218477f237c6927202ff449469e240a46ea99a015b0af2865",
+  "row_count": 0,
+  "schema": "mprisk_paper_table_input_v1",
+  "sources": [],
+  "status": "Pending",
+  "table_key": "tab01_cross_backbone_results"
+}

@@ -1,0 +1,32 @@
+{
+  "schema": "mprisk_run_records_v1",
+  "commands": [
+    {
+      "command_id": "paper_figure_export_final_layout_v1",
+      "status": "success",
+      "argv": ["python", "scripts/export_paper_figures.py", "--config", "configs/paper/figure_map.yaml"],
+      "pid": "completed"
+    },
+    {
+      "command_id": "paper_table_export_final_layout_v1",
+      "status": "success",
+      "argv": ["python", "scripts/export_paper_tables.py", "--config", "configs/paper/table_map.yaml"],
+      "pid": "completed"
+    }
+  ],
+  "gpus": [],
+  "caches": [],
+  "splits": [],
+  "experiments": [],
+  "visual_qa": [
+    {
+      "qa_key": "paper_bundle_24_pdf_v1",
+      "status": "success",
+      "pdf_count": 24,
+      "rendered_png_count": 24,
+      "embedded_font_pdf_count": 24,
+      "forbidden_match_count": 0,
+      "notes": "All final layouts inspected in a 4x6 contact sheet; no clipping, overlap, black blocks, or raster-only pages."
+    }
+  ]
+}

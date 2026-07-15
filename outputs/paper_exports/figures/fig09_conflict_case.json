@@ -1,0 +1,20 @@
+{
+  "schema": "mprisk_pending_figure_input_v1",
+  "figure_key": "fig09_conflict_case",
+  "status": "Pending",
+  "generated_command": [
+    "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/build_figure_inputs.py",
+    "--mode",
+    "pending",
+    "--config",
+    "configs/paper/figure_map.yaml",
+    "--run-records",
+    "outputs/run_records/tme_node_v1.json"
+  ],
+  "sources": [],
+  "sample_masks": {
+    "status": "no_source_artifact"
+  },
+  "rows": []
+}

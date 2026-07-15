@@ -1,0 +1,21 @@
+{
+  "schema": "mprisk_figure_input_provenance_v1",
+  "figure_key": "figE1_human_quality",
+  "status": "Pending",
+  "generated_command": [
+    "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/build_figure_inputs.py",
+    "--mode",
+    "pending",
+    "--config",
+    "configs/paper/figure_map.yaml",
+    "--run-records",
+    "outputs/paper_exports/runtime/figure_commands.jsonl"
+  ],
+  "sources": [],
+  "sample_masks": {
+    "status": "no_source_artifact"
+  },
+  "source_sample_count": 0,
+  "included_sample_count": 0
+}

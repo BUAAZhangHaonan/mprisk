@@ -1,0 +1,19 @@
+{
+  "columns": [
+    "Model",
+    "Setting",
+    "Affective Misattribution",
+    "Avg. Response Quality"
+  ],
+  "generated_command": [
+    "export_paper_tables",
+    "materialize-pending",
+    "tab03_downstream_quality"
+  ],
+  "input_sha256": "12ee176ba297fa7416a4e0a46e3a36dc51c4e765317afdde2b9312a19cea3e4c",
+  "row_count": 0,
+  "schema": "mprisk_paper_table_input_v1",
+  "sources": [],
+  "status": "Pending",
+  "table_key": "tab03_downstream_quality"
+}

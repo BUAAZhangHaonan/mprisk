@@ -1,0 +1,20 @@
+{
+  "columns": [
+    "Method",
+    "Accuracy",
+    "Macro-F1",
+    "AUPRC",
+    "Latency"
+  ],
+  "generated_command": [
+    "export_paper_tables",
+    "materialize-pending",
+    "tab02_conflict_misread_baselines"
+  ],
+  "input_sha256": "79c6c43738c60c5f9fd8f098c78aace8ee3871c4793bf93a8d26c594b0649091",
+  "row_count": 0,
+  "schema": "mprisk_paper_table_input_v1",
+  "sources": [],
+  "status": "Pending",
+  "table_key": "tab02_conflict_misread_baselines"
+}

@@ -1,0 +1,20 @@
+{
+  "schema": "mprisk_conceptual_figure_input_v1",
+  "figure_key": "fig02_representation_pipeline",
+  "status": "Ready",
+  "generated_command": [
+    "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/build_figure_inputs.py",
+    "--mode",
+    "pending",
+    "--config",
+    "configs/paper/figure_map.yaml",
+    "--run-records",
+    "outputs/paper_exports/runtime/figure_commands.jsonl"
+  ],
+  "sources": [],
+  "sample_masks": {
+    "data_dependency": "none"
+  },
+  "rows": []
+}
