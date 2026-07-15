@@ -1,4 +1,11 @@
 schema: mprisk_prompt_selection_v1
-default_k: 5
-candidate_pool_size: 16
-selection_rule: semantic_equivalence_with_low_template_variance
+canonical_prompt: "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning."
+raw_candidate_count: 384
+global_pool_size: 128
+default_p: 8
+subset_seeds:
+  - 20260715
+  - 20260716
+  - 20260717
+selection_rule: tfidf_word_char_farthest_point
+semantic_review_field: ai_semantic_review_pass

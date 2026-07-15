@@ -41,13 +41,24 @@ Curation intermediate artifacts:
 
 ## 2. Prompt Banks
 
-Prompt banks define equivalent task formulations for each protocol. The main protocol uses `K = 5` templates selected from a larger candidate pool.
+Prompt banks define equivalent task formulations for each protocol. The prompt-pool path uses a reviewed raw set of 384 AI candidates, filters it to a deterministic global pool of 128 placeholder-free prompts, and draws three `P = 8` subsets with seeds `20260715`, `20260716`, and `20260717`.
+
+The local generation skeleton records the intended local model, decoding settings, and canonical task before any GPU run:
+
+```bash
+python scripts/generate_prompt_candidates.py \
+  --model-path /home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct \
+  --output-path data/processed/prompt_banks/pregen_risk_v1/raw384.jsonl \
+  --plan-path data/processed/prompt_banks/pregen_risk_v1/generation_plan.json
+```
 
 Main artifacts:
 
 - `data/processed/prompt_banks/vt_primary_bank_v1.jsonl`
 - `data/processed/prompt_banks/va_aux_bank_v1.jsonl`
 - `data/processed/prompt_banks/it_aux_bank_v1.jsonl`
+- `configs/prompts/prompt_selection.yaml`
+- `configs/prompts/equiv_sets/*.yaml`
 
 ## 3. Pre-generation Cache
 
