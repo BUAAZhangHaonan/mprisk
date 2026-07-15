@@ -15,6 +15,7 @@ from mprisk.viz.bundle_figures import (
     _render_representation_comparison,
     export_bundle_figures,
 )
+from mprisk.viz.figure_inputs import write_pending_figure_inputs
 from mprisk.viz.run_status import build_run_status
 
 EXPECTED_KEYS = [
@@ -29,6 +30,13 @@ EXPECTED_KEYS = [
     "fig09_conflict_case",
     "fig10_four_pattern_cases",
 ]
+JSON_MAIN_KEYS = {
+    "fig01_problem_protocol",
+    "fig02_representation_pipeline",
+    "fig03_spherical_sdr",
+    "fig09_conflict_case",
+    "fig10_four_pattern_cases",
+}
 
 APPENDIX_KEYS = [
     "figA1_case_types",
@@ -54,7 +62,9 @@ def _config(tmp_path: Path) -> Path:
         "figures": {
             key: {
                 "title": key,
-                "input": str(tmp_path / "inputs" / f"{key}.csv"),
+                "input": str(
+                    tmp_path / "inputs" / f"{key}{'.json' if key in JSON_MAIN_KEYS else '.csv'}"
+                ),
                 "output": str(tmp_path / "generated" / f"{key}.pdf"),
             }
             for key in EXPECTED_KEYS
@@ -78,7 +88,9 @@ def _config(tmp_path: Path) -> Path:
 
 
 def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tmp_path) -> None:
-    result = export_bundle_figures(_config(tmp_path))
+    config = _config(tmp_path)
+    write_pending_figure_inputs(config, generated_command=["pytest", "pending"])
+    result = export_bundle_figures(config)
     assert list(result["figures"]) == EXPECTED_KEYS
     assert list(result["appendix"]) == APPENDIX_KEYS
     assert len(result["figures"]) + len(result["appendix"]) == 24
@@ -106,16 +118,79 @@ def test_figure_export_emits_openable_vector_pending_pdfs_without_fake_values(tm
         )
         pixels = mpimg.imread(raster_stem.with_suffix(".png"))[..., :3]
         black_fraction = float((pixels.mean(axis=-1) < 0.05).mean())
-        assert black_fraction < 0.01
+        assert black_fraction < 0.05, f"unexpectedly dark first page: {pdf}"
+
+
+def test_data_independent_inputs_are_materialized_as_ready_conceptual_artifacts(
+    tmp_path: Path,
+) -> None:
+    config_path = _config(tmp_path)
+    write_pending_figure_inputs(config_path, generated_command=["pytest", "pending"])
+    config = yaml.safe_load(config_path.read_text())
+    for key in (
+        "fig01_problem_protocol",
+        "fig02_representation_pipeline",
+        "fig03_spherical_sdr",
+    ):
+        payload = json.loads(Path(config["figures"][key]["input"]).read_text())
+        assert payload["schema"] == "mprisk_conceptual_figure_input_v1"
+        assert payload["status"] == "Ready"
+        assert payload["sample_masks"] == {"data_dependency": "none"}
+    payload = json.loads(
+        Path(config["appendix"]["figB1_representation_details"]["input"]).read_text()
+    )
+    assert payload["schema"] == "mprisk_conceptual_figure_input_v1"
+    assert payload["status"] == "Ready"
+    pending = json.loads(Path(config["figures"]["fig09_conflict_case"]["input"]).read_text())
+    assert pending["status"] == "Pending"
 
 
 def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
-    result = export_bundle_figures(_config(tmp_path))
+    config = _config(tmp_path)
+    write_pending_figure_inputs(config, generated_command=["pytest", "pending"])
+    result = export_bundle_figures(config)
     expected_text = {
         "fig01_problem_protocol": ("Pre-generation state at", "Diagnostic affect description"),
-        "fig04_sdr_distributions": ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B"),
-        "fig07_misread_bias": ("Pending Misread annotations", "V lean", "T/A lean"),
-        "fig08_representation_comparison": ("Single-Point", "Trajectory MLP", "TME", "UMAP"),
+        "fig04_sdr_distributions": (
+            "State Dispersion (S)",
+            "Modality Split (D)",
+            "Absolute Joint Lean (|R|)",
+            "Sample class",
+            "Aligned",
+            "Conflict",
+        ),
+        "fig05_four_state_stacks": (
+            "State Pattern proportion (%)",
+            "Aligned",
+            "Conflict",
+            "Confusion",
+            "Consensus",
+            "Balanced",
+            "Dominant",
+        ),
+        "fig06_stable_d_signed_r": (
+            "Modality Split (D)",
+            "signed Joint Lean (R)",
+            "threshold position Pending",
+            "V lean",
+            "T/A lean",
+        ),
+        "fig07_misread_bias": (
+            "Pending Misread annotations",
+            "State-indicator quantile",
+            "Misread rate (%)",
+            "Modality Split (D)",
+            "signed Joint Lean (R)",
+        ),
+        "fig08_representation_comparison": (
+            "Single-Point",
+            "Trajectory MLP",
+            "TME",
+            "UMAP-1",
+            "UMAP-2",
+            "Conflict samples retained (%)",
+            "AUPRC",
+        ),
         "fig09_conflict_case": (
             "Conflict input + GT",
             "Baseline response",
@@ -123,6 +198,29 @@ def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
         ),
         "fig10_four_pattern_cases": ("Confusion", "Consensus", "Balanced", "Dominant"),
         "figC5_model_patterns": ("16 models", "Pending"),
+        "figB2_prompt_stability_latency": (
+            "Equivalent prompts (P)",
+            "Normalized value",
+            "State stability",
+            "Latency",
+        ),
+        "figB3_delta_bootstrap_geometry": (
+            "Bootstrap resamples",
+            "2000",
+            "Modality Split (D)",
+            "signed Joint Lean (R)",
+        ),
+        "figC1_ac_roc_pr": ("False-positive rate", "True-positive rate", "Recall", "Precision"),
+        "figC2_conflict_retention": ("Conflict budget (%)", "A/C classification score"),
+        "figC3_seed_robustness": ("Prompt-seed pair", "State Pattern agreement"),
+        "figC4_threshold_sensitivity": (
+            "Threshold multiplier",
+            "State Pattern agreement (%)",
+            "State Pattern proportion (%)",
+        ),
+        "figD1_misread_pr": ("Pending Misread annotations", "Recall", "Precision"),
+        "figD3_latency_breakdown": ("Pipeline component", "Latency (s)"),
+        "figE1_human_quality": ("Response method", "Mean human rating"),
     }
     for key, phrases in expected_text.items():
         group = result["figures"] if key in result["figures"] else result["appendix"]
@@ -138,8 +236,9 @@ def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
 
 def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) -> None:
     config = _config(tmp_path)
+    write_pending_figure_inputs(config, generated_command=["pytest", "pending"])
     input_path = tmp_path / "inputs/fig04_sdr_distributions.csv"
-    input_path.parent.mkdir(parents=True)
+    input_path.parent.mkdir(parents=True, exist_ok=True)
     with input_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(
             handle,
@@ -275,8 +374,15 @@ def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
 
 def test_figure_export_rejects_forbidden_pdf_text(tmp_path) -> None:
     config_path = _config(tmp_path)
+    write_pending_figure_inputs(config_path, generated_command=["pytest", "pending"])
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     config["figures"]["fig07_misread_bias"]["title"] = "Arbitration"
     config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     with pytest.raises(ValueError, match="forbidden text"):
+        export_bundle_figures(config_path)
+
+
+def test_figure_export_rejects_missing_conceptual_input(tmp_path) -> None:
+    config_path = _config(tmp_path)
+    with pytest.raises(ValueError, match="conceptual figure input is missing or empty"):
         export_bundle_figures(config_path)

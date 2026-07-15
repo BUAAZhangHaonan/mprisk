@@ -2,16 +2,26 @@
 
 \subsection{Experimental Setup}
 
-This subsection covers datasets, protocols, models, prompt sets, baselines, and metrics.
+The registered backbones are Qwen3-VL-8B and InternVL3.5-8B under V--T, and
+Qwen2.5-Omni-7B under V--A. All figures use held-out \texttt{official\_test} samples.
+The thresholds are fitted only on the independent Aligned calibration split and are
+bound to the model, protocol, prompt set, encoder checkpoint, split assignment, and
+embedding manifest. Three prompt seeds are treated as repeated measurements rather than
+as independent samples.
 
 \subsection{Main Result: Conflict vs Aligned}
 
-This subsection tests whether Conflict and Aligned samples differ in pre-generation state.
+This analysis compares Conflict and Aligned samples without using Misread labels.
+Figure inputs are admitted only after their split and calibration identities pass the
+registered artifact checks.
 
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/generated/fig04_sdr_distributions.pdf}
-  \caption{Per-model S, D, and absolute Joint Lean distributions.}
+  \caption{Per-model distributions on the official test split. State Dispersion
+  uses every test sample; Modality Split uses only stable samples with
+  $S\leq\kappa$; absolute Joint Lean further uses only samples with
+  $D>\tau$. The three columns therefore use intentionally different masks.}
   \label{fig:sdr-distributions}
 \end{figure*}
 
@@ -25,13 +35,17 @@ This subsection tests whether Conflict and Aligned samples differ in pre-generat
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/generated/fig06_stable_d_signed_r.pdf}
-  \caption{Stable samples in D and signed Joint Lean space.}
+  \caption{Stable official-test samples in Modality Split and signed Joint Lean space;
+  lean direction is emphasized only above the calibrated split threshold.}
   \label{fig:stable-joint-lean}
 \end{figure*}
 
 \subsection{Main Result: Relation to Misread Outcomes}
 
-This subsection tests whether state patterns predict later Misread outcomes.
+Misread annotations are not yet available. The upper relationship panels and every
+Misread metric therefore remain explicitly Pending. The lower modality-bias panels can
+be populated independently from stable Conflict samples once each representation run
+finishes.
 
 \begin{figure*}[t]
   \centering
@@ -43,7 +57,9 @@ This subsection tests whether state patterns predict later Misread outcomes.
 \begin{figure*}[t]
   \centering
   \includegraphics[width=\textwidth]{figures/generated/fig08_representation_comparison.pdf}
-  \caption{Held-out sample-level UMAP for three representations and reserved Misread sensitivity panels.}
+  \caption{Held-out sample-level UMAP for three representations from the registered
+  Qwen3-VL-8B V--T seed-20260717 run, plus reserved Misread sensitivity panels. Each
+  representation is projected separately with the fixed UMAP version and parameters.}
   \label{fig:representation-umap}
 \end{figure*}
 
@@ -57,7 +73,7 @@ This subsection compares pre-generation analysis against full-output post-hoc an
 
 \subsection{Generalization and Case Studies}
 
-This subsection includes one Conflict case, one Aligned case, and one state-guided response case.
+This subsection includes one end-to-end Conflict case and one case slot for each State Pattern.
 
 \begin{figure*}[t]
   \centering

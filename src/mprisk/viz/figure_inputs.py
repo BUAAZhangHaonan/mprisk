@@ -22,6 +22,13 @@ from mprisk.utils.io import write_json
 
 PROVENANCE_SCHEMA = "mprisk_figure_input_provenance_v1"
 PENDING_INPUT_SCHEMA = "mprisk_pending_figure_input_v1"
+CONCEPTUAL_INPUT_SCHEMA = "mprisk_conceptual_figure_input_v1"
+DATA_INDEPENDENT_FIGURES = {
+    "fig01_problem_protocol",
+    "fig02_representation_pipeline",
+    "fig03_spherical_sdr",
+    "figB1_representation_details",
+}
 READY = "Ready"
 PENDING = "Pending"
 
@@ -315,15 +322,24 @@ def write_pending_figure_inputs(
                 )
                 written.extend((input_path, provenance_path))
             elif input_path.suffix.casefold() == ".json":
+                data_independent = str(figure_key) in DATA_INDEPENDENT_FIGURES
                 write_json(
                     input_path,
                     {
-                        "schema": PENDING_INPUT_SCHEMA,
+                        "schema": (
+                            CONCEPTUAL_INPUT_SCHEMA
+                            if data_independent
+                            else PENDING_INPUT_SCHEMA
+                        ),
                         "figure_key": str(figure_key),
-                        "status": PENDING,
+                        "status": READY if data_independent else PENDING,
                         "generated_command": command,
                         "sources": [],
-                        "sample_masks": {"status": "no_source_artifact"},
+                        "sample_masks": {
+                            "data_dependency": "none"
+                            if data_independent
+                            else "source_artifact_required"
+                        },
                         "rows": [],
                     },
                 )

@@ -1,9 +1,40 @@
 \section{Additional Results}
 
-This appendix section records supplementary datasets, full model-panel results, baseline details, and robustness checks.
+This appendix contains Conflict/Aligned classification and robustness analyses that do
+not require Misread labels. Conflict-retention curves report only Conflict/Aligned
+supervision budgets and must not be interpreted as Misread sensitivity.
 
-\includegraphics[width=\linewidth]{figures/appendix/figC1_ac_roc_pr.pdf}
-\includegraphics[width=\linewidth]{figures/appendix/figC2_conflict_retention.pdf}
-\includegraphics[width=\linewidth]{figures/appendix/figC3_seed_robustness.pdf}
-\includegraphics[width=\linewidth]{figures/appendix/figC4_threshold_sensitivity.pdf}
-\includegraphics[width=\linewidth]{figures/appendix/figC5_model_patterns.pdf}
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/appendix/figC1_ac_roc_pr.pdf}
+  \caption{Held-out Conflict/Aligned ROC and precision--recall curves.}
+  \label{fig:appendix-ac-curves}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/appendix/figC2_conflict_retention.pdf}
+  \caption{Conflict-retention supervision budget with Conflict/Aligned metrics only.}
+  \label{fig:appendix-conflict-retention}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/appendix/figC3_seed_robustness.pdf}
+  \caption{Three-seed stability and State Pattern agreement.}
+  \label{fig:appendix-seed-stability}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/appendix/figC4_threshold_sensitivity.pdf}
+  \caption{Sensitivity to the calibrated \(\kappa\), \(\tau\), and \(\delta_i\) thresholds.}
+  \label{fig:appendix-threshold-sensitivity}
+\end{figure}
+
+\begin{figure}[t]
+  \centering
+  \includegraphics[width=\linewidth]{figures/appendix/figC5_model_patterns.pdf}
+  \caption{Registered layout for the complete 16-model State Pattern comparison.}
+  \label{fig:appendix-model-patterns}
+\end{figure}

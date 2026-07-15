@@ -16,8 +16,10 @@ import yaml
 
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
+from matplotlib.lines import Line2D  # noqa: E402
 
 from mprisk.viz.figure_inputs import (  # noqa: E402
+    CONCEPTUAL_INPUT_SCHEMA,
     PENDING_INPUT_SCHEMA,
     PROVENANCE_SCHEMA,
     provenance_path,
@@ -61,6 +63,24 @@ UMAP_CONFIG = {
     "min_dist": 0.1,
     "metric": "cosine",
 }
+FULL_MODEL_LABELS = (
+    "Gemma-3-4B",
+    "Gemma-3-12B",
+    "GLM-4.6V-Flash",
+    "InternVL3.5-8B",
+    "LLaVA-v1.5-7B",
+    "LLaVA-OneVision-7B",
+    "MiniCPM-V-2.6",
+    "MiniCPM-V-4.5",
+    "Phi-3.5-Vision",
+    "Qwen2.5-VL-7B",
+    "Qwen3-VL-8B",
+    "Qwen3.5-4B",
+    "Qwen3.5-9B",
+    "Gemma-4-12B",
+    "Phi-4-Multimodal",
+    "Qwen2.5-Omni-7B",
+)
 
 
 def export_bundle_figures(config_path: str | Path) -> dict[str, Any]:
@@ -104,7 +124,8 @@ def _export_group(
         output_path.parent.mkdir(parents=True, exist_ok=True)
         status, rows, provenance = _load_figure_input(str(key), input_path)
         if str(key) in CONCEPTUAL_KEYS:
-            status = STATUS_READY
+            if status != STATUS_READY:
+                raise ValueError(f"conceptual figure input must be Ready: {input_path}")
             _render_locked_layout(key=str(key), title=title, output_path=output_path)
         elif status == STATUS_READY:
             _render_artifact(
@@ -168,20 +189,96 @@ def _render_locked_layout(*, key: str, title: str, output_path: Path) -> None:
     _render_appendix_layout(key, title, output_path)
 
 
-def _pending_axis(axis: Any, heading: str, message: str = STATUS_PENDING) -> None:
+def _pending_axis(
+    axis: Any,
+    heading: str,
+    message: str = STATUS_PENDING,
+    *,
+    xlabel: str,
+    ylabel: str,
+    xlim: tuple[float, float],
+    ylim: tuple[float, float],
+    xticks: tuple[float, ...],
+    yticks: tuple[float, ...],
+    xticklabels: tuple[str, ...] | None = None,
+    legend_labels: tuple[str, ...] = (),
+    legend_colors: tuple[str, ...] = (),
+    legend_style: str = "line",
+) -> None:
     axis.set_title(heading, fontsize=9)
-    axis.set_xticks([])
-    axis.set_yticks([])
+    axis.set_xlabel(xlabel)
+    axis.set_ylabel(ylabel)
+    axis.set_xlim(*xlim)
+    axis.set_ylim(*ylim)
+    axis.set_xticks(xticks)
+    axis.set_yticks(yticks)
+    if xticklabels is not None:
+        axis.set_xticklabels(xticklabels)
+    axis.grid(True, color="#d7dce0", linewidth=0.6, alpha=0.75)
     axis.text(0.5, 0.5, message, ha="center", va="center", fontsize=8, transform=axis.transAxes)
+    if legend_labels:
+        colors = legend_colors or tuple("#607d8b" for _ in legend_labels)
+        if len(colors) != len(legend_labels):
+            raise ValueError("pending legend labels and colors must have equal length")
+        handles = [
+            Line2D(
+                [],
+                [],
+                color=color,
+                marker="s" if legend_style == "patch" else None,
+                linestyle="None" if legend_style == "patch" else "-",
+                linewidth=1.8,
+                markersize=7,
+                label=label,
+            )
+            for label, color in zip(legend_labels, colors, strict=True)
+        ]
+        axis.legend(handles=handles, fontsize=6.5, loc="best", frameon=True)
     for spine in axis.spines.values():
         spine.set_color("#9aa0a6")
+
+
+def _pending_card(axis: Any, heading: str, message: str = STATUS_PENDING) -> None:
+    """Render a final card slot for non-coordinate case-study panels."""
+    axis.set_title(heading, fontsize=9)
+    axis.set_xlim(0.0, 1.0)
+    axis.set_ylim(0.0, 1.0)
+    axis.set_xticks(())
+    axis.set_yticks(())
+    axis.text(0.5, 0.5, message, ha="center", va="center", fontsize=8)
+    for spine in axis.spines.values():
+        spine.set_color("#9aa0a6")
+
+
+def _add_pending_dr_framework(axis: Any) -> None:
+    """Show the final D--R decision frame without inventing a calibrated tau."""
+    axis.axhline(0.0, color="#7d8790", linewidth=0.8)
+    axis.plot(
+        (0.55, 0.55),
+        (0.0, 1.0),
+        color="#7d8790",
+        linestyle="--",
+        linewidth=0.8,
+        transform=axis.transAxes,
+    )
+    axis.text(
+        0.57,
+        0.95,
+        r"$D=\tau$ threshold position Pending",
+        ha="left",
+        va="top",
+        fontsize=6.5,
+        transform=axis.transAxes,
+    )
+    axis.text(0.97, 0.84, "V lean", ha="right", fontsize=7, transform=axis.transAxes)
+    axis.text(0.97, 0.10, "T/A lean", ha="right", fontsize=7, transform=axis.transAxes)
 
 
 def _render_flow(title: str, labels: list[str], output_path: Path) -> None:
     figure, axis = plt.subplots(figsize=(9.2, 3.2), constrained_layout=True)
     axis.axis("off")
     for index, label in enumerate(labels):
-        x = 0.10 + index * (0.80 / (len(labels) - 1))
+        x = 0.13 + index * (0.74 / (len(labels) - 1))
         axis.text(
             x,
             0.5,
@@ -303,19 +400,61 @@ def _render_representation_details(title: str, output_path: Path) -> None:
 
 
 def _render_model_facets(key: str, title: str, output_path: Path) -> None:
-    columns = ("S", "D", "|R|") if key == "fig04_sdr_distributions" else MODEL_LABELS
     if key == "fig04_sdr_distributions":
         figure, axes = plt.subplots(3, 3, figsize=(10.2, 7.2), constrained_layout=True)
+        metric_specs = (
+            ("State Dispersion (S)", (0.0, 1.6), (0.0, 0.4, 0.8, 1.2, 1.6)),
+            ("Modality Split (D)", (0.0, 2.0), (0.0, 0.5, 1.0, 1.5, 2.0)),
+            ("Absolute Joint Lean (|R|)", (0.0, 1.0), (0.0, 0.25, 0.5, 0.75, 1.0)),
+        )
         for row, model in enumerate(MODEL_LABELS):
-            for column, metric in enumerate(columns):
-                _pending_axis(axes[row, column], f"{model} | {metric}")
-    else:
+            for column, (metric, ylim, yticks) in enumerate(metric_specs):
+                _pending_axis(
+                    axes[row, column],
+                    f"{model} | {metric}",
+                    xlabel="Sample class",
+                    ylabel=metric,
+                    xlim=(-0.5, 1.5),
+                    ylim=ylim,
+                    xticks=(0.0, 1.0),
+                    yticks=yticks,
+                    xticklabels=("Aligned", "Conflict"),
+                )
+    elif key == "fig05_four_state_stacks":
         figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.6), constrained_layout=True)
         for axis, model in zip(axes, MODEL_LABELS, strict=True):
-            _pending_axis(axis, model)
-            if key == "fig06_stable_d_signed_r":
-                axis.set_xlabel("D")
-                axis.set_ylabel("signed R")
+            _pending_axis(
+                axis,
+                model,
+                xlabel="Sample class",
+                ylabel="State Pattern proportion (%)",
+                xlim=(-0.5, 1.5),
+                ylim=(0.0, 100.0),
+                xticks=(0.0, 1.0),
+                yticks=(0.0, 20.0, 40.0, 60.0, 80.0, 100.0),
+                xticklabels=("Aligned", "Conflict"),
+                legend_labels=("Confusion", "Consensus", "Balanced", "Dominant"),
+                legend_colors=("#9e9e9e", "#2f5597", "#f4b183", "#c55a5a"),
+                legend_style="patch",
+            )
+    elif key == "fig06_stable_d_signed_r":
+        figure, axes = plt.subplots(1, 3, figsize=(11.0, 3.6), constrained_layout=True)
+        for axis, model in zip(axes, MODEL_LABELS, strict=True):
+            _pending_axis(
+                axis,
+                model,
+                xlabel="Modality Split (D)",
+                ylabel="signed Joint Lean (R)",
+                xlim=(0.0, 2.0),
+                ylim=(-1.0, 1.0),
+                xticks=(0.0, 0.5, 1.0, 1.5, 2.0),
+                yticks=(-1.0, -0.5, 0.0, 0.5, 1.0),
+                legend_labels=("Aligned", "Conflict", r"direction: $D>\tau$"),
+                legend_colors=("#2a9d8f", "#d1495b", "#4d4d4d"),
+            )
+            _add_pending_dr_framework(axis)
+    else:
+        raise ValueError(f"unsupported pending model facet: {key}")
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -327,23 +466,56 @@ def _render_two_by_three(key: str, title: str, output_path: Path) -> None:
         MODEL_LABELS if key == "fig07_misread_bias" else ("Single-Point", "Trajectory MLP", "TME")
     )
     for column, heading in enumerate(headings):
-        top_heading = f"{heading} | Misread" if key == "fig07_misread_bias" else f"{heading} | UMAP"
-        _pending_axis(
-            axes[0, column],
-            top_heading,
-            "Pending Misread annotations" if key == "fig07_misread_bias" else STATUS_PENDING,
-        )
         if key == "fig07_misread_bias":
-            _pending_axis(axes[1, column], f"{heading} | stable Conflict D-signed R")
-            axes[1, column].text(
-                0.95, 0.88, "V lean", ha="right", transform=axes[1, column].transAxes
+            _pending_axis(
+                axes[0, column],
+                f"{heading} | State-to-Misread",
+                "Pending Misread annotations",
+                xlabel="State-indicator quantile",
+                ylabel="Misread rate (%)",
+                xlim=(0.5, 5.5),
+                ylim=(0.0, 100.0),
+                xticks=(1.0, 2.0, 3.0, 4.0, 5.0),
+                yticks=(0.0, 20.0, 40.0, 60.0, 80.0, 100.0),
+                legend_labels=("State Dispersion", "Modality Split", "Absolute Joint Lean"),
+                legend_colors=("#5b8ff9", "#61d9a8", "#f6bd16"),
             )
-            axes[1, column].text(
-                0.95, 0.10, "T/A lean", ha="right", transform=axes[1, column].transAxes
+            _pending_axis(
+                axes[1, column],
+                f"{heading} | stable Conflict D-signed R",
+                xlabel="Modality Split (D)",
+                ylabel="signed Joint Lean (R)",
+                xlim=(0.0, 2.0),
+                ylim=(-1.0, 1.0),
+                xticks=(0.0, 0.5, 1.0, 1.5, 2.0),
+                yticks=(-1.0, -0.5, 0.0, 0.5, 1.0),
+                legend_labels=("Conflict", r"direction: $D>\tau$"),
+                legend_colors=("#d1495b", "#4d4d4d"),
             )
+            _add_pending_dr_framework(axes[1, column])
         else:
             _pending_axis(
-                axes[1, column], f"{heading} | Misread AUPRC", "Pending Misread annotations"
+                axes[0, column],
+                f"{heading} | UMAP",
+                xlabel="UMAP-1",
+                ylabel="UMAP-2",
+                xlim=(-5.0, 5.0),
+                ylim=(-5.0, 5.0),
+                xticks=(-5.0, -2.5, 0.0, 2.5, 5.0),
+                yticks=(-5.0, -2.5, 0.0, 2.5, 5.0),
+                legend_labels=("Aligned", "Conflict"),
+                legend_colors=("#2a9d8f", "#d1495b"),
+            )
+            _pending_axis(
+                axes[1, column],
+                f"{heading} | Misread AUPRC",
+                "Pending Misread annotations",
+                xlabel="Conflict samples retained (%)",
+                ylabel="AUPRC",
+                xlim=(5.0, 105.0),
+                ylim=(0.0, 1.0),
+                xticks=(10.0, 25.0, 50.0, 100.0),
+                yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
             )
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
@@ -353,26 +525,17 @@ def _render_two_by_three(key: str, title: str, output_path: Path) -> None:
 def _render_cards(title: str, labels: tuple[str, ...], output_path: Path) -> None:
     figure, axes = plt.subplots(1, len(labels), figsize=(11.0, 3.5), constrained_layout=True)
     for axis, label in zip(axes, labels, strict=True):
-        _pending_axis(axis, label)
+        _pending_card(axis, label)
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
 
 
 def _render_appendix_layout(key: str, title: str, output_path: Path) -> None:
-    layouts = {
-        "figA1_case_types": (1, 3, ("Conflict", "Aligned", "Ambiguous")),
-        "figA2_misread_cases": (1, 2, ("Misread", "Non-misread")),
-        "figB2_prompt_stability_latency": (1, 3, MODEL_LABELS),
-        "figB3_delta_bootstrap_geometry": (1, 2, ("delta_i bootstrap", "Spherical geometry")),
-        "figC1_ac_roc_pr": (1, 2, ("A/C ROC", "A/C PR")),
-        "figC2_conflict_retention": (1, 2, ("Nested budget", "A/C metrics")),
-        "figC3_seed_robustness": (1, 2, ("Three-seed correlation", "Pattern agreement")),
-        "figC4_threshold_sensitivity": (1, 2, ("kappa/tau/delta", "Pattern stack")),
-        "figD1_misread_pr": (1, 1, ("Conflict-only Misread PR",)),
-        "figD3_latency_breakdown": (1, 1, ("Latency components",)),
-        "figE1_human_quality": (1, 3, ("Relevance", "Helpfulness", "Safety")),
-        "figE2_pattern_cases": (1, 4, ("Confusion", "Consensus", "Balanced", "Dominant")),
+    cards = {
+        "figA1_case_types": ("Conflict", "Aligned", "Ambiguous"),
+        "figA2_misread_cases": ("Misread", "Non-misread"),
+        "figE2_pattern_cases": ("Confusion", "Consensus", "Balanced", "Dominant"),
     }
     if key == "figC5_model_patterns":
         figure, axis = plt.subplots(figsize=(9.0, 6.2), constrained_layout=True)
@@ -380,21 +543,209 @@ def _render_appendix_layout(key: str, title: str, output_path: Path) -> None:
             axis,
             "16 models | 100% pattern stacks",
             "3 registered models Pending; 13 models Pending",
+            xlabel="Model",
+            ylabel="State Pattern proportion (%)",
+            xlim=(-0.5, 15.5),
+            ylim=(0.0, 100.0),
+            xticks=tuple(float(index) for index in range(16)),
+            yticks=(0.0, 20.0, 40.0, 60.0, 80.0, 100.0),
+            xticklabels=FULL_MODEL_LABELS,
+            legend_labels=("Confusion", "Consensus", "Balanced", "Dominant"),
+            legend_colors=("#9e9e9e", "#2f5597", "#f4b183", "#c55a5a"),
+            legend_style="patch",
         )
-    elif key in layouts:
-        rows, columns, headings = layouts[key]
-        figure, axes = plt.subplots(rows, columns, figsize=(10.0, 3.8), constrained_layout=True)
-        axes_list = [axes] if columns == 1 else list(axes)
-        for axis, heading in zip(axes_list, headings, strict=True):
+        axis.tick_params(axis="x", labelrotation=65, labelsize=6)
+    elif key in cards:
+        headings = cards[key]
+        figure, axes = plt.subplots(1, len(headings), figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading in zip(axes, headings, strict=True):
             message = (
                 "Pending Misread annotations"
-                if key in {"figA2_misread_cases", "figD1_misread_pr"}
+                if key == "figA2_misread_cases"
                 else STATUS_PENDING
             )
-            _pending_axis(axis, heading, message)
+            _pending_card(axis, heading, message)
+    elif key == "figB2_prompt_stability_latency":
+        figure, axes = plt.subplots(1, 3, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading in zip(axes, MODEL_LABELS, strict=True):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel="Equivalent prompts (P)",
+                ylabel="Normalized value",
+                xlim=(0.0, 17.0),
+                ylim=(0.0, 1.0),
+                xticks=(1.0, 2.0, 4.0, 8.0, 16.0),
+                yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+                legend_labels=("State stability", "Latency"),
+                legend_colors=("#2f5597", "#c55a5a"),
+            )
+    elif key == "figB3_delta_bootstrap_geometry":
+        figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8), constrained_layout=True)
+        _pending_axis(
+            axes[0],
+            r"$\delta_i$ bootstrap",
+            xlabel="Bootstrap resamples",
+            ylabel=r"Prompt uncertainty $\delta_i$",
+            xlim=(50.0, 2050.0),
+            ylim=(0.0, 1.0),
+            xticks=(100.0, 500.0, 1000.0, 2000.0),
+            yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+            legend_labels=MODEL_LABELS,
+            legend_colors=("#2f5597", "#c55a5a", "#f4a261"),
+        )
+        _pending_axis(
+            axes[1],
+            "Spherical State Pattern geometry",
+            xlabel="Modality Split (D)",
+            ylabel="signed Joint Lean (R)",
+            xlim=(0.0, 2.0),
+            ylim=(-1.0, 1.0),
+            xticks=(0.0, 0.5, 1.0, 1.5, 2.0),
+            yticks=(-1.0, -0.5, 0.0, 0.5, 1.0),
+        )
+        _add_pending_dr_framework(axes[1])
+    elif key == "figC1_ac_roc_pr":
+        figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading, xlabel, ylabel in (
+            (axes[0], "A/C ROC", "False-positive rate", "True-positive rate"),
+            (axes[1], "A/C PR", "Recall", "Precision"),
+        ):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel=xlabel,
+                ylabel=ylabel,
+                xlim=(0.0, 1.0),
+                ylim=(0.0, 1.0),
+                xticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+                yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+                legend_labels=("Single-Point", "Trajectory MLP", "TME"),
+                legend_colors=("#6c757d", "#f4a261", "#2f5597"),
+            )
+    elif key == "figC2_conflict_retention":
+        figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading, ylabel, labels in (
+            (axes[0], "Nested budget", "Retained Conflict samples (%)", MODEL_LABELS),
+            (axes[1], "A/C metrics", "A/C classification score", ("Accuracy", "Macro-F1", "AUPRC")),
+        ):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel="Conflict budget (%)",
+                ylabel=ylabel,
+                xlim=(5.0, 105.0),
+                ylim=(0.0, 100.0) if heading == "Nested budget" else (0.0, 1.0),
+                xticks=(10.0, 25.0, 50.0, 100.0),
+                yticks=(0.0, 25.0, 50.0, 75.0, 100.0)
+                if heading == "Nested budget"
+                else (0.0, 0.25, 0.5, 0.75, 1.0),
+                legend_labels=labels,
+                legend_colors=("#2f5597", "#c55a5a", "#f4a261"),
+            )
+    elif key == "figC3_seed_robustness":
+        figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading, ylabel in (
+            (axes[0], "Three-seed correlation", r"Spearman $\rho$"),
+            (axes[1], "State Pattern agreement", "Agreement (%)"),
+        ):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel="Prompt-seed pair",
+                ylabel=ylabel,
+                xlim=(-0.5, 2.5),
+                ylim=(-1.0, 1.0) if heading == "Three-seed correlation" else (0.0, 100.0),
+                xticks=(0.0, 1.0, 2.0),
+                yticks=(-1.0, -0.5, 0.0, 0.5, 1.0)
+                if heading == "Three-seed correlation"
+                else (0.0, 25.0, 50.0, 75.0, 100.0),
+                xticklabels=("1-2", "1-3", "2-3"),
+                legend_labels=MODEL_LABELS,
+                legend_colors=("#2f5597", "#c55a5a", "#f4a261"),
+            )
+    elif key == "figC4_threshold_sensitivity":
+        figure, axes = plt.subplots(1, 2, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading, ylabel, labels, colors, style in (
+            (
+                axes[0],
+                r"$\kappa/\tau/\delta_i$ sensitivity",
+                "State Pattern agreement (%)",
+                (r"$\kappa$", r"$\tau$", r"$\delta_i$"),
+                ("#2f5597", "#c55a5a", "#f4a261"),
+                "line",
+            ),
+            (
+                axes[1],
+                "State Pattern stack",
+                "State Pattern proportion (%)",
+                ("Confusion", "Consensus", "Balanced", "Dominant"),
+                ("#9e9e9e", "#2f5597", "#f4b183", "#c55a5a"),
+                "patch",
+            ),
+        ):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel="Threshold multiplier",
+                ylabel=ylabel,
+                xlim=(0.75, 1.25),
+                ylim=(0.0, 100.0),
+                xticks=(0.8, 0.9, 1.0, 1.1, 1.2),
+                yticks=(0.0, 25.0, 50.0, 75.0, 100.0),
+                legend_labels=labels,
+                legend_colors=colors,
+                legend_style=style,
+            )
+    elif key == "figD1_misread_pr":
+        figure, axis = plt.subplots(figsize=(7.0, 4.0), constrained_layout=True)
+        _pending_axis(
+            axis,
+            "Conflict-only Misread PR",
+            "Pending Misread annotations",
+            xlabel="Recall",
+            ylabel="Precision",
+            xlim=(0.0, 1.0),
+            ylim=(0.0, 1.0),
+            xticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+            yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
+            legend_labels=("Single-Point", "Trajectory MLP", "TME", "State-Indices Readout"),
+            legend_colors=("#6c757d", "#f4a261", "#2f5597", "#61a5c2"),
+        )
+    elif key == "figD3_latency_breakdown":
+        figure, axis = plt.subplots(figsize=(7.0, 4.0), constrained_layout=True)
+        _pending_axis(
+            axis,
+            "Latency components",
+            xlabel="Pipeline component",
+            ylabel="Latency (s)",
+            xlim=(-0.5, 3.5),
+            ylim=(0.0, 60.0),
+            xticks=(0.0, 1.0, 2.0, 3.0),
+            yticks=(0.0, 15.0, 30.0, 45.0, 60.0),
+            xticklabels=("Cache", "State", "Diagnostic", "Total"),
+            legend_labels=MODEL_LABELS,
+            legend_colors=("#2f5597", "#c55a5a", "#f4a261"),
+        )
+    elif key == "figE1_human_quality":
+        figure, axes = plt.subplots(1, 3, figsize=(10.0, 3.8), constrained_layout=True)
+        for axis, heading in zip(axes, ("Relevance", "Helpfulness", "Safety"), strict=True):
+            _pending_axis(
+                axis,
+                heading,
+                xlabel="Response method",
+                ylabel="Mean human rating",
+                xlim=(-0.5, 1.5),
+                ylim=(1.0, 5.0),
+                xticks=(0.0, 1.0),
+                yticks=(1.0, 2.0, 3.0, 4.0, 5.0),
+                xticklabels=("Baseline", "Ours"),
+                legend_labels=MODEL_LABELS,
+                legend_colors=("#2f5597", "#c55a5a", "#f4a261"),
+            )
     else:
         figure, axis = plt.subplots(figsize=(7.0, 4.0), constrained_layout=True)
-        _pending_axis(axis, title)
+        _pending_card(axis, title)
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -771,6 +1122,8 @@ def _load_figure_input(
     input_path: Path,
 ) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
     if not input_path.is_file() or input_path.stat().st_size == 0:
+        if figure_key in CONCEPTUAL_KEYS:
+            raise ValueError(f"conceptual figure input is missing or empty: {input_path}")
         return STATUS_PENDING, [], {}
     suffix = input_path.suffix.casefold()
     if suffix == ".csv":
@@ -789,6 +1142,16 @@ def _load_figure_input(
             if payload.get("figure_key") != figure_key or payload.get("status") != STATUS_PENDING:
                 raise ValueError("Pending JSON figure input identity/status mismatch")
             return STATUS_PENDING, [], payload
+        if payload.get("schema") == CONCEPTUAL_INPUT_SCHEMA:
+            if (
+                figure_key not in CONCEPTUAL_KEYS
+                or payload.get("figure_key") != figure_key
+                or payload.get("status") != STATUS_READY
+                or payload.get("sources") != []
+                or payload.get("sample_masks") != {"data_dependency": "none"}
+            ):
+                raise ValueError("conceptual figure input identity/status mismatch")
+            return STATUS_READY, [], payload
         _validate_provenance(figure_key, payload)
         rows = payload.get("rows")
         if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):

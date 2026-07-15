@@ -16,28 +16,75 @@ For each protocol, we construct \(M_1\), \(M_2\), and \(M_{12}\) conditions.
 \subsection{Pre-generation State Extraction at \(t_0\)}
 
 \(t_0\) is the last conditioning state before the first generated token.
-The extraction uses prefill hidden states and can reuse prompt-side computation when supported.
+For each of the \(P=8\) registered equivalent prompts, we extract the complete prefill
+layer trajectory for \(M_1\) (V), \(M_2\) (T/A), and \(M_{12}\) (joint input).
+No generated token or post-generation response is used by the state representation.
 
-\subsection{Pre-generation Trajectory Representation}
+\subsection{Trajectory Manifold Encoder}
 
-The state object is a full-layer prefill trajectory rather than a single hidden-state point.
-The trajectory encoder maps this object into a manifold-aware representation space.
+Let \(h_{c,p}^{(\ell)}\) be the hidden state at layer \(\ell\), condition
+\(c\in\{1,2,12\}\), and prompt \(p\). TME first applies per-layer
+\(\ell_2\) normalization, then sends the ordered layer sequence through one shared
+GRU for all three conditions:
+\begin{equation}
+  \tilde h_{c,p}^{(\ell)} =
+  \frac{h_{c,p}^{(\ell)}}{\lVert h_{c,p}^{(\ell)}\rVert_2},
+  \qquad
+  z_{c,p}=\operatorname{norm}
+  \!\left(\operatorname{GRU}_{\theta}
+  (\tilde h_{c,p}^{(1:L)})\right).
+\end{equation}
+Thus every condition embedding lies on the unit hypersphere. The ordered relation
+features and sample-level relation representation are
+\begin{align}
+  u_p &= [1-z_{1,p}^{\top}z_{2,p},\;
+           1-z_{12,p}^{\top}z_{1,p},\;
+           1-z_{12,p}^{\top}z_{2,p}], \\
+  r_p &= \operatorname{norm}(Wu_p+b).
+\end{align}
+Conflict/Aligned supervision is attached only to this three-condition relation; it is
+never copied onto an individual condition trajectory. TME uses exactly one standard
+Proxy Anchor loss with one proxy per class. It does not use an auxiliary classifier,
+SupCon, or prompt-consistency loss. During training, one registered prompt is selected
+per sample and epoch; validation and testing aggregate all eight prompts. After fitting,
+the encoder is frozen and exports condition-level \(z\) and sample-level \(r\).
+
+For comparison, Single-Point concatenates the final-layer states of the three conditions
+and applies an ordinary linear Conflict/Aligned classifier. Trajectory MLP consumes the
+full three-condition layer trajectories and applies an ordinary MLP classifier. Neither
+baseline inherits TME's spherical relation module or Proxy Anchor objective.
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\linewidth]{figures/generated/fig02_representation_pipeline.pdf}
-  \caption{Overall framework with offline A/C supervision and the reserved Misread probe.}
+  \caption{Overall framework with offline Conflict/Aligned supervision and the reserved
+  Misread probe.}
   \label{fig:framework}
 \end{figure}
 
 \subsection{State Measures: \(S\), \(D\), and \(R\)}
 
-\(S\) measures template sensitivity.
-When \(S\) is large, the model may be confused or not confident.
-\(D\) measures split strength.
-When \(D\) is large, the input contains strong multimodal conflict.
-\(R\) measures Joint Lean.
-When \(R\) is large, the joint input makes the model lean toward one modality and may ignore important cues from the other.
+We use the geodesic distance
+\(d_g(a,b)=\arccos(\operatorname{clip}(a^{\top}b,-1,1))\). For each condition,
+\begin{align}
+  \mu_c &= \operatorname{norm}\!\left(\sum_{p=1}^{P}z_{c,p}\right), \\
+  s_c &= \frac{1}{P}\sum_{p=1}^{P}d_g^2(z_{c,p},\mu_c).
+\end{align}
+State Dispersion, Modality Split, and signed Joint Lean are then
+\begin{align}
+  S &= (s_1+s_2+s_{12})/3, \\
+  D &= \frac{d_g(\mu_1,\mu_2)}{\sqrt{s_1+s_2}+\varepsilon}, \\
+  R &= \frac{d_g(\mu_{12},\mu_2)-d_g(\mu_{12},\mu_1)}
+             {d_g(\mu_1,\mu_2)+\varepsilon}.
+\end{align}
+Our sign convention is fixed: \(R>0\) denotes V-lean and \(R<0\) denotes
+T/A-lean. Direction is interpreted primarily when \(D>\tau\).
+
+The thresholds \(\kappa\) and \(\tau\) are the registered 95th percentiles of
+\(S\) and stable-sample \(D\), respectively, estimated only on an independent
+Aligned calibration split. The sample-specific uncertainty band
+\(\delta_i=1.96\,\operatorname{SE}_{\mathrm{boot}}(R_i)\) is obtained by
+synchronous prompt resampling.
 
 \begin{figure}[t]
   \centering
@@ -48,5 +95,8 @@ When \(R\) is large, the joint input makes the model lean toward one modality an
 
 \subsection{Four State Patterns and State-guided Response}
 
-The four patterns are Confusion, Consensus, Balanced, and Dominant.
+The hierarchy is fixed: \(S>\kappa\) gives Confusion; otherwise
+\(D\leq\tau\) gives Consensus; otherwise \(|R|\leq\delta_i\) gives
+Balanced; all remaining samples are Dominant. High-dispersion samples therefore remain
+in the analysis as Confusion and are not forced into the \(D\)--\(R\) geometry.
 The same state labels can be used to route a lightweight response policy in Stage 2.
