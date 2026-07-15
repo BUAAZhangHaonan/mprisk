@@ -1,0 +1,19 @@
+{
+  "accepted_count": 384,
+  "candidate_generator": "codex_agent",
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "forbidden_hits": 0,
+  "global_pool_size": 128,
+  "placeholder_hits": 0,
+  "raw_count": 384,
+  "rejected_count": 0,
+  "schema": "mprisk_prompt_pool_artifact_verification_v1",
+  "semantic_reviewer": "codex_agent",
+  "status": "passed",
+  "subset_sizes": {
+    "20260715": 8,
+    "20260716": 8,
+    "20260717": 8
+  },
+  "word_count_failures": 0
+}

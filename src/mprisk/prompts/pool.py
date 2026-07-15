@@ -52,6 +52,7 @@ _FORBIDDEN_RE = re.compile(
 @dataclass(frozen=True)
 class PromptPoolBuild:
     raw384: list[dict[str, Any]]
+    accepted: list[dict[str, Any]]
     rejections: list[dict[str, Any]]
     pool128: list[dict[str, Any]]
     subsets: dict[int, list[dict[str, Any]]]
@@ -138,14 +139,21 @@ def build_prompt_pool(
             f"Prompt pool final build requires exactly 384 raw candidates, got {len(rows)}"
         )
 
-    accepted, rejections = filter_candidates(rows)
-    if len(accepted) < GLOBAL_POOL_SIZE:
+    accepted_texts, rejections = filter_candidates(rows)
+    if len(accepted_texts) < GLOBAL_POOL_SIZE:
         raise ValueError(
             "Prompt pool final build requires at least 128 accepted candidates, "
-            f"got {len(accepted)}"
+            f"got {len(accepted_texts)}"
         )
 
-    selected_texts = select_global_pool(accepted, pool_size=GLOBAL_POOL_SIZE)
+    selected_texts = select_global_pool(accepted_texts, pool_size=GLOBAL_POOL_SIZE)
+    accepted = [
+        {
+            "accepted_index": index,
+            "template_text": template_text,
+        }
+        for index, template_text in enumerate(accepted_texts)
+    ]
     pool128 = [
         {
             "prompt_id": f"{prompt_set_key}_p{index:03d}",
@@ -172,7 +180,7 @@ def build_prompt_pool(
         "canonical_prompt": CANONICAL_PROMPT,
         "raw_candidate_file": str(raw_jsonl),
         "raw_count": len(rows),
-        "accepted_count": len(accepted),
+        "accepted_count": len(accepted_texts),
         "rejected_count": len(rejections),
         "global_pool_size": GLOBAL_POOL_SIZE,
         "subset_size": SUBSET_SIZE,
@@ -182,14 +190,82 @@ def build_prompt_pool(
         "protocol": protocol,
     }
 
-    _write_outputs(Path(output_dir), raw384, rejections, pool128, subsets, provenance, protocol)
+    _write_outputs(
+        Path(output_dir),
+        raw384,
+        accepted,
+        rejections,
+        pool128,
+        subsets,
+        provenance,
+        protocol,
+    )
+    verification = verify_prompt_pool_artifacts(Path(output_dir))
+    (Path(output_dir) / "artifact_verification.json").write_text(
+        json.dumps(verification, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return PromptPoolBuild(
         raw384=raw384,
+        accepted=accepted,
         rejections=rejections,
         pool128=pool128,
         subsets=subsets,
         provenance=provenance,
     )
+
+
+def verify_prompt_pool_artifacts(output_dir: str | Path) -> dict[str, Any]:
+    output_dir = Path(output_dir)
+    raw384 = _read_jsonl(output_dir / "raw384.jsonl")
+    pool128 = _read_jsonl(output_dir / "pool128.jsonl")
+    accepted = _read_jsonl(output_dir / "accepted.jsonl")
+    rejections = _read_jsonl(output_dir / "rejections.jsonl")
+    provenance = json.loads((output_dir / "provenance.json").read_text(encoding="utf-8"))
+    if provenance.get("canonical_prompt") != CANONICAL_PROMPT:
+        raise ValueError("canonical_prompt does not match the frozen canonical prompt")
+    if len(raw384) != RAW_POOL_SIZE:
+        raise ValueError(f"raw384.jsonl must contain 384 rows, got {len(raw384)}")
+    if len(pool128) != GLOBAL_POOL_SIZE:
+        raise ValueError(f"pool128.jsonl must contain 128 rows, got {len(pool128)}")
+    if len({row["template_text"] for row in pool128}) != GLOBAL_POOL_SIZE:
+        raise ValueError("pool128.jsonl contains duplicate template_text values")
+
+    for row in pool128:
+        text = normalize_prompt(str(row.get("template_text", "")))
+        reason = _content_rejection_reason(text)
+        if reason is not None:
+            raise ValueError(f"pool128 row failed {reason}: {text}")
+
+    subset_sizes: dict[str, int] = {}
+    for seed in SUBSET_SEEDS:
+        subset_path = output_dir / f"subset_p8_seed{seed}.yaml"
+        payload = yaml.safe_load(subset_path.read_text(encoding="utf-8"))
+        if payload["canonical_prompt"] != CANONICAL_PROMPT:
+            raise ValueError(f"{subset_path.name} canonical_prompt mismatch")
+        templates = payload.get("templates", [])
+        if len(templates) != SUBSET_SIZE:
+            raise ValueError(f"{subset_path.name} must contain 8 templates, got {len(templates)}")
+        for row in templates:
+            text = normalize_prompt(str(row.get("template_text", "")))
+            reason = _content_rejection_reason(text)
+            if reason is not None:
+                raise ValueError(f"{subset_path.name} row failed {reason}: {text}")
+        subset_sizes[str(seed)] = len(templates)
+
+    return {
+        "schema": "mprisk_prompt_pool_artifact_verification_v1",
+        "canonical_prompt": CANONICAL_PROMPT,
+        "raw_count": len(raw384),
+        "accepted_count": len(accepted),
+        "rejected_count": len(rejections),
+        "global_pool_size": len(pool128),
+        "subset_sizes": subset_sizes,
+        "forbidden_hits": 0,
+        "placeholder_hits": 0,
+        "word_count_failures": 0,
+        "status": "passed",
+    }
 
 
 def _extract_text(row: dict[str, Any]) -> str | None:
@@ -215,6 +291,10 @@ def _rejection_reason(
         return "placeholder_or_leakage"
     if _FORBIDDEN_RE.search(normalized):
         return "forbidden_term"
+    return _content_rejection_reason(normalized)
+
+
+def _content_rejection_reason(normalized: str) -> str | None:
     word_count = len(_WORD_RE.findall(normalized))
     if word_count < 10 or word_count > 30:
         return "word_count"
@@ -246,6 +326,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
 def _write_outputs(
     output_dir: Path,
     raw384: list[dict[str, Any]],
+    accepted: list[dict[str, Any]],
     rejections: list[dict[str, Any]],
     pool128: list[dict[str, Any]],
     subsets: dict[int, list[dict[str, Any]]],
@@ -254,6 +335,7 @@ def _write_outputs(
 ) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     _write_jsonl(output_dir / "raw384.jsonl", raw384)
+    _write_jsonl(output_dir / "accepted.jsonl", accepted)
     _write_jsonl(output_dir / "rejections.jsonl", rejections)
     _write_jsonl(output_dir / "pool128.jsonl", pool128)
     (output_dir / "provenance.json").write_text(

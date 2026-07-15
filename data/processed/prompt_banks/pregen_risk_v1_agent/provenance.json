@@ -1,0 +1,30 @@
+{
+  "accepted_count": 384,
+  "agent_artifacts": {
+    "ai_reviews": "codex_agent_ai_reviews.jsonl",
+    "raw_candidates": "codex_agent_raw384.jsonl"
+  },
+  "candidate_generator": "codex_agent",
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "global_pool_size": 128,
+  "local_qwen_attempt": {
+    "evidence": "tmux_generation.log and generation_log.jsonl in data/processed/prompt_banks/pregen_risk_v1",
+    "model_path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct",
+    "status": "stopped_after_strict_json_smoke_failure"
+  },
+  "prompt_set_key": "pregen_risk_v1",
+  "protocol": "vt",
+  "raw_candidate_file": "data/processed/prompt_banks/pregen_risk_v1_agent/codex_agent_ai_reviews.jsonl",
+  "raw_count": 384,
+  "rejected_count": 0,
+  "schema": "mprisk_prompt_pool_provenance_v1",
+  "selection": "tfidf_word_1_2_char_wb_3_5_farthest_point",
+  "semantic_reviewer": "codex_agent",
+  "source_thread_id": "019f5fc1-9526-7f93-960e-fbc33f5307b0",
+  "subset_seeds": [
+    20260715,
+    20260716,
+    20260717
+  ],
+  "subset_size": 8
+}

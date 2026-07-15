@@ -1,0 +1,17 @@
+{
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "candidate_count": 384,
+  "generator": "codex_agent",
+  "local_qwen_status": {
+    "evidence_dir": "data/processed/prompt_banks/pregen_risk_v1",
+    "model_path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct",
+    "status": "stopped_after_strict_json_smoke_failure"
+  },
+  "output_files": {
+    "ai_reviews": "codex_agent_ai_reviews.jsonl",
+    "raw_candidates": "codex_agent_raw384.jsonl"
+  },
+  "reviewer": "codex_agent",
+  "schema": "mprisk_codex_agent_prompt_generation_plan_v1",
+  "source_thread_id": "019f5fc1-9526-7f93-960e-fbc33f5307b0"
+}

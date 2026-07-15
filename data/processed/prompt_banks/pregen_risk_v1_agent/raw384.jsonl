@@ -1,0 +1,384 @@
+{"ai_semantic_review_pass": true, "raw_index": 0, "template_text": "Describe the person's overall emotional state from the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 1, "template_text": "Capture the individual's overall emotional state from the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 2, "template_text": "Express the person's overall emotional condition from the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 3, "template_text": "Summarize the individual's overall emotional condition from the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 4, "template_text": "Portray the person's overall emotional state based on the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 5, "template_text": "Outline the individual's overall emotional state based on the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 6, "template_text": "State the person's overall emotional condition based on the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 7, "template_text": "Characterize the individual's overall emotional condition based on the full input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 8, "template_text": "Using the entire supplied input, depict the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 9, "template_text": "Using the complete presented input, present the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 10, "template_text": "Using the full source input, report the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 11, "template_text": "Using the entire given input, distill the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 12, "template_text": "From the complete available input, convey the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 13, "template_text": "From the full received input, render the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 14, "template_text": "From the entire input, describe the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 15, "template_text": "From the complete provided input, capture the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 16, "template_text": "Based on the full presented input, express the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 17, "template_text": "Based on the entire source input, summarize the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 18, "template_text": "Based on the complete supplied input, portray the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 19, "template_text": "Based on the full available input, outline the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 20, "template_text": "In one concise sentence, state the person's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 21, "template_text": "In one concise sentence, characterize the individual's overall emotional state from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 22, "template_text": "In one concise sentence, depict the person's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 23, "template_text": "In one concise sentence, present the individual's overall emotional condition from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 24, "template_text": "In a single concise sentence, report the person's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 25, "template_text": "In a single concise sentence, distill the individual's overall emotional state from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 26, "template_text": "In a single concise sentence, convey the person's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 27, "template_text": "In a single concise sentence, render the individual's overall emotional condition from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 28, "template_text": "With the full given input, describe the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 29, "template_text": "With the entire provided input, capture the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 30, "template_text": "With the complete received input, express the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 31, "template_text": "With the full input, summarize the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 32, "template_text": "Portray the person's overall feeling state from the entire supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 33, "template_text": "Outline the individual's overall feeling state from the complete presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 34, "template_text": "State the person's overall feeling condition from the full source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 35, "template_text": "Characterize the individual's overall feeling condition from the entire given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 36, "template_text": "Using only the complete available input, depict the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 37, "template_text": "Using only the full received input, present the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 38, "template_text": "Using only the entire input, report the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 39, "template_text": "Using only the complete provided input, distill the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 40, "template_text": "Convey the person's overall emotional state indicated by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 41, "template_text": "Render the individual's overall emotional state indicated by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 42, "template_text": "Describe the person's overall emotional condition indicated by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 43, "template_text": "Capture the individual's overall emotional condition indicated by the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 44, "template_text": "Express the person's overall emotional state shown by the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 45, "template_text": "Summarize the individual's overall emotional state shown by the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 46, "template_text": "Portray the person's overall emotional condition shown by the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 47, "template_text": "Outline the individual's overall emotional condition shown by the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 48, "template_text": "Compose one concise sentence describing the person's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 49, "template_text": "Formulate one concise sentence describing the individual's overall emotional state from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 50, "template_text": "Set out one concise sentence describing the person's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 51, "template_text": "Draft one concise sentence describing the individual's overall emotional condition from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 52, "template_text": "Phrase a concise sentence describing the person's overall emotional state from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 53, "template_text": "Prepare a concise sentence describing the individual's overall emotional state from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 54, "template_text": "Give a concise sentence describing the person's overall emotional condition from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 55, "template_text": "Render a concise sentence describing the individual's overall emotional condition from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 56, "template_text": "Write one concise sentence that describes the person's overall emotional state from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 57, "template_text": "Deliver one concise sentence that describes the individual's overall emotional state from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 58, "template_text": "Present one concise sentence that describes the person's overall emotional condition from the full source input."}
+{"ai_semantic_review_pass": true, "raw_index": 59, "template_text": "Provide one concise sentence that describes the individual's overall emotional condition from the entire given input."}
+{"ai_semantic_review_pass": true, "raw_index": 60, "template_text": "Produce a single concise sentence describing the person's overall emotional state from the complete available input."}
+{"ai_semantic_review_pass": true, "raw_index": 61, "template_text": "Create a single concise sentence describing the individual's overall emotional state from the full received input."}
+{"ai_semantic_review_pass": true, "raw_index": 62, "template_text": "Compose a single concise sentence describing the person's overall emotional condition from the entire input."}
+{"ai_semantic_review_pass": true, "raw_index": 63, "template_text": "Formulate a single concise sentence describing the individual's overall emotional condition from the complete provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 64, "template_text": "Distill the person's overall emotional state from the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 65, "template_text": "Convey the individual's overall emotional state from the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 66, "template_text": "Render the person's overall emotional condition from the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 67, "template_text": "Describe the individual's overall emotional condition from the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 68, "template_text": "Capture the person's overall emotional state based on the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 69, "template_text": "Express the individual's overall emotional state based on the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 70, "template_text": "Summarize the person's overall emotional condition based on the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 71, "template_text": "Portray the individual's overall emotional condition based on the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 72, "template_text": "Using the full input, outline the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 73, "template_text": "Using the entire supplied input, state the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 74, "template_text": "Using the complete presented input, characterize the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 75, "template_text": "Using the full source input, depict the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 76, "template_text": "From the entire given input, present the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 77, "template_text": "From the complete available input, report the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 78, "template_text": "From the full received input, distill the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 79, "template_text": "From the entire input, convey the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 80, "template_text": "Based on the complete provided input, render the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 81, "template_text": "Based on the full presented input, describe the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 82, "template_text": "Based on the entire source input, capture the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 83, "template_text": "Based on the complete supplied input, express the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 84, "template_text": "In one concise sentence, summarize the person's overall emotional state from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 85, "template_text": "In one concise sentence, portray the individual's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 86, "template_text": "In one concise sentence, outline the person's overall emotional condition from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 87, "template_text": "In one concise sentence, state the individual's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 88, "template_text": "In a single concise sentence, characterize the person's overall emotional state from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 89, "template_text": "In a single concise sentence, depict the individual's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 90, "template_text": "In a single concise sentence, present the person's overall emotional condition from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 91, "template_text": "In a single concise sentence, report the individual's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 92, "template_text": "With the complete source input, distill the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 93, "template_text": "With the full given input, convey the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 94, "template_text": "With the entire provided input, render the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 95, "template_text": "With the complete received input, describe the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 96, "template_text": "Capture the person's overall feeling state from the full input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 97, "template_text": "Express the individual's overall feeling state from the entire supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 98, "template_text": "Summarize the person's overall feeling condition from the complete presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 99, "template_text": "Portray the individual's overall feeling condition from the full source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 100, "template_text": "Using only the entire given input, outline the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 101, "template_text": "Using only the complete available input, state the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 102, "template_text": "Using only the full received input, characterize the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 103, "template_text": "Using only the entire input, depict the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 104, "template_text": "Present the person's overall emotional state indicated by the complete provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 105, "template_text": "Report the individual's overall emotional state indicated by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 106, "template_text": "Distill the person's overall emotional condition indicated by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 107, "template_text": "Convey the individual's overall emotional condition indicated by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 108, "template_text": "Render the person's overall emotional state shown by the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 109, "template_text": "Describe the individual's overall emotional state shown by the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 110, "template_text": "Capture the person's overall emotional condition shown by the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 111, "template_text": "Express the individual's overall emotional condition shown by the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 112, "template_text": "Provide one concise sentence describing the person's overall emotional state from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 113, "template_text": "Produce one concise sentence describing the individual's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 114, "template_text": "Create one concise sentence describing the person's overall emotional condition from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 115, "template_text": "Compose one concise sentence describing the individual's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 116, "template_text": "Formulate a concise sentence describing the person's overall emotional state from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 117, "template_text": "Set out a concise sentence describing the individual's overall emotional state from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 118, "template_text": "Draft a concise sentence describing the person's overall emotional condition from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 119, "template_text": "Phrase a concise sentence describing the individual's overall emotional condition from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 120, "template_text": "Prepare one concise sentence that describes the person's overall emotional state from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 121, "template_text": "Give one concise sentence that describes the individual's overall emotional state from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 122, "template_text": "Render one concise sentence that describes the person's overall emotional condition from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 123, "template_text": "Write one concise sentence that describes the individual's overall emotional condition from the full source input."}
+{"ai_semantic_review_pass": true, "raw_index": 124, "template_text": "Deliver a single concise sentence describing the person's overall emotional state from the entire given input."}
+{"ai_semantic_review_pass": true, "raw_index": 125, "template_text": "Present a single concise sentence describing the individual's overall emotional state from the complete available input."}
+{"ai_semantic_review_pass": true, "raw_index": 126, "template_text": "Provide a single concise sentence describing the person's overall emotional condition from the full received input."}
+{"ai_semantic_review_pass": true, "raw_index": 127, "template_text": "Produce a single concise sentence describing the individual's overall emotional condition from the entire input."}
+{"ai_semantic_review_pass": true, "raw_index": 128, "template_text": "Depict the person's overall emotional state from the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 129, "template_text": "Present the individual's overall emotional state from the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 130, "template_text": "Report the person's overall emotional condition from the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 131, "template_text": "Distill the individual's overall emotional condition from the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 132, "template_text": "Convey the person's overall emotional state based on the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 133, "template_text": "Render the individual's overall emotional state based on the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 134, "template_text": "Describe the person's overall emotional condition based on the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 135, "template_text": "Capture the individual's overall emotional condition based on the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 136, "template_text": "Using the complete received input, express the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 137, "template_text": "Using the full input, summarize the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 138, "template_text": "Using the entire supplied input, portray the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 139, "template_text": "Using the complete presented input, outline the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 140, "template_text": "From the full source input, state the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 141, "template_text": "From the entire given input, characterize the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 142, "template_text": "From the complete available input, depict the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 143, "template_text": "From the full received input, present the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 144, "template_text": "Based on the entire input, report the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 145, "template_text": "Based on the complete provided input, distill the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 146, "template_text": "Based on the full presented input, convey the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 147, "template_text": "Based on the entire source input, render the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 148, "template_text": "In one concise sentence, describe the person's overall emotional state from the complete supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 149, "template_text": "In one concise sentence, capture the individual's overall emotional state from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 150, "template_text": "In one concise sentence, express the person's overall emotional condition from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 151, "template_text": "In one concise sentence, summarize the individual's overall emotional condition from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 152, "template_text": "In a single concise sentence, portray the person's overall emotional state from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 153, "template_text": "In a single concise sentence, outline the individual's overall emotional state from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 154, "template_text": "In a single concise sentence, state the person's overall emotional condition from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 155, "template_text": "In a single concise sentence, characterize the individual's overall emotional condition from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 156, "template_text": "With the entire available input, depict the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 157, "template_text": "With the complete source input, present the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 158, "template_text": "With the full given input, report the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 159, "template_text": "With the entire provided input, distill the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 160, "template_text": "Convey the person's overall feeling state from the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 161, "template_text": "Render the individual's overall feeling state from the full input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 162, "template_text": "Describe the person's overall feeling condition from the entire supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 163, "template_text": "Capture the individual's overall feeling condition from the complete presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 164, "template_text": "Using only the full source input, express the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 165, "template_text": "Using only the entire given input, summarize the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 166, "template_text": "Using only the complete available input, portray the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 167, "template_text": "Using only the full received input, outline the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 168, "template_text": "State the person's overall emotional state indicated by the entire input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 169, "template_text": "Characterize the individual's overall emotional state indicated by the complete provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 170, "template_text": "Depict the person's overall emotional condition indicated by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 171, "template_text": "Present the individual's overall emotional condition indicated by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 172, "template_text": "Report the person's overall emotional state shown by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 173, "template_text": "Distill the individual's overall emotional state shown by the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 174, "template_text": "Convey the person's overall emotional condition shown by the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 175, "template_text": "Render the individual's overall emotional condition shown by the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 176, "template_text": "Write one concise sentence describing the person's overall emotional state from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 177, "template_text": "Deliver one concise sentence describing the individual's overall emotional state from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 178, "template_text": "Present one concise sentence describing the person's overall emotional condition from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 179, "template_text": "Provide one concise sentence describing the individual's overall emotional condition from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 180, "template_text": "Produce a concise sentence describing the person's overall emotional state from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 181, "template_text": "Create a concise sentence describing the individual's overall emotional state from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 182, "template_text": "Compose a concise sentence describing the person's overall emotional condition from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 183, "template_text": "Formulate a concise sentence describing the individual's overall emotional condition from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 184, "template_text": "Set out one concise sentence that describes the person's overall emotional state from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 185, "template_text": "Draft one concise sentence that describes the individual's overall emotional state from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 186, "template_text": "Phrase one concise sentence that describes the person's overall emotional condition from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 187, "template_text": "Prepare one concise sentence that describes the individual's overall emotional condition from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 188, "template_text": "Give a single concise sentence describing the person's overall emotional state from the full source input."}
+{"ai_semantic_review_pass": true, "raw_index": 189, "template_text": "Render a single concise sentence describing the individual's overall emotional state from the entire given input."}
+{"ai_semantic_review_pass": true, "raw_index": 190, "template_text": "Write a single concise sentence describing the person's overall emotional condition from the complete available input."}
+{"ai_semantic_review_pass": true, "raw_index": 191, "template_text": "Deliver a single concise sentence describing the individual's overall emotional condition from the full received input."}
+{"ai_semantic_review_pass": true, "raw_index": 192, "template_text": "Outline the person's overall emotional state from the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 193, "template_text": "State the individual's overall emotional state from the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 194, "template_text": "Characterize the person's overall emotional condition from the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 195, "template_text": "Depict the individual's overall emotional condition from the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 196, "template_text": "Present the person's overall emotional state based on the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 197, "template_text": "Report the individual's overall emotional state based on the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 198, "template_text": "Distill the person's overall emotional condition based on the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 199, "template_text": "Convey the individual's overall emotional condition based on the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 200, "template_text": "Using the entire provided input, render the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 201, "template_text": "Using the complete received input, describe the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 202, "template_text": "Using the full input, capture the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 203, "template_text": "Using the entire supplied input, express the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 204, "template_text": "From the complete presented input, summarize the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 205, "template_text": "From the full source input, portray the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 206, "template_text": "From the entire given input, outline the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 207, "template_text": "From the complete available input, state the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 208, "template_text": "Based on the full received input, characterize the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 209, "template_text": "Based on the entire input, depict the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 210, "template_text": "Based on the complete provided input, present the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 211, "template_text": "Based on the full presented input, report the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 212, "template_text": "In one concise sentence, distill the person's overall emotional state from the entire source input."}
+{"ai_semantic_review_pass": true, "raw_index": 213, "template_text": "In one concise sentence, convey the individual's overall emotional state from the complete supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 214, "template_text": "In one concise sentence, render the person's overall emotional condition from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 215, "template_text": "In one concise sentence, describe the individual's overall emotional condition from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 216, "template_text": "In a single concise sentence, capture the person's overall emotional state from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 217, "template_text": "In a single concise sentence, express the individual's overall emotional state from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 218, "template_text": "In a single concise sentence, summarize the person's overall emotional condition from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 219, "template_text": "In a single concise sentence, portray the individual's overall emotional condition from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 220, "template_text": "With the full supplied input, outline the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 221, "template_text": "With the entire available input, state the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 222, "template_text": "With the complete source input, characterize the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 223, "template_text": "With the full given input, depict the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 224, "template_text": "Present the person's overall feeling state from the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 225, "template_text": "Report the individual's overall feeling state from the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 226, "template_text": "Distill the person's overall feeling condition from the full input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 227, "template_text": "Convey the individual's overall feeling condition from the entire supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 228, "template_text": "Using only the complete presented input, render the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 229, "template_text": "Using only the full source input, describe the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 230, "template_text": "Using only the entire given input, capture the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 231, "template_text": "Using only the complete available input, express the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 232, "template_text": "Summarize the person's overall emotional state indicated by the full received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 233, "template_text": "Portray the individual's overall emotional state indicated by the entire input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 234, "template_text": "Outline the person's overall emotional condition indicated by the complete provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 235, "template_text": "State the individual's overall emotional condition indicated by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 236, "template_text": "Characterize the person's overall emotional state shown by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 237, "template_text": "Depict the individual's overall emotional state shown by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 238, "template_text": "Present the person's overall emotional condition shown by the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 239, "template_text": "Report the individual's overall emotional condition shown by the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 240, "template_text": "Prepare one concise sentence describing the person's overall emotional state from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 241, "template_text": "Give one concise sentence describing the individual's overall emotional state from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 242, "template_text": "Render one concise sentence describing the person's overall emotional condition from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 243, "template_text": "Write one concise sentence describing the individual's overall emotional condition from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 244, "template_text": "Deliver a concise sentence describing the person's overall emotional state from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 245, "template_text": "Present a concise sentence describing the individual's overall emotional state from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 246, "template_text": "Provide a concise sentence describing the person's overall emotional condition from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 247, "template_text": "Produce a concise sentence describing the individual's overall emotional condition from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 248, "template_text": "Create one concise sentence that describes the person's overall emotional state from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 249, "template_text": "Compose one concise sentence that describes the individual's overall emotional state from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 250, "template_text": "Formulate one concise sentence that describes the person's overall emotional condition from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 251, "template_text": "Set out one concise sentence that describes the individual's overall emotional condition from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 252, "template_text": "Draft a single concise sentence describing the person's overall emotional state from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 253, "template_text": "Phrase a single concise sentence describing the individual's overall emotional state from the full source input."}
+{"ai_semantic_review_pass": true, "raw_index": 254, "template_text": "Prepare a single concise sentence describing the person's overall emotional condition from the entire given input."}
+{"ai_semantic_review_pass": true, "raw_index": 255, "template_text": "Give a single concise sentence describing the individual's overall emotional condition from the complete available input."}
+{"ai_semantic_review_pass": true, "raw_index": 256, "template_text": "Express the person's overall emotional state from the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 257, "template_text": "Summarize the individual's overall emotional state from the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 258, "template_text": "Portray the person's overall emotional condition from the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 259, "template_text": "Outline the individual's overall emotional condition from the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 260, "template_text": "State the person's overall emotional state based on the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 261, "template_text": "Characterize the individual's overall emotional state based on the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 262, "template_text": "Depict the person's overall emotional condition based on the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 263, "template_text": "Present the individual's overall emotional condition based on the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 264, "template_text": "Using the full given input, report the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 265, "template_text": "Using the entire provided input, distill the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 266, "template_text": "Using the complete received input, convey the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 267, "template_text": "Using the full input, render the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 268, "template_text": "From the entire supplied input, describe the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 269, "template_text": "From the complete presented input, capture the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 270, "template_text": "From the full source input, express the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 271, "template_text": "From the entire given input, summarize the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 272, "template_text": "Based on the complete available input, portray the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 273, "template_text": "Based on the full received input, outline the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 274, "template_text": "Based on the entire input, state the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 275, "template_text": "Based on the complete provided input, characterize the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 276, "template_text": "In one concise sentence, depict the person's overall emotional state from the full presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 277, "template_text": "In one concise sentence, present the individual's overall emotional state from the entire source input."}
+{"ai_semantic_review_pass": true, "raw_index": 278, "template_text": "In one concise sentence, report the person's overall emotional condition from the complete supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 279, "template_text": "In one concise sentence, distill the individual's overall emotional condition from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 280, "template_text": "In a single concise sentence, convey the person's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 281, "template_text": "In a single concise sentence, render the individual's overall emotional state from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 282, "template_text": "In a single concise sentence, describe the person's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 283, "template_text": "In a single concise sentence, capture the individual's overall emotional condition from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 284, "template_text": "With the complete input, express the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 285, "template_text": "With the full supplied input, summarize the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 286, "template_text": "With the entire available input, portray the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 287, "template_text": "With the complete source input, outline the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 288, "template_text": "State the person's overall feeling state from the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 289, "template_text": "Characterize the individual's overall feeling state from the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 290, "template_text": "Depict the person's overall feeling condition from the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 291, "template_text": "Present the individual's overall feeling condition from the full input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 292, "template_text": "Using only the entire supplied input, report the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 293, "template_text": "Using only the complete presented input, distill the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 294, "template_text": "Using only the full source input, convey the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 295, "template_text": "Using only the entire given input, render the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 296, "template_text": "Describe the person's overall emotional state indicated by the complete available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 297, "template_text": "Capture the individual's overall emotional state indicated by the full received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 298, "template_text": "Express the person's overall emotional condition indicated by the entire input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 299, "template_text": "Summarize the individual's overall emotional condition indicated by the complete provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 300, "template_text": "Portray the person's overall emotional state shown by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 301, "template_text": "Outline the individual's overall emotional state shown by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 302, "template_text": "State the person's overall emotional condition shown by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 303, "template_text": "Characterize the individual's overall emotional condition shown by the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 304, "template_text": "Set out one concise sentence describing the person's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 305, "template_text": "Draft one concise sentence describing the individual's overall emotional state from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 306, "template_text": "Phrase one concise sentence describing the person's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 307, "template_text": "Prepare one concise sentence describing the individual's overall emotional condition from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 308, "template_text": "Give a concise sentence describing the person's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 309, "template_text": "Render a concise sentence describing the individual's overall emotional state from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 310, "template_text": "Write a concise sentence describing the person's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 311, "template_text": "Deliver a concise sentence describing the individual's overall emotional condition from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 312, "template_text": "Present one concise sentence that describes the person's overall emotional state from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 313, "template_text": "Provide one concise sentence that describes the individual's overall emotional state from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 314, "template_text": "Produce one concise sentence that describes the person's overall emotional condition from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 315, "template_text": "Create one concise sentence that describes the individual's overall emotional condition from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 316, "template_text": "Compose a single concise sentence describing the person's overall emotional state from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 317, "template_text": "Formulate a single concise sentence describing the individual's overall emotional state from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 318, "template_text": "Set out a single concise sentence describing the person's overall emotional condition from the full source input."}
+{"ai_semantic_review_pass": true, "raw_index": 319, "template_text": "Draft a single concise sentence describing the individual's overall emotional condition from the entire given input."}
+{"ai_semantic_review_pass": true, "raw_index": 320, "template_text": "Render the person's overall emotional state from the full available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 321, "template_text": "Describe the individual's overall emotional state from the entire received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 322, "template_text": "Capture the person's overall emotional condition from the complete given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 323, "template_text": "Express the individual's overall emotional condition from the full provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 324, "template_text": "Summarize the person's overall emotional state based on the entire presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 325, "template_text": "Portray the individual's overall emotional state based on the complete input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 326, "template_text": "Outline the person's overall emotional condition based on the full supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 327, "template_text": "State the individual's overall emotional condition based on the entire available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 328, "template_text": "Using the complete source input, characterize the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 329, "template_text": "Using the full given input, depict the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 330, "template_text": "Using the entire provided input, present the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 331, "template_text": "Using the complete received input, report the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 332, "template_text": "From the full input, distill the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 333, "template_text": "From the entire supplied input, convey the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 334, "template_text": "From the complete presented input, render the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 335, "template_text": "From the full source input, describe the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 336, "template_text": "Based on the entire given input, capture the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 337, "template_text": "Based on the complete available input, express the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 338, "template_text": "Based on the full received input, summarize the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 339, "template_text": "Based on the entire input, portray the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 340, "template_text": "In one concise sentence, outline the person's overall emotional state from the complete provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 341, "template_text": "In one concise sentence, state the individual's overall emotional state from the full presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 342, "template_text": "In one concise sentence, characterize the person's overall emotional condition from the entire source input."}
+{"ai_semantic_review_pass": true, "raw_index": 343, "template_text": "In one concise sentence, depict the individual's overall emotional condition from the complete supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 344, "template_text": "In a single concise sentence, present the person's overall emotional state from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 345, "template_text": "In a single concise sentence, report the individual's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 346, "template_text": "In a single concise sentence, distill the person's overall emotional condition from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 347, "template_text": "In a single concise sentence, convey the individual's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 348, "template_text": "With the entire presented input, render the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 349, "template_text": "With the complete input, describe the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 350, "template_text": "With the full supplied input, capture the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 351, "template_text": "With the entire available input, express the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 352, "template_text": "Summarize the person's overall feeling state from the complete source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 353, "template_text": "Portray the individual's overall feeling state from the full given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 354, "template_text": "Outline the person's overall feeling condition from the entire provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 355, "template_text": "State the individual's overall feeling condition from the complete received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 356, "template_text": "Using only the full input, characterize the person's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 357, "template_text": "Using only the entire supplied input, depict the individual's overall emotional state in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 358, "template_text": "Using only the complete presented input, present the person's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 359, "template_text": "Using only the full source input, report the individual's overall emotional condition in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 360, "template_text": "Distill the person's overall emotional state indicated by the entire given input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 361, "template_text": "Convey the individual's overall emotional state indicated by the complete available input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 362, "template_text": "Render the person's overall emotional condition indicated by the full received input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 363, "template_text": "Describe the individual's overall emotional condition indicated by the entire input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 364, "template_text": "Capture the person's overall emotional state shown by the complete provided input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 365, "template_text": "Express the individual's overall emotional state shown by the full presented input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 366, "template_text": "Summarize the person's overall emotional condition shown by the entire source input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 367, "template_text": "Portray the individual's overall emotional condition shown by the complete supplied input in one concise sentence."}
+{"ai_semantic_review_pass": true, "raw_index": 368, "template_text": "Create one concise sentence describing the person's overall emotional state from the full available input."}
+{"ai_semantic_review_pass": true, "raw_index": 369, "template_text": "Compose one concise sentence describing the individual's overall emotional state from the entire received input."}
+{"ai_semantic_review_pass": true, "raw_index": 370, "template_text": "Formulate one concise sentence describing the person's overall emotional condition from the complete given input."}
+{"ai_semantic_review_pass": true, "raw_index": 371, "template_text": "Set out one concise sentence describing the individual's overall emotional condition from the full provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 372, "template_text": "Draft a concise sentence describing the person's overall emotional state from the entire presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 373, "template_text": "Phrase a concise sentence describing the individual's overall emotional state from the complete input."}
+{"ai_semantic_review_pass": true, "raw_index": 374, "template_text": "Prepare a concise sentence describing the person's overall emotional condition from the full supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 375, "template_text": "Give a concise sentence describing the individual's overall emotional condition from the entire available input."}
+{"ai_semantic_review_pass": true, "raw_index": 376, "template_text": "Render one concise sentence that describes the person's overall emotional state from the complete source input."}
+{"ai_semantic_review_pass": true, "raw_index": 377, "template_text": "Write one concise sentence that describes the individual's overall emotional state from the full given input."}
+{"ai_semantic_review_pass": true, "raw_index": 378, "template_text": "Deliver one concise sentence that describes the person's overall emotional condition from the entire provided input."}
+{"ai_semantic_review_pass": true, "raw_index": 379, "template_text": "Present one concise sentence that describes the individual's overall emotional condition from the complete received input."}
+{"ai_semantic_review_pass": true, "raw_index": 380, "template_text": "Provide a single concise sentence describing the person's overall emotional state from the full input."}
+{"ai_semantic_review_pass": true, "raw_index": 381, "template_text": "Produce a single concise sentence describing the individual's overall emotional state from the entire supplied input."}
+{"ai_semantic_review_pass": true, "raw_index": 382, "template_text": "Create a single concise sentence describing the person's overall emotional condition from the complete presented input."}
+{"ai_semantic_review_pass": true, "raw_index": 383, "template_text": "Compose a single concise sentence describing the individual's overall emotional condition from the full source input."}

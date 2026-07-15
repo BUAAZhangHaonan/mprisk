@@ -1,0 +1,12 @@
+{
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "count": 384,
+  "instruction": "Generate diverse English candidate instructions for the same task as the canonical prompt. Each candidate must be one concise sentence and must not name modalities, examples, labels, conflict, ambiguity, or specific emotions.",
+  "max_new_tokens": 768,
+  "model_path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct",
+  "output_path": "data/processed/prompt_banks/pregen_risk_v1/raw_model_candidates_384.jsonl",
+  "schema": "mprisk_prompt_candidate_generation_plan_v1",
+  "seed": 20260715,
+  "temperature": 0.5,
+  "top_p": 0.9
+}

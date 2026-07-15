@@ -16,6 +16,7 @@ from mprisk.prompts.pool import (
     filter_candidates,
     generate_seeded_subset,
     select_global_pool,
+    verify_prompt_pool_artifacts,
 )
 from scripts.generate_prompt_candidates import build_generation_plan
 
@@ -193,6 +194,7 @@ def test_build_prompt_pool_writes_counts_provenance_and_placeholder_free_exports
     result = build_prompt_pool(raw_path, output_dir)
 
     assert len(result.raw384) == RAW_POOL_SIZE
+    assert len(result.accepted) == RAW_POOL_SIZE
     assert len(result.pool128) == GLOBAL_POOL_SIZE
     assert len(result.rejections) == 0
     assert set(result.subsets) == set(SUBSET_SEEDS)
@@ -200,6 +202,13 @@ def test_build_prompt_pool_writes_counts_provenance_and_placeholder_free_exports
     assert result.provenance["canonical_prompt"] == EXPECTED_CANONICAL
     assert result.provenance["raw_count"] == RAW_POOL_SIZE
     assert result.provenance["global_pool_size"] == GLOBAL_POOL_SIZE
+
+    verification = verify_prompt_pool_artifacts(output_dir)
+    assert verification["status"] == "passed"
+    assert verification["raw_count"] == RAW_POOL_SIZE
+    assert verification["accepted_count"] == RAW_POOL_SIZE
+    assert (output_dir / "accepted.jsonl").exists()
+    assert (output_dir / "artifact_verification.json").exists()
 
     exported_pool = [
         json.loads(line)

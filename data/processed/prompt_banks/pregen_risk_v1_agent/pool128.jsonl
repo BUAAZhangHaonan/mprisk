@@ -1,0 +1,128 @@
+{"enabled": true, "prompt_id": "pregen_risk_v1_p001", "role": "user", "template_text": "Formulate one concise sentence that describes the person's overall emotional condition from the full input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p002", "role": "user", "template_text": "Characterize the individual's overall emotional state indicated by the complete provided input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p003", "role": "user", "template_text": "Using only the entire supplied input, report the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p004", "role": "user", "template_text": "In a single concise sentence, capture the individual's overall emotional condition from the entire presented input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p005", "role": "user", "template_text": "With the complete received input, express the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p006", "role": "user", "template_text": "Portray the individual's overall feeling state from the full given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p007", "role": "user", "template_text": "Render the person's overall emotional state shown by the full available input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p008", "role": "user", "template_text": "Using the full source input, depict the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p009", "role": "user", "template_text": "Phrase a concise sentence describing the individual's overall emotional state from the complete input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p010", "role": "user", "template_text": "In one concise sentence, distill the person's overall emotional state from the entire source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p011", "role": "user", "template_text": "Summarize the person's overall emotional condition based on the entire provided input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p012", "role": "user", "template_text": "Based on the full received input, outline the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p013", "role": "user", "template_text": "Prepare a concise sentence describing the person's overall emotional condition from the full supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p014", "role": "user", "template_text": "Deliver a single concise sentence describing the person's overall emotional state from the entire given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p015", "role": "user", "template_text": "Using the complete presented input, present the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p016", "role": "user", "template_text": "From the entire input, describe the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p017", "role": "user", "template_text": "In one concise sentence, convey the individual's overall emotional state from the complete supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p018", "role": "user", "template_text": "In one concise sentence, outline the person's overall emotional condition from the complete given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p019", "role": "user", "template_text": "Set out one concise sentence describing the individual's overall emotional condition from the full provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p020", "role": "user", "template_text": "With the entire available input, state the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p021", "role": "user", "template_text": "Report the individual's overall emotional condition shown by the entire received input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p022", "role": "user", "template_text": "Capture the person's overall emotional state based on the complete source input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p023", "role": "user", "template_text": "Write a concise sentence describing the person's overall emotional condition from the entire available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p024", "role": "user", "template_text": "Using only the complete provided input, distill the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p025", "role": "user", "template_text": "Using only the full received input, characterize the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p026", "role": "user", "template_text": "Provide a concise sentence describing the person's overall emotional condition from the complete source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p027", "role": "user", "template_text": "In a single concise sentence, report the person's overall emotional state from the complete input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p028", "role": "user", "template_text": "Provide one concise sentence that describes the individual's overall emotional state from the entire provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p029", "role": "user", "template_text": "Create a single concise sentence describing the individual's overall emotional state from the full received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p030", "role": "user", "template_text": "Based on the full presented input, convey the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p031", "role": "user", "template_text": "In a single concise sentence, express the individual's overall emotional state from the full provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p032", "role": "user", "template_text": "Draft a concise sentence describing the person's overall emotional state from the entire presented input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p033", "role": "user", "template_text": "Using the full input, summarize the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p034", "role": "user", "template_text": "Based on the entire input, portray the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p035", "role": "user", "template_text": "Produce a single concise sentence describing the individual's overall emotional condition from the entire input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p036", "role": "user", "template_text": "With the full supplied input, capture the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p037", "role": "user", "template_text": "In a single concise sentence, characterize the individual's overall emotional condition from the full supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p038", "role": "user", "template_text": "Compose a concise sentence describing the person's overall emotional condition from the full given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p039", "role": "user", "template_text": "Summarize the person's overall feeling state from the complete source input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p040", "role": "user", "template_text": "Present the individual's overall emotional condition indicated by the entire source input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p041", "role": "user", "template_text": "Using the entire provided input, render the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p042", "role": "user", "template_text": "Formulate a single concise sentence describing the individual's overall emotional state from the complete presented input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p043", "role": "user", "template_text": "In one concise sentence, depict the person's overall emotional state from the full presented input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p044", "role": "user", "template_text": "In a single concise sentence, render the individual's overall emotional condition from the complete source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p045", "role": "user", "template_text": "In one concise sentence, state the person's overall emotional state from the entire received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p046", "role": "user", "template_text": "Depict the person's overall feeling condition from the complete received input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p047", "role": "user", "template_text": "Prepare one concise sentence that describes the individual's overall emotional condition from the complete presented input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p048", "role": "user", "template_text": "Express the individual's overall emotional state based on the full given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p049", "role": "user", "template_text": "Using only the complete available input, depict the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p050", "role": "user", "template_text": "In a single concise sentence, present the person's overall emotional state from the full available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p051", "role": "user", "template_text": "Portray the person's overall emotional condition from the full provided input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p052", "role": "user", "template_text": "Set out one concise sentence that describes the person's overall emotional state from the complete received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p053", "role": "user", "template_text": "Using only the full source input, express the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p054", "role": "user", "template_text": "Summarize the person's overall emotional state indicated by the full received input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p055", "role": "user", "template_text": "Characterize the person's overall emotional state shown by the entire source input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p056", "role": "user", "template_text": "Using the complete received input, describe the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p057", "role": "user", "template_text": "With the full given input, convey the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p058", "role": "user", "template_text": "Write one concise sentence that describes the person's overall emotional state from the entire supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p059", "role": "user", "template_text": "State the person's overall emotional condition shown by the complete supplied input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p060", "role": "user", "template_text": "Using the entire supplied input, express the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p061", "role": "user", "template_text": "With the complete source input, outline the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p062", "role": "user", "template_text": "Give a concise sentence describing the person's overall emotional condition from the complete received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p063", "role": "user", "template_text": "Characterize the individual's overall feeling condition from the entire given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p064", "role": "user", "template_text": "Render a concise sentence describing the individual's overall emotional condition from the full input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p065", "role": "user", "template_text": "Present the person's overall feeling state from the entire provided input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p066", "role": "user", "template_text": "Present the person's overall emotional state based on the full supplied input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p067", "role": "user", "template_text": "From the full received input, distill the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p068", "role": "user", "template_text": "Give a single concise sentence describing the person's overall emotional state from the full source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p069", "role": "user", "template_text": "Summarize the individual's overall emotional state shown by the complete given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p070", "role": "user", "template_text": "Describe the person's overall emotional state indicated by the complete available input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p071", "role": "user", "template_text": "From the complete available input, report the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p072", "role": "user", "template_text": "Outline the individual's overall feeling state from the complete presented input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p073", "role": "user", "template_text": "From the complete presented input, render the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p074", "role": "user", "template_text": "Compose a single concise sentence describing the person's overall emotional state from the entire supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p075", "role": "user", "template_text": "Depict the person's overall emotional condition based on the entire available input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p076", "role": "user", "template_text": "Report the individual's overall emotional state indicated by the full presented input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p077", "role": "user", "template_text": "Distill the person's overall emotional state indicated by the entire given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p078", "role": "user", "template_text": "Draft one concise sentence that describes the individual's overall emotional state from the full input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p079", "role": "user", "template_text": "Using only the entire given input, outline the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p080", "role": "user", "template_text": "Write one concise sentence describing the person's overall emotional state from the full provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p081", "role": "user", "template_text": "Express the individual's overall emotional state shown by the full presented input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p082", "role": "user", "template_text": "Capture the person's overall emotional state shown by the complete provided input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p083", "role": "user", "template_text": "With the full given input, report the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p084", "role": "user", "template_text": "From the entire given input, present the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p085", "role": "user", "template_text": "In one concise sentence, distill the individual's overall emotional condition from the full available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p086", "role": "user", "template_text": "State the person's overall emotional condition based on the complete received input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p087", "role": "user", "template_text": "Characterize the individual's overall emotional condition based on the full input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p088", "role": "user", "template_text": "Create one concise sentence describing the person's overall emotional state from the full available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p089", "role": "user", "template_text": "Draft a single concise sentence describing the individual's overall emotional condition from the entire given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p090", "role": "user", "template_text": "In a single concise sentence, portray the individual's overall emotional condition from the complete input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p091", "role": "user", "template_text": "Formulate a concise sentence describing the individual's overall emotional condition from the entire provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p092", "role": "user", "template_text": "Based on the complete provided input, present the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p093", "role": "user", "template_text": "Based on the entire source input, render the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p094", "role": "user", "template_text": "Compose one concise sentence describing the individual's overall emotional state from the entire received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p095", "role": "user", "template_text": "Capture the person's overall feeling state from the full input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p096", "role": "user", "template_text": "Capture the individual's overall emotional condition indicated by the full available input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p097", "role": "user", "template_text": "In a single concise sentence, convey the person's overall emotional condition from the entire available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p098", "role": "user", "template_text": "In a single concise sentence, distill the person's overall emotional condition from the complete given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p099", "role": "user", "template_text": "Present one concise sentence describing the person's overall emotional condition from the complete input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p100", "role": "user", "template_text": "Prepare one concise sentence describing the person's overall emotional state from the complete given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p101", "role": "user", "template_text": "Render the person's overall emotional condition from the full supplied input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p102", "role": "user", "template_text": "Convey the individual's overall feeling condition from the entire supplied input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p103", "role": "user", "template_text": "Render one concise sentence that describes the person's overall emotional state from the complete source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p104", "role": "user", "template_text": "Present a concise sentence describing the individual's overall emotional state from the entire available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p105", "role": "user", "template_text": "In one concise sentence, summarize the person's overall emotional state from the full available input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p106", "role": "user", "template_text": "Using the complete received input, convey the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p107", "role": "user", "template_text": "In a single concise sentence, describe the person's overall emotional condition from the full provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p108", "role": "user", "template_text": "In one concise sentence, describe the individual's overall emotional condition from the entire received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p109", "role": "user", "template_text": "From the full received input, render the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p110", "role": "user", "template_text": "Present one concise sentence that describes the person's overall emotional state from the full given input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p111", "role": "user", "template_text": "Distill the person's overall feeling condition from the full input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p112", "role": "user", "template_text": "Create a concise sentence describing the individual's overall emotional state from the complete source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p113", "role": "user", "template_text": "Describe the person's overall emotional condition based on the full given input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p114", "role": "user", "template_text": "With the complete source input, characterize the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p115", "role": "user", "template_text": "Based on the full presented input, describe the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p116", "role": "user", "template_text": "From the full source input, state the person's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p117", "role": "user", "template_text": "Phrase one concise sentence describing the person's overall emotional condition from the full provided input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p118", "role": "user", "template_text": "With the entire provided input, capture the individual's overall emotional state in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p119", "role": "user", "template_text": "Provide a single concise sentence describing the person's overall emotional condition from the full received input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p120", "role": "user", "template_text": "Depict the individual's overall emotional condition from the complete input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p121", "role": "user", "template_text": "Express the person's overall emotional condition from the entire available input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p122", "role": "user", "template_text": "Characterize the person's overall emotional condition from the entire presented input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p123", "role": "user", "template_text": "Using only the entire given input, render the individual's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p124", "role": "user", "template_text": "Outline the individual's overall emotional condition shown by the entire presented input in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p125", "role": "user", "template_text": "Provide one concise sentence describing the individual's overall emotional condition from the full supplied input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p126", "role": "user", "template_text": "Deliver a concise sentence describing the individual's overall emotional condition from the complete source input."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p127", "role": "user", "template_text": "With the entire available input, portray the person's overall emotional condition in one concise sentence."}
+{"enabled": true, "prompt_id": "pregen_risk_v1_p128", "role": "user", "template_text": "Using the entire supplied input, depict the person's overall emotional state in one concise sentence."}

@@ -1,0 +1,75 @@
+{
+  "batch_size": 3,
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "count": 384,
+  "cuda_visible_devices": "1",
+  "device": "cuda:0",
+  "generator": "scripts.generate_prompt_candidates.generate_candidates",
+  "max_new_tokens": 768,
+  "model_hashes": {
+    "files": [
+      {
+        "name": "config.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/config.json",
+        "sha256": "eed00b17e22553979d090fa492e587e92885e328914c8e0b0b78f0a0d3576b3b",
+        "size_bytes": 661
+      },
+      {
+        "name": "tokenizer_config.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/tokenizer_config.json",
+        "sha256": "5b5d4f65d0acd3b2d56a35b56d374a36cbc1c8fa5cf3b3febbbfabf22f359583",
+        "size_bytes": 7305
+      },
+      {
+        "name": "tokenizer.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/tokenizer.json",
+        "sha256": "c0382117ea329cdf097041132f6d735924b697924d6f6fc3945713e96ce87539",
+        "size_bytes": 7031645
+      },
+      {
+        "name": "vocab.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/vocab.json",
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+        "size_bytes": 2776833
+      },
+      {
+        "name": "merges.txt",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/merges.txt",
+        "sha256": "599bab54075088774b1733fde865d5bd747cbcc7a547c5bc12610e874e26f5e3",
+        "size_bytes": 1671839
+      },
+      {
+        "name": "generation_config.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/generation_config.json",
+        "sha256": "ea35dfb6fc5051b01114f9b995820d55dab01ed33ee490f6378b442af82c09f9",
+        "size_bytes": 242
+      },
+      {
+        "name": "model-00001-of-00002.safetensors",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/model-00001-of-00002.safetensors",
+        "sha256": "67347b23fb4165b652eb6611f5e1f2a06dfcddba8e909df1b2b0b1857bee06c2",
+        "size_bytes": 3968658944
+      },
+      {
+        "name": "model-00002-of-00002.safetensors",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/model-00002-of-00002.safetensors",
+        "sha256": "a40d941d0e7e0b966ad8b62bb6d6b7c88cce1299197b599d9d0a4ce59aabfc1d",
+        "size_bytes": 2203268048
+      },
+      {
+        "name": "model.safetensors.index.json",
+        "path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct/model.safetensors.index.json",
+        "sha256": "bc8aaa0c87d4335177e01c765f1de0db81661c67c1a72fbfb0d521b09f5ddc56",
+        "size_bytes": 35581
+      }
+    ]
+  },
+  "model_path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-3B-Instruct",
+  "review_batch_size": 6,
+  "schema": "mprisk_prompt_candidate_generation_provenance_v1",
+  "seed": 20260715,
+  "temperature": 0.5,
+  "top_p": 0.9,
+  "torch_version": "2.6.0+cu124",
+  "transformers_version": "5.5.3"
+}
