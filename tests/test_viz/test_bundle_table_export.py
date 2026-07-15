@@ -23,8 +23,19 @@ def test_tables_export_pending_safe_latex_without_fake_metrics(tmp_path: Path) -
     result = export_bundle_tables(config_path)
 
     assert len(result["tables"]) == 3
+    assert {
+        key: row["row_count"] for key, row in result["tables"].items()
+    } == {
+        "tab01_cross_backbone_results": 3,
+        "tab02_conflict_misread_baselines": 7,
+        "tab03_downstream_quality": 9,
+    }
     for row in result["tables"].values():
         text = Path(row["output"]).read_text(encoding="utf-8")
+        assert Path(row["input"]).is_file()
+        assert Path(row["input"] + ".provenance.json").is_file()
+        assert row["provenance"]["status"] == "Pending"
+        assert len(row["provenance"]["input_sha256"]) == 64
         assert "\\begin{tabular}" in text
         assert "\\toprule" in text and "\\bottomrule" in text
         assert "Pending" in text
@@ -32,6 +43,8 @@ def test_tables_export_pending_safe_latex_without_fake_metrics(tmp_path: Path) -
     misread = Path(result["tables"]["tab02_conflict_misread_baselines"]["output"]).read_text()
     assert "AUPRC" in misread
     assert "Conflict/Aligned" not in misread
+    assert "Description Disagreement" in misread
+    assert "State-Indices Readout" in misread
 
 
 def test_ready_table_requires_exact_schema_provenance_and_checksum(tmp_path: Path) -> None:

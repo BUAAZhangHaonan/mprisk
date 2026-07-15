@@ -33,6 +33,7 @@ def _scores() -> list[dict[str, object]]:
             "S_mean": 0.1,
             "D": 0.2,
             "R": 0.1,
+            "delta_i": 0.1,
         },
         {
             "sample_id": "c-stable-directional",
@@ -45,6 +46,7 @@ def _scores() -> list[dict[str, object]]:
             "S_mean": 0.2,
             "D": 0.8,
             "R": -0.4,
+            "delta_i": 0.1,
         },
         {
             "sample_id": "c-unstable",
@@ -57,6 +59,7 @@ def _scores() -> list[dict[str, object]]:
             "S_mean": 0.9,
             "D": 0.7,
             "R": 0.7,
+            "delta_i": 0.1,
         },
     ]
 
@@ -64,6 +67,27 @@ def _scores() -> list[dict[str, object]]:
 def _patterns() -> list[dict[str, object]]:
     patterns = ["Consensus", "Dominant", "Confusion"]
     return [dict(row, pattern=pattern) for row, pattern in zip(_scores(), patterns, strict=True)]
+
+
+def _thresholds() -> dict[str, object]:
+    return {
+        "schema": "mprisk_spherical_calibration_v2",
+        "sdr_schema": "mprisk_spherical_sdr_v2",
+        "distance_metric": "geodesic_acos_v1",
+        "sample_type": "Aligned",
+        "calibration_split": "aligned_calibration",
+        "selection_rule": "representation_split=aligned_calibration then sample_type=Aligned",
+        "model_key": "qwen3_vl_8b",
+        "protocol": "vt",
+        "prompt_set_key": "p8-seed",
+        "prompt_set_artifact_sha256": "1" * 64,
+        "repr_key": "tme",
+        "encoder_checkpoint_sha256": "2" * 64,
+        "split_assignment_sha256": "3" * 64,
+        "embedding_manifest_sha256": "4" * 64,
+        "kappa": 0.5,
+        "tau": 0.3,
+    }
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -124,9 +148,9 @@ def test_state_figure_inputs_record_hashes_commands_and_exact_masks(tmp_path) ->
     assert len(fig4_provenance["sources"]) == 2
     assert all(len(source["sha256"]) == 64 for source in fig4_provenance["sources"])
     assert fig4_provenance["sample_masks"] == {
-        "S": "all_samples",
-        "D": "S<=kappa",
-        "abs_R": "S<=kappa and D>tau",
+        "S": "representation_split=official_test",
+        "D": "representation_split=official_test and S<=kappa",
+        "abs_R": "representation_split=official_test and S<=kappa and D>tau",
     }
     assert fig4_provenance["sdr_schema"] == "mprisk_spherical_sdr_v2"
     assert fig4_provenance["distance_metric"] == "geodesic_acos_v1"
@@ -223,3 +247,16 @@ def test_state_figure_inputs_exclude_non_official_rows(tmp_path) -> None:
         "c-stable-directional",
         "c-unstable",
     }
+
+
+def test_state_figure_inputs_reject_tampered_pattern_assignment(tmp_path) -> None:
+    patterns = _patterns()
+    patterns[1]["pattern"] = "Balanced"
+    with pytest.raises(ValueError, match="hierarchical S/D/R assignment"):
+        build_state_figure_inputs(
+            sdr_scores_path=write_jsonl(tmp_path / "sdr.jsonl", _scores()),
+            state_patterns_path=write_jsonl(tmp_path / "patterns.jsonl", patterns),
+            thresholds_path=write_json(tmp_path / "thresholds.json", _thresholds()),
+            output_dir=tmp_path / "inputs",
+            generated_command=["pytest"],
+        )

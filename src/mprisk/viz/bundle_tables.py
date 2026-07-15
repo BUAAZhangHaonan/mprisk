@@ -53,6 +53,8 @@ def export_bundle_tables(config_path: str | Path) -> dict[str, Any]:
         if columns != TABLE_COLUMNS[key]:
             raise ValueError(f"table {key} columns do not match the locked schema")
         input_path = Path(str(spec["input"]))
+        if not input_path.exists():
+            _materialize_pending_input(input_path, key=str(key), columns=columns)
         rows, status, provenance = _load_rows(input_path, key=str(key), columns=columns)
         output = Path(str(spec["output"]))
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -97,7 +99,7 @@ def _load_rows(
         if rows:
             raise ValueError(f"Pending table {key} must not contain data rows")
         return _pending_rows(key), PENDING, provenance
-    return _pending_rows(key), PENDING, None
+    raise ValueError(f"table input is missing after materialization: {path}")
 
 
 def _pending_rows(key: str) -> list[dict[str, str]]:
@@ -120,17 +122,48 @@ def _pending_rows(key: str) -> list[dict[str, str]]:
                 "AUPRC": PENDING,
                 "Latency": PENDING,
             }
-            for representation in ("Single-Point", "Trajectory MLP", "TME")
+            for representation in (
+                "Description Disagreement",
+                "SEP",
+                "KLE",
+                "Single-Point",
+                "Trajectory MLP",
+                "TME",
+                "State-Indices Readout",
+            )
         ]
     return [
         {
             "Model": model,
-            "Setting": "Conflict-only",
+            "Setting": setting,
             "Affective Misattribution": PENDING,
             "Avg. Response Quality": PENDING,
         }
         for model in ("Qwen2.5-Omni-7B", "Qwen3-VL-8B", "InternVL3.5-8B")
+        for setting in ("Baseline", "Generic Conflict Caution", "Ours")
     ]
+
+
+def _materialize_pending_input(
+    path: Path, *, key: str, columns: tuple[str, ...]
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        csv.DictWriter(handle, fieldnames=columns).writeheader()
+    provenance = {
+        "schema": TABLE_INPUT_SCHEMA,
+        "table_key": key,
+        "status": PENDING,
+        "columns": list(columns),
+        "input_sha256": _sha256(path),
+        "row_count": 0,
+        "generated_command": ["export_paper_tables", "materialize-pending", key],
+        "sources": [],
+    }
+    path.with_suffix(path.suffix + ".provenance.json").write_text(
+        json.dumps(provenance, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _validate_provenance(

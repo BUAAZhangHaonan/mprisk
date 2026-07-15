@@ -10,7 +10,11 @@ import matplotlib.image as mpimg
 import pytest
 import yaml
 
-from mprisk.viz.bundle_figures import UMAP_CONFIG, export_bundle_figures
+from mprisk.viz.bundle_figures import (
+    UMAP_CONFIG,
+    _render_representation_comparison,
+    export_bundle_figures,
+)
 from mprisk.viz.run_status import build_run_status
 
 EXPECTED_KEYS = [
@@ -196,10 +200,12 @@ def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) ->
                 "status": "Ready",
                 "generated_command": ["pytest", "fixture"],
                 "sources": [{"path": str(source_path), "sha256": source_sha256}],
-                "sample_masks": {
-                    "S": "all_samples",
-                    "D": "S<=kappa",
-                    "abs_R": "S<=kappa and D>tau",
+                    "sample_masks": {
+                        "S": "representation_split=official_test",
+                        "D": "representation_split=official_test and S<=kappa",
+                        "abs_R": (
+                            "representation_split=official_test and S<=kappa and D>tau"
+                        ),
                 },
                 "representation_split": "official_test",
                 "source_representation_split_counts": {"official_test": 6},
@@ -222,6 +228,28 @@ def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) ->
     assert "fig04_sdr_distributions | Ready" in text
     assert "fig07_misread_bias | Pending" in text
     assert "placeholder" not in text.casefold()
+
+
+def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
+    rows = []
+    for representation in ("Single-Point", "Trajectory MLP", "TME"):
+        rows.extend(
+            {
+                "panel": "ac",
+                "representation": representation,
+                "model": "qwen3_vl_8b",
+                "protocol": "VT",
+                "seed": "20260717",
+                "sample_id": "duplicate",
+                "sample_type": "Aligned",
+                "representation_split": "official_test",
+                "feature": "[0.1, 0.2]",
+                "status": "Ready",
+            }
+            for _ in range(2)
+        )
+    with pytest.raises(ValueError, match="duplicate sample rows"):
+        _render_representation_comparison("Fig. 8", rows, {}, tmp_path / "fig08.pdf")
 
 
 def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:

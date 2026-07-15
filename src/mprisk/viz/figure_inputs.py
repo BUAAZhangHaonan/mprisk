@@ -16,6 +16,7 @@ import yaml
 
 from mprisk.data.manifests import read_jsonl
 from mprisk.state.identity import CALIBRATION_IDENTITY_FIELDS, require_matching_identity
+from mprisk.state.patterns import StateThresholds, assign_state
 from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 from mprisk.utils.io import write_json
 
@@ -157,6 +158,7 @@ def build_state_figure_inputs(
             row for row in source_patterns if row["representation_split"] == "official_test"
         ]
         _validate_state_rows(official_scores, official_patterns, require_official_test=True)
+        _validate_pattern_assignments(official_scores, official_patterns, thresholds)
         model_keys = {str(row["model_key"]) for row in official_scores}
         if len(model_keys) != 1:
             raise ValueError("each state artifact triple must contain exactly one model")
@@ -217,9 +219,9 @@ def build_state_figure_inputs(
         generated_command=command,
         sources=[*score_files, *threshold_files],
         sample_masks={
-            "S": "all_samples",
-            "D": "S<=kappa",
-            "abs_R": "S<=kappa and D>tau",
+            "S": "representation_split=official_test",
+            "D": "representation_split=official_test and S<=kappa",
+            "abs_R": "representation_split=official_test and S<=kappa and D>tau",
         },
         thresholds=None,
         source_sample_count=source_sample_count,
@@ -231,7 +233,7 @@ def build_state_figure_inputs(
         fig05_path,
         figure_key="fig05_four_state_stacks",
         generated_command=command,
-        sources=pattern_files,
+        sources=[*score_files, *pattern_files, *threshold_files],
         sample_masks={"patterns": "representation_split=official_test"},
         thresholds=None,
         source_sample_count=source_sample_count,
@@ -487,6 +489,28 @@ def _validate_calibration(thresholds: dict[str, Any]) -> None:
         raise ValueError(
             "paper thresholds must come only from the registered Aligned calibration split"
         )
+
+
+def _validate_pattern_assignments(
+    scores: list[dict[str, Any]],
+    patterns: list[dict[str, Any]],
+    thresholds: dict[str, Any],
+) -> None:
+    threshold_values = StateThresholds.from_dict(thresholds)
+    patterns_by_id = {str(row["sample_id"]): row for row in patterns}
+    for score in scores:
+        sample_id = str(score["sample_id"])
+        expected = assign_state(
+            float(score["S_mean"]),
+            float(score["D"]),
+            float(score["R"]),
+            threshold_values,
+            delta_i=float(score["delta_i"]),
+        ).value
+        if patterns_by_id[sample_id].get("pattern") != expected:
+            raise ValueError(
+                f"state pattern does not match hierarchical S/D/R assignment: {sample_id}"
+            )
 
 
 def _path_list(value: str | Path | Sequence[str | Path]) -> list[Path]:

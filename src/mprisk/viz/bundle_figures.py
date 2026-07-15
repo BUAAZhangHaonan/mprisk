@@ -417,7 +417,7 @@ def _render_artifact(
     elif key == "fig06_stable_d_signed_r":
         _render_d_signed_r(title, rows, provenance, output_path)
     elif key == "fig07_misread_bias":
-        _render_misread_bias(title, rows, output_path)
+        _render_misread_bias(title, rows, provenance, output_path)
     elif key == "fig08_representation_comparison":
         _render_representation_comparison(title, rows, provenance, output_path)
     else:
@@ -542,11 +542,36 @@ def _render_d_signed_r(
     plt.close(figure)
 
 
-def _render_misread_bias(title: str, rows: list[dict[str, Any]], output_path: Path) -> None:
+def _render_misread_bias(
+    title: str,
+    rows: list[dict[str, Any]],
+    provenance: dict[str, Any],
+    output_path: Path,
+) -> None:
     _require_columns(
         rows,
         {"panel", "model", "sample_type", "S", "D", "R", "direction_emphasized", "status"},
     )
+    _validate_state_provenance(rows, provenance)
+    if provenance.get("sample_masks") != {
+        "misread": "Pending Misread annotations",
+        "bias": (
+            "representation_split=official_test and sample_type=Conflict and S<=kappa"
+        ),
+        "direction_emphasis": "D>tau",
+    }:
+        raise ValueError("Fig. 7 sample masks do not match the locked contract")
+    thresholds_by_model = provenance["thresholds_by_model"]
+    for row in rows:
+        thresholds = thresholds_by_model[row["model"]]
+        if (
+            row["panel"] != "bias"
+            or row["sample_type"] != "Conflict"
+            or float(row["S"]) > float(thresholds["kappa"])
+            or _as_bool(row["direction_emphasized"])
+            != (float(row["D"]) > float(thresholds["tau"]))
+        ):
+            raise ValueError("Fig. 7 row violates official-test stable Conflict bias mask")
     figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
     for column, (model_key, model_label) in enumerate(MODEL_SPECS):
         _pending_axis(
@@ -620,14 +645,13 @@ def _render_representation_comparison(
         raise ValueError(
             "Fig. 8 requires Ready qwen3_vl_8b/VT/seed20260717 official_test features"
         )
-    sample_sets = {
-        representation: {
-            (row["sample_id"], row["sample_type"])
-            for row in ac_rows
-            if row["representation"] == representation
-        }
-        for representation in ("Single-Point", "Trajectory MLP", "TME")
-    }
+    sample_sets: dict[str, set[tuple[str, str]]] = {}
+    for representation in ("Single-Point", "Trajectory MLP", "TME"):
+        selected = [row for row in ac_rows if row["representation"] == representation]
+        sample_keys = [(row["sample_id"], row["sample_type"]) for row in selected]
+        if len(sample_keys) != len(set(sample_keys)):
+            raise ValueError(f"Fig. 8 {representation} contains duplicate sample rows")
+        sample_sets[representation] = set(sample_keys)
     if len({frozenset(samples) for samples in sample_sets.values()}) != 1:
         raise ValueError("Fig. 8 representations require exact held-out sample correspondence")
     try:
@@ -657,9 +681,17 @@ def _render_representation_comparison(
         ]
         if len(selected) <= UMAP_CONFIG["n_neighbors"]:
             raise ValueError("Fig. 8 UMAP requires more samples than fixed n_neighbors")
-        features = np.asarray([json.loads(str(row["feature"])) for row in selected], dtype=float)
+        decoded = [json.loads(str(row["feature"])) for row in selected]
+        if any(not isinstance(feature, list) or not feature for feature in decoded):
+            raise ValueError(f"Fig. 8 {representation} features must be non-empty vectors")
+        dimensions = {len(feature) for feature in decoded}
+        if len(dimensions) != 1:
+            raise ValueError(f"Fig. 8 {representation} features must have one fixed dimension")
+        features = np.asarray(decoded, dtype=float)
         if features.ndim != 2 or features.shape[0] != len(selected):
             raise ValueError(f"Fig. 8 {representation} features must have one fixed dimension")
+        if not np.isfinite(features).all():
+            raise ValueError(f"Fig. 8 {representation} features must be finite")
         if {row["sample_type"] for row in selected} != {"Aligned", "Conflict"}:
             raise ValueError(f"Fig. 8 {representation} requires both Aligned and Conflict")
         projection = UMAP(**UMAP_CONFIG).fit_transform(features)
@@ -795,9 +827,9 @@ def _validate_provenance(figure_key: str, provenance: dict[str, Any]) -> None:
 def _validate_fig04_masks(rows: list[dict[str, Any]], provenance: dict[str, Any]) -> None:
     masks = provenance.get("sample_masks") or {}
     if masks != {
-        "S": "all_samples",
-        "D": "S<=kappa",
-        "abs_R": "S<=kappa and D>tau",
+        "S": "representation_split=official_test",
+        "D": "representation_split=official_test and S<=kappa",
+        "abs_R": "representation_split=official_test and S<=kappa and D>tau",
     }:
         raise ValueError("Fig. 4 sample masks do not match the locked contract")
     thresholds_by_model = provenance.get("thresholds_by_model") or {}
