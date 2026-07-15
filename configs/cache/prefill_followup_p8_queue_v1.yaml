@@ -1,0 +1,114 @@
+schema: mprisk_prefill_dependency_queue_v1
+version: v1
+physical_gpu: 1
+device: cuda:0
+python: /home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python
+extract_script: scripts/extract_prefill_batch.py
+runtime_record: outputs/run_records/prefill_followup_p8_queue_v1.json
+capacity_gate:
+  filesystem_path: outputs
+  max_projected_utilization: 0.90
+  models:
+    - model_key: qwen3_vl_8b
+      calibration_root: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717
+      outputs:
+        - output_root: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717
+          expected_tasks: 60288
+        - output_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260715
+          expected_tasks: 60288
+        - output_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260716
+          expected_tasks: 60288
+    - model_key: internvl3_5_8b
+      calibration_root: outputs/prefill_smoke/internvl3_5_8b/p8_after_single_v1
+      outputs:
+        - output_root: outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717
+          expected_tasks: 60288
+        - output_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260715
+          expected_tasks: 60288
+        - output_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260716
+          expected_tasks: 60288
+    - model_key: qwen2_5_omni_7b
+      calibration_root: outputs/prefill_smoke/qwen2_5_omni_7b/p8_after_single_v1
+      outputs:
+        - output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717
+          expected_tasks: 53808
+        - output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260715
+          expected_tasks: 53808
+        - output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260716
+          expected_tasks: 53808
+main_gate:
+  runtime_record: outputs/run_records/prefill_main_p8_v1.json
+  jobs:
+    - model_key: qwen3_vl_8b
+      ledger: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717/batch_state.sqlite3
+      expected_tasks: 60288
+      runtime_cache_key: qwen3_vl_8b_main_p8
+    - model_key: internvl3_5_8b
+      ledger: outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717/batch_state.sqlite3
+      expected_tasks: 60288
+      runtime_cache_key: internvl3_5_8b_main_p8
+    - model_key: qwen2_5_omni_7b
+      ledger: outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717/batch_state.sqlite3
+      expected_tasks: 53808
+      runtime_cache_key: qwen2_5_omni_7b_main_p8
+followup_jobs:
+  - job_id: seed20260715_qwen3_vl_8b
+    seed: 20260715
+    model_key: qwen3_vl_8b
+    protocol: vt
+    manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl
+    prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260715.yaml
+    output_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260715
+    log_path: outputs/prefill_cache/runtime_logs/seed20260715_qwen3_vl_8b.log
+    expected_tasks: 60288
+    extra_args: []
+  - job_id: seed20260715_internvl3_5_8b
+    seed: 20260715
+    model_key: internvl3_5_8b
+    protocol: vt
+    manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl
+    prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260715.yaml
+    output_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260715
+    log_path: outputs/prefill_cache/runtime_logs/seed20260715_internvl3_5_8b.log
+    expected_tasks: 60288
+    extra_args: [--video-num-segments, "8"]
+  - job_id: seed20260715_qwen2_5_omni_7b
+    seed: 20260715
+    model_key: qwen2_5_omni_7b
+    protocol: va
+    manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl
+    prompt_set: configs/prompts/equiv_sets/va_p8_seed20260715.yaml
+    output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260715
+    log_path: outputs/prefill_cache/runtime_logs/seed20260715_qwen2_5_omni_7b.log
+    expected_tasks: 53808
+    extra_args: []
+  - job_id: seed20260716_qwen3_vl_8b
+    seed: 20260716
+    model_key: qwen3_vl_8b
+    protocol: vt
+    manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl
+    prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260716.yaml
+    output_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260716
+    log_path: outputs/prefill_cache/runtime_logs/seed20260716_qwen3_vl_8b.log
+    expected_tasks: 60288
+    extra_args: []
+  - job_id: seed20260716_internvl3_5_8b
+    seed: 20260716
+    model_key: internvl3_5_8b
+    protocol: vt
+    manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl
+    prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260716.yaml
+    output_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260716
+    log_path: outputs/prefill_cache/runtime_logs/seed20260716_internvl3_5_8b.log
+    expected_tasks: 60288
+    extra_args: [--video-num-segments, "8"]
+  - job_id: seed20260716_qwen2_5_omni_7b
+    seed: 20260716
+    model_key: qwen2_5_omni_7b
+    protocol: va
+    manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl
+    prompt_set: configs/prompts/equiv_sets/va_p8_seed20260716.yaml
+    output_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260716
+    log_path: outputs/prefill_cache/runtime_logs/seed20260716_qwen2_5_omni_7b.log
+    expected_tasks: 53808
+    extra_args: []
