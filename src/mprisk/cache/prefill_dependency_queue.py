@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import fcntl
 import hashlib
 import json
 import math
 import os
+import select
 import sqlite3
 import struct
 import subprocess
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,6 +44,10 @@ class CapacityFailure(GateFailure):
     """Raised when projected cache artifacts would exceed the capacity limit."""
 
 
+class QueueLockError(GateFailure):
+    """Raised when another process owns the dependent-queue scope."""
+
+
 @dataclass(frozen=True)
 class GateJob:
     model_key: str
@@ -50,8 +57,17 @@ class GateJob:
 
 
 @dataclass(frozen=True)
+class UpstreamConfig:
+    tmux_session: str
+    pid: int | None
+    heartbeat_max_age_seconds: float
+    heartbeat_paths: tuple[Path, ...]
+
+
+@dataclass(frozen=True)
 class MainGate:
     runtime_record: Path
+    upstream: UpstreamConfig
     jobs: tuple[GateJob, ...]
 
 
@@ -125,6 +141,7 @@ class QueueManifest:
     python: Path
     extract_script: Path
     runtime_record: Path
+    lock_path: Path
     capacity_gate: CapacityGate
     main_gate: MainGate
     followup_jobs: tuple[FollowupJob, ...]
@@ -136,14 +153,69 @@ class GateStatus:
     reasons: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class UpstreamStatus:
+    running: bool
+    reason: str
+    heartbeat_age_seconds: float | None
+    seconds_until_stale: float
+    process_pid: int | None = None
+
+
 class EventWatcher(Protocol):
-    def wait(self) -> None: ...
+    def wait(self, timeout_seconds: float | None = None) -> None: ...
 
     def close(self) -> None: ...
 
 
 JobExecutor = Callable[..., None]
-WatcherFactory = Callable[[Sequence[Path]], EventWatcher]
+WatcherFactory = Callable[[Sequence[Path], int | None], EventWatcher]
+UpstreamChecker = Callable[[QueueManifest], UpstreamStatus]
+
+
+class QueueScopeLock:
+    """Hold a process-level exclusive lock for the complete queue lifecycle."""
+
+    def __init__(self, queue: QueueManifest) -> None:
+        self.queue = queue
+        self.handle: Any | None = None
+
+    def __enter__(self) -> QueueScopeLock:
+        path = self.queue.lock_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = path.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            handle.close()
+            raise QueueLockError(f"Dependent queue scope is already locked: {path}") from exc
+        try:
+            metadata = {
+                "pid": os.getpid(),
+                "manifest_path": str(self.queue.source_path),
+                "runtime_record": str(self.queue.runtime_record),
+                "output_roots": [str(job.output_root) for job in self.queue.followup_jobs],
+                "acquired_at": utc_now(),
+            }
+            handle.seek(0)
+            handle.truncate()
+            json.dump(metadata, handle, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        except Exception:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            handle.close()
+            raise
+        self.handle = handle
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, traceback: Any) -> None:
+        if self.handle is None:
+            return
+        fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
+        self.handle.close()
+        self.handle = None
 
 
 def load_queue_manifest(path: str | Path) -> QueueManifest:
@@ -156,6 +228,7 @@ def load_queue_manifest(path: str | Path) -> QueueManifest:
     if device != "cuda:0":
         raise ValueError("Dependent queue requires process-local device cuda:0")
     main_raw = _required_mapping(data, "main_gate")
+    upstream_raw = _required_mapping(main_raw, "upstream")
     capacity_raw = _required_mapping(data, "capacity_gate")
     gate_jobs = tuple(_load_gate_job(item) for item in _required_list(main_raw, "jobs"))
     jobs = tuple(_load_followup_job(item) for item in _required_list(data, "followup_jobs"))
@@ -172,9 +245,11 @@ def load_queue_manifest(path: str | Path) -> QueueManifest:
         python=Path(_required_str(data, "python")).expanduser(),
         extract_script=Path(_required_str(data, "extract_script")).expanduser(),
         runtime_record=Path(_required_str(data, "runtime_record")).expanduser(),
+        lock_path=Path(_required_str(data, "lock_path")).expanduser(),
         capacity_gate=_load_capacity_gate(capacity_raw),
         main_gate=MainGate(
             runtime_record=Path(_required_str(main_raw, "runtime_record")).expanduser(),
+            upstream=_load_upstream_config(upstream_raw),
             jobs=gate_jobs,
         ),
         followup_jobs=jobs,
@@ -213,6 +288,73 @@ def evaluate_main_gate(queue: QueueManifest) -> GateStatus:
             if status != "complete":
                 reasons.append(f"{job.runtime_cache_key} runtime cache is {status or 'unknown'}")
     return GateStatus(ready=not reasons, reasons=tuple(reasons))
+
+
+def evaluate_upstream_activity(queue: QueueManifest) -> UpstreamStatus:
+    config = queue.main_gate.upstream
+    try:
+        completed = subprocess.run(
+            ["tmux", "list-panes", "-t", config.tmux_session, "-F", "#{pane_pid}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return UpstreamStatus(False, f"tmux check failed: {exc}", None, 0)
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or "tmux session is missing"
+        return UpstreamStatus(False, detail, None, 0)
+    pane_pids = tuple(
+        int(line)
+        for line in completed.stdout.splitlines()
+        if line.strip().isdigit() and int(line) > 0
+    )
+    if not pane_pids:
+        return UpstreamStatus(False, "tmux session has no live pane PID", None, 0)
+    process_pid = config.pid if config.pid is not None else pane_pids[0]
+    if process_pid not in pane_pids:
+        return UpstreamStatus(
+            False,
+            f"configured PID {process_pid} is not in tmux session {config.tmux_session}",
+            None,
+            0,
+            process_pid,
+        )
+    if not _pid_is_alive(process_pid):
+        return UpstreamStatus(False, f"PID {process_pid} is not running", None, 0, process_pid)
+
+    heartbeat_times = []
+    for path in config.heartbeat_paths:
+        try:
+            heartbeat_times.append(path.stat().st_mtime)
+        except FileNotFoundError:
+            continue
+    if not heartbeat_times:
+        return UpstreamStatus(
+            False,
+            "no upstream heartbeat artifact exists",
+            None,
+            0,
+            process_pid,
+        )
+    heartbeat_age = max(time.time() - max(heartbeat_times), 0.0)
+    seconds_until_stale = max(config.heartbeat_max_age_seconds - heartbeat_age, 0.0)
+    if seconds_until_stale <= 0:
+        return UpstreamStatus(
+            False,
+            f"upstream heartbeat is stale by {heartbeat_age:.1f} seconds",
+            heartbeat_age,
+            0,
+            process_pid,
+        )
+    return UpstreamStatus(
+        True,
+        "",
+        heartbeat_age,
+        seconds_until_stale,
+        process_pid,
+    )
 
 
 def evaluate_capacity(
@@ -300,116 +442,158 @@ def evaluate_capacity(
 def wait_for_main_gate(
     queue: QueueManifest,
     *,
-    watcher_factory: WatcherFactory = lambda paths: InotifyArtifactWatcher(paths),
+    watcher_factory: WatcherFactory = lambda paths, pid: InotifyArtifactWatcher(paths, pid),
+    upstream_checker: UpstreamChecker = lambda queue: evaluate_upstream_activity(queue),
 ) -> None:
-    watcher = watcher_factory(_gate_artifacts(queue))
+    watcher: EventWatcher | None = None
+    watched_pid: int | None = None
     try:
         while True:
             status = evaluate_main_gate(queue)
+            if status.ready:
+                _write_queue_runtime(queue, status="ready", gate=status)
+                return
+            upstream = upstream_checker(queue)
+            if not upstream.running:
+                raise GateFailure(f"upstream_not_running: {upstream.reason}")
+            if watcher is None or watched_pid != upstream.process_pid:
+                if watcher is not None:
+                    watcher.close()
+                watcher = watcher_factory(_gate_artifacts(queue), upstream.process_pid)
+                watched_pid = upstream.process_pid
+                # Close the event-registration race before blocking.
+                status = evaluate_main_gate(queue)
+                if status.ready:
+                    _write_queue_runtime(
+                        queue,
+                        status="ready",
+                        gate=status,
+                        upstream=upstream,
+                    )
+                    return
             _write_queue_runtime(
                 queue,
-                status="waiting" if not status.ready else "ready",
+                status="waiting",
                 gate=status,
+                upstream=upstream,
             )
-            if status.ready:
-                return
-            watcher.wait()
+            watcher.wait(upstream.seconds_until_stale)
     finally:
-        watcher.close()
+        if watcher is not None:
+            watcher.close()
 
 
 def run_dependency_queue(
     queue: QueueManifest,
     *,
-    watcher_factory: WatcherFactory = lambda paths: InotifyArtifactWatcher(paths),
+    watcher_factory: WatcherFactory = lambda paths, pid: InotifyArtifactWatcher(paths, pid),
+    upstream_checker: UpstreamChecker = lambda queue: evaluate_upstream_activity(queue),
     job_executor: JobExecutor | None = None,
     retry_failed: bool = False,
 ) -> None:
-    capacity = evaluate_capacity(queue)
-    _write_queue_runtime(
-        queue,
-        status="capacity_ready" if capacity.safe else "blocked_capacity",
-        gate=evaluate_main_gate(queue),
-        capacity=capacity,
-    )
-    capacity.require_safe()
-    wait_for_main_gate(queue, watcher_factory=watcher_factory)
-    environment = dict(os.environ)
-    environment["CUDA_VISIBLE_DEVICES"] = str(queue.physical_gpu)
-    environment["PYTHONNOUSERSITE"] = "1"
-    executor = job_executor or (
-        lambda job, *, environment: _execute_job(
-            queue,
-            job,
-            environment=environment,
-            retry_failed=retry_failed,
-        )
-    )
-    capacity = evaluate_capacity(queue)
-    capacity.require_safe()
-    _write_queue_runtime(
-        queue,
-        status="running",
-        gate=GateStatus(True, ()),
-        capacity=capacity,
-    )
+    capacity: CapacityStatus | None = None
+    gate = GateStatus(False, ("gate not evaluated",))
     try:
-        for job in queue.followup_jobs:
+        with QueueScopeLock(queue):
+            gate = evaluate_main_gate(queue)
+            capacity = evaluate_capacity(queue)
+            _write_queue_runtime(
+                queue,
+                status="capacity_ready" if capacity.safe else "blocked_capacity",
+                gate=gate,
+                capacity=capacity,
+            )
+            capacity.require_safe()
+            wait_for_main_gate(
+                queue,
+                watcher_factory=watcher_factory,
+                upstream_checker=upstream_checker,
+            )
+            gate = GateStatus(True, ())
+            environment = dict(os.environ)
+            environment["CUDA_VISIBLE_DEVICES"] = str(queue.physical_gpu)
+            environment["PYTHONNOUSERSITE"] = "1"
+            executor = job_executor or (
+                lambda job, *, environment: _execute_job(
+                    queue,
+                    job,
+                    environment=environment,
+                    retry_failed=retry_failed,
+                )
+            )
             capacity = evaluate_capacity(queue)
             capacity.require_safe()
-            counts = _ledger_counts(job.output_root / "batch_state.sqlite3")
-            if counts is not None:
-                _validate_ledger_counts(
-                    job.job_id,
-                    counts,
-                    job.expected_tasks,
-                    QueueExecutionError,
-                    allow_failed=retry_failed,
-                )
-            if counts is None or counts.get("completed", 0) != job.expected_tasks:
-                _write_queue_runtime(
-                    queue,
-                    status="running",
-                    gate=GateStatus(True, ()),
-                    active_job=job.job_id,
-                    capacity=capacity,
-                )
-                executor(job, environment=environment)
-                counts = _ledger_counts(job.output_root / "batch_state.sqlite3")
-                if counts is None:
-                    raise QueueExecutionError(f"{job.job_id} did not create a ledger")
-                _validate_ledger_counts(
-                    job.job_id,
-                    counts,
-                    job.expected_tasks,
-                    QueueExecutionError,
-                )
-                if counts.get("completed", 0) != job.expected_tasks:
-                    raise QueueExecutionError(f"{job.job_id} ended before exact completion")
-            summary = job.output_root / "batch_summary.json"
-            if not summary.is_file():
-                raise QueueExecutionError(f"{job.job_id} did not create batch_summary.json")
-            snapshot_cache_summary(
-                queue.runtime_record,
-                cache_key=job.job_id,
-                summary_path=summary,
+            _write_queue_runtime(
+                queue,
+                status="running",
+                gate=gate,
+                capacity=capacity,
             )
-            _write_queue_runtime(queue, status="running", gate=GateStatus(True, ()))
+            for job in queue.followup_jobs:
+                capacity = evaluate_capacity(queue)
+                capacity.require_safe()
+                counts = _ledger_counts(job.output_root / "batch_state.sqlite3")
+                if counts is not None:
+                    _validate_ledger_counts(
+                        job.job_id,
+                        counts,
+                        job.expected_tasks,
+                        QueueExecutionError,
+                        allow_failed=retry_failed,
+                    )
+                if counts is None or counts.get("completed", 0) != job.expected_tasks:
+                    _write_queue_runtime(
+                        queue,
+                        status="running",
+                        gate=gate,
+                        active_job=job.job_id,
+                        capacity=capacity,
+                    )
+                    executor(job, environment=environment)
+                    counts = _ledger_counts(job.output_root / "batch_state.sqlite3")
+                    if counts is None:
+                        raise QueueExecutionError(f"{job.job_id} did not create a ledger")
+                    _validate_ledger_counts(
+                        job.job_id,
+                        counts,
+                        job.expected_tasks,
+                        QueueExecutionError,
+                    )
+                    if counts.get("completed", 0) != job.expected_tasks:
+                        raise QueueExecutionError(f"{job.job_id} ended before exact completion")
+                summary = job.output_root / "batch_summary.json"
+                if not summary.is_file():
+                    raise QueueExecutionError(f"{job.job_id} did not create batch_summary.json")
+                snapshot_cache_summary(
+                    queue.runtime_record,
+                    cache_key=job.job_id,
+                    summary_path=summary,
+                )
+                _write_queue_runtime(queue, status="running", gate=gate)
+            _write_queue_runtime(
+                queue,
+                status="complete",
+                gate=gate,
+                capacity=evaluate_capacity(queue),
+            )
     except Exception as exc:
+        failure_code = _failure_code(exc)
+        upstream = None
+        if failure_code == "upstream_not_running":
+            try:
+                upstream = upstream_checker(queue)
+            except Exception:
+                upstream = None
         _write_queue_runtime(
             queue,
             status="failure",
-            gate=GateStatus(True, ()),
+            gate=gate,
             error=f"{type(exc).__name__}: {exc}",
+            failure_code=failure_code,
             capacity=capacity,
+            upstream=upstream,
         )
         raise
-    _write_queue_runtime(
-        queue,
-        status="complete",
-        gate=GateStatus(True, ()),
-        capacity=evaluate_capacity(queue),
-    )
 
 
 class InotifyArtifactWatcher:
@@ -418,13 +602,13 @@ class InotifyArtifactWatcher:
     _EVENT = struct.Struct("iIII")
     _MASK = 0x00000002 | 0x00000004 | 0x00000008 | 0x00000080 | 0x00000100
 
-    def __init__(self, paths: Sequence[Path]) -> None:
+    def __init__(self, paths: Sequence[Path], process_pid: int | None = None) -> None:
         self.targets = {path.expanduser().resolve() for path in paths}
         for target in self.targets:
             target.parent.mkdir(parents=True, exist_ok=True)
         libc = ctypes.CDLL(None, use_errno=True)
         self._close = libc.close
-        self.fd = int(libc.inotify_init1(os.O_CLOEXEC))
+        self.fd = int(libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK))
         if self.fd < 0:
             errno = ctypes.get_errno()
             raise OSError(errno, os.strerror(errno))
@@ -436,10 +620,38 @@ class InotifyArtifactWatcher:
                 self.close()
                 raise OSError(errno, os.strerror(errno), parent)
             self.watch_dirs[wd] = parent
+        self.process_fd = -1
+        if process_pid is not None and hasattr(os, "pidfd_open"):
+            try:
+                self.process_fd = os.pidfd_open(process_pid)
+            except ProcessLookupError:
+                self.process_fd = -1
 
-    def wait(self) -> None:
+    def wait(self, timeout_seconds: float | None = None) -> None:
+        poller = select.poll()
+        poller.register(self.fd, select.POLLIN | select.POLLERR | select.POLLHUP)
+        if self.process_fd >= 0:
+            poller.register(
+                self.process_fd,
+                select.POLLIN | select.POLLERR | select.POLLHUP,
+            )
+        deadline = None if timeout_seconds is None else time.monotonic() + timeout_seconds
         while True:
-            data = os.read(self.fd, 65536)
+            timeout_ms = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return
+                timeout_ms = max(1, math.ceil(remaining * 1000))
+            events = poller.poll(timeout_ms)
+            if not events:
+                return
+            if any(fd == self.process_fd for fd, _ in events):
+                return
+            try:
+                data = os.read(self.fd, 65536)
+            except BlockingIOError:
+                continue
             offset = 0
             while offset < len(data):
                 wd, _, _, name_length = self._EVENT.unpack_from(data, offset)
@@ -451,6 +663,9 @@ class InotifyArtifactWatcher:
                     return
 
     def close(self) -> None:
+        if getattr(self, "process_fd", -1) >= 0:
+            os.close(self.process_fd)
+            self.process_fd = -1
         if getattr(self, "fd", -1) >= 0:
             self._close(self.fd)
             self.fd = -1
@@ -522,7 +737,9 @@ def _write_queue_runtime(
     gate: GateStatus,
     active_job: str | None = None,
     error: str = "",
+    failure_code: str = "",
     capacity: CapacityStatus | None = None,
+    upstream: UpstreamStatus | None = None,
 ) -> None:
     payload = load_run_records(queue.runtime_record)
     payload["class_code"] = CLASS_CODE
@@ -540,6 +757,13 @@ def _write_queue_runtime(
         if isinstance(existing_queue, dict)
         else None
     )
+    upstream_payload = (
+        _upstream_payload(upstream)
+        if upstream is not None
+        else existing_queue.get("upstream")
+        if isinstance(existing_queue, dict)
+        else None
+    )
     payload["dependency_queue"] = {
         "schema": QUEUE_SCHEMA,
         "manifest_path": str(queue.source_path),
@@ -547,8 +771,11 @@ def _write_queue_runtime(
         "status": status,
         "active_job": active_job,
         "error": error,
+        "failure_code": failure_code,
         "physical_gpu": queue.physical_gpu,
         "device": queue.device,
+        "lock": _lock_payload(queue),
+        "upstream": upstream_payload,
         "capacity": capacity_payload,
         "gate": {
             "ready": gate.ready,
@@ -636,6 +863,51 @@ def _capacity_payload(status: CapacityStatus) -> dict[str, Any]:
     }
 
 
+def _upstream_payload(status: UpstreamStatus) -> dict[str, Any]:
+    return {
+        "running": status.running,
+        "reason": status.reason,
+        "process_pid": status.process_pid,
+        "heartbeat_age_seconds": status.heartbeat_age_seconds,
+        "seconds_until_stale": status.seconds_until_stale,
+        "recorded_at": utc_now(),
+    }
+
+
+def _lock_payload(queue: QueueManifest) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    if queue.lock_path.is_file():
+        try:
+            loaded = json.loads(queue.lock_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                metadata = loaded
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+    return {"path": str(queue.lock_path), **metadata}
+
+
+def _failure_code(exc: Exception) -> str:
+    if "upstream_not_running" in str(exc):
+        return "upstream_not_running"
+    if isinstance(exc, QueueLockError):
+        return "lock_unavailable"
+    if isinstance(exc, CapacityFailure):
+        return "capacity_gate"
+    if isinstance(exc, GateFailure):
+        return "gate_failure"
+    return "queue_execution"
+
+
+def _pid_is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def _ledger_counts(path: Path) -> dict[str, int] | None:
     if not path.is_file():
         return None
@@ -674,6 +946,33 @@ def _load_gate_job(data: Any) -> GateJob:
         ledger=Path(_required_str(data, "ledger")).expanduser(),
         expected_tasks=_positive_int(data, "expected_tasks"),
         runtime_cache_key=_required_str(data, "runtime_cache_key"),
+    )
+
+
+def _load_upstream_config(data: dict[str, Any]) -> UpstreamConfig:
+    heartbeat_max_age = data.get("heartbeat_max_age_seconds")
+    if (
+        not isinstance(heartbeat_max_age, int | float)
+        or isinstance(heartbeat_max_age, bool)
+        or heartbeat_max_age <= 0
+    ):
+        raise ValueError("heartbeat_max_age_seconds must be positive")
+    heartbeat_values = _required_list(data, "heartbeat_paths")
+    if not heartbeat_values or not all(
+        isinstance(item, str) and item for item in heartbeat_values
+    ):
+        raise ValueError("heartbeat_paths must contain non-empty strings")
+    heartbeat_paths = tuple(Path(item).expanduser() for item in heartbeat_values)
+    pid = data.get("pid")
+    if pid is not None and (
+        not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0
+    ):
+        raise ValueError("upstream.pid must be a positive integer when provided")
+    return UpstreamConfig(
+        tmux_session=_required_str(data, "tmux_session"),
+        pid=pid,
+        heartbeat_max_age_seconds=float(heartbeat_max_age),
+        heartbeat_paths=heartbeat_paths,
     )
 
 

@@ -231,3 +231,43 @@ def test_build_prompt_pool_writes_counts_provenance_and_placeholder_free_exports
             "{" not in template["template_text"] and "}" not in template["template_text"]
             for template in subset_yaml["templates"]
         )
+
+
+@pytest.mark.parametrize(
+    ("mutation", "match"),
+    [
+        ("duplicate", "8 unique"),
+        ("foreign_id", "prompt_id is not in pool128"),
+        ("mismatched_text", "template_text does not match pool128"),
+    ],
+)
+def test_verify_prompt_pool_rejects_invalid_seed_subset_membership(
+    tmp_path: Path,
+    mutation: str,
+    match: str,
+) -> None:
+    raw_path = tmp_path / mutation / "raw.jsonl"
+    output_dir = tmp_path / mutation / "pool"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_jsonl(raw_path, _raw_candidates())
+    build_prompt_pool(raw_path, output_dir)
+    subset_path = output_dir / f"subset_p8_seed{SUBSET_SEEDS[0]}.yaml"
+    subset = yaml.safe_load(subset_path.read_text(encoding="utf-8"))
+    if mutation == "duplicate":
+        subset["templates"][1] = dict(subset["templates"][0])
+    elif mutation == "foreign_id":
+        subset["templates"][0]["prompt_id"] = "foreign_prompt_id"
+    else:
+        pool = [
+            json.loads(line)
+            for line in (output_dir / "pool128.jsonl").read_text(encoding="utf-8").splitlines()
+        ]
+        subset["templates"][0]["template_text"] = next(
+            row["template_text"]
+            for row in pool
+            if row["prompt_id"] != subset["templates"][0]["prompt_id"]
+        )
+    subset_path.write_text(yaml.safe_dump(subset, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(ValueError, match=match):
+        verify_prompt_pool_artifacts(output_dir)

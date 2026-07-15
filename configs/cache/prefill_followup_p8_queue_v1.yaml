@@ -5,6 +5,7 @@ device: cuda:0
 python: /home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python
 extract_script: scripts/extract_prefill_batch.py
 runtime_record: outputs/run_records/prefill_followup_p8_queue_v1.json
+lock_path: outputs/prefill_cache/runtime_locks/prefill_followup_p8_queue_v1.lock
 capacity_gate:
   filesystem_path: outputs
   max_projected_utilization: 0.90
@@ -38,6 +39,20 @@ capacity_gate:
           expected_tasks: 53808
 main_gate:
   runtime_record: outputs/run_records/prefill_main_p8_v1.json
+  upstream:
+    tmux_session: mprisk-main-p8-queue
+    heartbeat_max_age_seconds: 300
+    heartbeat_paths:
+      - outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717/batch_state.sqlite3
+      - outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717/batch_state.sqlite3-wal
+      - outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717/batch_summary.json
+      - outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717/batch_state.sqlite3
+      - outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717/batch_state.sqlite3-wal
+      - outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717/batch_summary.json
+      - outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717/batch_state.sqlite3
+      - outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717/batch_state.sqlite3-wal
+      - outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717/batch_summary.json
+      - outputs/run_records/prefill_main_p8_v1.json
   jobs:
     - model_key: qwen3_vl_8b
       ledger: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717/batch_state.sqlite3

@@ -228,8 +228,11 @@ def verify_prompt_pool_artifacts(output_dir: str | Path) -> dict[str, Any]:
         raise ValueError(f"raw384.jsonl must contain 384 rows, got {len(raw384)}")
     if len(pool128) != GLOBAL_POOL_SIZE:
         raise ValueError(f"pool128.jsonl must contain 128 rows, got {len(pool128)}")
+    if len({row["prompt_id"] for row in pool128}) != GLOBAL_POOL_SIZE:
+        raise ValueError("pool128.jsonl contains duplicate prompt_id values")
     if len({row["template_text"] for row in pool128}) != GLOBAL_POOL_SIZE:
         raise ValueError("pool128.jsonl contains duplicate template_text values")
+    pool_by_id = {str(row["prompt_id"]): str(row["template_text"]) for row in pool128}
 
     for row in pool128:
         text = normalize_prompt(str(row.get("template_text", "")))
@@ -246,7 +249,18 @@ def verify_prompt_pool_artifacts(output_dir: str | Path) -> dict[str, Any]:
         templates = payload.get("templates", [])
         if len(templates) != SUBSET_SIZE:
             raise ValueError(f"{subset_path.name} must contain 8 templates, got {len(templates)}")
+        prompt_ids = [str(row.get("prompt_id", "")) for row in templates]
+        template_texts = [str(row.get("template_text", "")) for row in templates]
+        if len(set(prompt_ids)) != SUBSET_SIZE or len(set(template_texts)) != SUBSET_SIZE:
+            raise ValueError(f"{subset_path.name} must contain 8 unique prompt ID/text pairs")
         for row in templates:
+            prompt_id = str(row.get("prompt_id", ""))
+            if prompt_id not in pool_by_id:
+                raise ValueError(f"{subset_path.name} prompt_id is not in pool128: {prompt_id}")
+            if str(row.get("template_text", "")) != pool_by_id[prompt_id]:
+                raise ValueError(
+                    f"{subset_path.name} template_text does not match pool128: {prompt_id}"
+                )
             text = normalize_prompt(str(row.get("template_text", "")))
             reason = _content_rejection_reason(text)
             if reason is not None:

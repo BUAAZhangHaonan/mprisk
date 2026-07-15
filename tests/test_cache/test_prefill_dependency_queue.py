@@ -1,17 +1,23 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+import mprisk.cache.prefill_dependency_queue as dependency_queue
 from mprisk.cache.prefill_dependency_queue import (
     CapacityFailure,
     GateFailure,
+    QueueLockError,
+    QueueScopeLock,
+    UpstreamStatus,
     evaluate_capacity,
     evaluate_main_gate,
+    evaluate_upstream_activity,
     load_queue_manifest,
     run_dependency_queue,
     wait_for_main_gate,
@@ -86,6 +92,7 @@ device: cuda:0
 python: /test/python
 extract_script: scripts/extract_prefill_batch.py
 runtime_record: {tmp_path / 'followup-runtime.json'}
+lock_path: {tmp_path / 'followup.lock'}
 capacity_gate:
   filesystem_path: {tmp_path}
   max_projected_utilization: 0.9
@@ -99,6 +106,12 @@ capacity_gate:
           expected_tasks: {expected_tasks}
 main_gate:
   runtime_record: {tmp_path / 'main-runtime.json'}
+  upstream:
+    tmux_session: test-main-queue
+    pid: {os.getpid()}
+    heartbeat_max_age_seconds: 300
+    heartbeat_paths:
+      - {tmp_path / 'main' / 'batch_state.sqlite3'}
   jobs:
     - model_key: main_model
       ledger: {tmp_path / 'main' / 'batch_state.sqlite3'}
@@ -148,6 +161,9 @@ def test_versioned_followup_manifest_freezes_six_ordered_jobs() -> None:
         53808,
     ] * 2
     assert len({job.output_root for job in queue.followup_jobs}) == 6
+    assert queue.lock_path.name == "prefill_followup_p8_queue_v1.lock"
+    assert queue.main_gate.upstream.tmux_session == "mprisk-main-p8-queue"
+    assert len(queue.main_gate.upstream.heartbeat_paths) == 10
 
 
 def test_gate_requires_exact_sqlite_completion_and_runtime_records(tmp_path: Path) -> None:
@@ -219,6 +235,110 @@ def test_gate_hard_fails_on_failed_or_wrong_sized_ledger(tmp_path: Path) -> None
         evaluate_main_gate(wrong_queue)
 
 
+def test_queue_scope_lock_is_exclusive_and_released(tmp_path: Path) -> None:
+    queue = load_queue_manifest(_write_manifest(tmp_path))
+
+    with QueueScopeLock(queue):
+        with pytest.raises(QueueLockError, match="already locked"):
+            with QueueScopeLock(queue):
+                pytest.fail("duplicate lock unexpectedly acquired")
+
+    with QueueScopeLock(queue):
+        assert queue.lock_path.is_file()
+
+
+def test_lock_and_capacity_failures_write_atomic_runtime_records(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    locked_queue = load_queue_manifest(_write_manifest(tmp_path / "locked"))
+    with QueueScopeLock(locked_queue):
+        with pytest.raises(QueueLockError, match="already locked"):
+            run_dependency_queue(locked_queue)
+    locked_runtime = json.loads(locked_queue.runtime_record.read_text(encoding="utf-8"))
+    assert locked_runtime["dependency_queue"]["status"] == "failure"
+    assert locked_runtime["dependency_queue"]["failure_code"] == "lock_unavailable"
+
+    capacity_queue = load_queue_manifest(_write_manifest(tmp_path / "capacity"))
+    full_filesystem = SimpleNamespace(
+        f_frsize=1,
+        f_blocks=1000,
+        f_bfree=500,
+        f_bavail=500,
+        f_files=1000,
+        f_ffree=500,
+        f_favail=500,
+    )
+    blocked = evaluate_capacity(capacity_queue, statvfs_fn=lambda _: full_filesystem)
+    monkeypatch.setattr(dependency_queue, "evaluate_capacity", lambda _: blocked)
+    with pytest.raises(CapacityFailure):
+        run_dependency_queue(capacity_queue)
+    capacity_runtime = json.loads(capacity_queue.runtime_record.read_text(encoding="utf-8"))
+    assert capacity_runtime["dependency_queue"]["status"] == "failure"
+    assert capacity_runtime["dependency_queue"]["failure_code"] == "capacity_gate"
+
+
+def test_dead_upstream_hard_fails_and_writes_atomic_runtime_record(tmp_path: Path) -> None:
+    queue = load_queue_manifest(_write_manifest(tmp_path))
+    dead = UpstreamStatus(
+        running=False,
+        reason="tmux session is missing",
+        heartbeat_age_seconds=None,
+        seconds_until_stale=0,
+    )
+
+    with pytest.raises(GateFailure, match="upstream_not_running"):
+        run_dependency_queue(queue, upstream_checker=lambda _: dead)
+
+    runtime = json.loads(queue.runtime_record.read_text(encoding="utf-8"))
+    assert runtime["dependency_queue"]["status"] == "failure"
+    assert runtime["dependency_queue"]["failure_code"] == "upstream_not_running"
+    assert "tmux session is missing" in runtime["dependency_queue"]["error"]
+
+
+def test_upstream_activity_requires_tmux_pid_and_fresh_heartbeat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queue = load_queue_manifest(_write_manifest(tmp_path))
+    heartbeat = queue.main_gate.upstream.heartbeat_paths[0]
+    heartbeat.parent.mkdir(parents=True, exist_ok=True)
+    heartbeat.touch()
+    monkeypatch.setattr(
+        dependency_queue.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=0,
+            stdout=f"{os.getpid()}\n",
+            stderr="",
+        ),
+    )
+
+    alive = evaluate_upstream_activity(queue)
+    assert alive.running is True
+    assert alive.process_pid == os.getpid()
+
+    stale_mtime = heartbeat.stat().st_mtime - 301
+    os.utime(heartbeat, (stale_mtime, stale_mtime))
+    monkeypatch.setattr(dependency_queue.time, "time", lambda: stale_mtime + 301)
+    stale = evaluate_upstream_activity(queue)
+    assert stale.running is False
+    assert "heartbeat is stale" in stale.reason
+
+    monkeypatch.setattr(
+        dependency_queue.subprocess,
+        "run",
+        lambda *args, **kwargs: SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="can't find session",
+        ),
+    )
+    missing = evaluate_upstream_activity(queue)
+    assert missing.running is False
+    assert missing.reason == "can't find session"
+
+
 def test_waiter_rechecks_exact_gate_after_filesystem_event(tmp_path: Path) -> None:
     queue = load_queue_manifest(_write_manifest(tmp_path))
     gate = queue.main_gate.jobs[0]
@@ -226,7 +346,7 @@ def test_waiter_rechecks_exact_gate_after_filesystem_event(tmp_path: Path) -> No
     class FakeWatcher:
         waits = 0
 
-        def wait(self) -> None:
+        def wait(self, timeout_seconds: float | None = None) -> None:
             self.waits += 1
             _write_ledger(gate.ledger, ["completed", "completed"])
             _write_runtime_record(
@@ -238,7 +358,17 @@ def test_waiter_rechecks_exact_gate_after_filesystem_event(tmp_path: Path) -> No
             return None
 
     watcher = FakeWatcher()
-    wait_for_main_gate(queue, watcher_factory=lambda _: watcher)
+    alive = UpstreamStatus(
+        running=True,
+        reason="",
+        heartbeat_age_seconds=0,
+        seconds_until_stale=300,
+    )
+    wait_for_main_gate(
+        queue,
+        watcher_factory=lambda _, __: watcher,
+        upstream_checker=lambda _: alive,
+    )
     assert watcher.waits == 1
 
 
