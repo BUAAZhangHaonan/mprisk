@@ -1,0 +1,42 @@
+{
+  "artifacts": {
+    "attempts": {
+      "path": "attempts.jsonl",
+      "sha256": "f01ff5fe443f85f815eab2d1f04c0a30c192b81be1688ba1f245682e5e1b0d48"
+    },
+    "failures": {
+      "path": "failures.jsonl",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "manifest": {
+      "path": "manifest.jsonl",
+      "sha256": "1c178cb7acfb80359ecad01f893c094f442179434f9f0a92cc8bca98e9e9083a"
+    },
+    "summary": {
+      "path": "summary.json",
+      "sha256": "07fd65330670ed0d52feffb63cdd15d67bc6bf485ffe9dd449a0dc3722e7e203"
+    }
+  },
+  "canonical_prompt": "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning.",
+  "schema": "mprisk_qwen_omni_m12_description_provenance_v1",
+  "signature": {
+    "config_sha256": "cc7ce88057bd469221b3b7217c6ff98c4fde22453f1d683a4850955eb907ddb4",
+    "counts": {
+      "VA": 21,
+      "VT": 141
+    },
+    "eligible_sha256": "affbcf47fbbc646587846ea935cfbb2a473535370dd9008841042112a2dba8b8",
+    "generation_policy": {
+      "do_sample": false,
+      "num_beams": 1
+    },
+    "max_new_tokens": 32,
+    "model_config_sha256": "f85f5a078951471e32d6ce5dd169acf619e3480c83daf195e5016ef3eb89b1a9",
+    "model_path": "/home/team/lvshuyang/Models/Qwen/Qwen2.5-Omni-7B",
+    "prompt_sha256": "0fff4fff53a2ed94b418b5b6738e909d2f4be339d8e76458824ee7cea3023ed1",
+    "schema": "mprisk_qwen_omni_m12_description_signature_v1",
+    "task_count": 162,
+    "video_fps": 1.0,
+    "weight_index_sha256": "5428b3927da9f3bd525967db81936642e4e068afc3f8f2dfaf2a9066c9bef8e2"
+  }
+}

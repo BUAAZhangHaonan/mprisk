@@ -52,3 +52,14 @@ The formal CLI smoke run on 2026-07-15 used `gen:accept_a_svt:S0001` and
   Token IDs: `785,1697,7952,311,387,304,264,30367,323,2213,1584,13,151645`.
 - VA: `The person appears to be feeling anxious.`
   Token IDs: `785,1697,7952,311,387,8266,37000,13,151645`.
+
+## Frozen Full Run
+
+The formal GPU 1 run completed on 2026-07-15 with 162 successful records: VT141 and VA21.
+Every record finished on EOS and has non-empty generated token IDs. The generation-time sum was
+91.256 seconds, the peak allocated GPU memory was `18318550016` bytes, and the frozen manifest
+SHA-256 is `1c178cb7acfb80359ecad01f893c094f442179434f9f0a92cc8bca98e9e9083a`.
+
+The tracked full-run artifacts are in
+`outputs/diagnostics/qwen2_5_omni_7b_m12_v1/`. Runtime SQLite state, WAL files, and the tmux log
+remain untracked.
