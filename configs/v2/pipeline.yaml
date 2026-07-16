@@ -2,8 +2,8 @@ schema: mprisk_v2_pipeline_v1
 seed: 20260717
 output_root: outputs/v2
 split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl
-kappa_quantile: 0.80
-tau_quantile: 0.50
+kappa_quantile: 0.95
+tau_quantile: 0.95
 max_epochs: 300
 patience: 30
 device: cpu
