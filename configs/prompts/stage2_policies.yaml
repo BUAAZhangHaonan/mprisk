@@ -1,0 +1,6 @@
+schema: mprisk_stage2_policies_v1
+policies:
+  Confusion: acknowledge uncertainty and avoid strong affective claims
+  Consensus: respond to the shared affective signal
+  Balanced: mention both plausible affective readings
+  Dominant: respond to the dominant signal while preserving the weaker cue

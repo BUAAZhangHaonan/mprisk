@@ -1,0 +1,9 @@
+schema: mprisk_experiment_v1
+key: main_va
+protocol: va
+datasets: [ch_sims_v2]
+sample_types: [Conflict, Aligned]
+models:
+  - gemma4_12b
+  - phi4_multimodal
+  - qwen2_5_omni_7b

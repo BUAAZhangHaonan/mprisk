@@ -1,0 +1,43 @@
+\section{Related Work}
+
+\subsection{Multimodal Affective Understanding and Conflict}
+
+Multimodal affect datasets such as CH-SIMS v2 provide the empirical basis for studying
+how visual, textual, and acoustic cues jointly express sentiment \cite{liu2022chsims}.
+CA-MER studies realistic audio--visual emotion conflicts and documents systematic
+modality bias in multimodal emotion reasoning \cite{han2025benchmarking}. EmoMM
+extends conflict-centered evaluation to aligned, conflict, and missing-modality
+settings and analyzes model behavior under these conditions \cite{sun2026emomm}.
+Most task formulations ultimately score an output label or description. Our focus is
+instead the relation among two unimodal states and their joint state at \(t_0\) under
+controlled Conflict and Aligned inputs. Conflict/Aligned is used as input-side
+relation supervision; subsequent Misread behavior remains a separate outcome.
+
+\subsection{Pre-generation State Analysis and Uncertainty}
+
+Semantic uncertainty measures invariance in generated meanings
+\cite{kuhn2024semanticuncertainty}. In contrast, our state is measured at \(t_0\) from
+registered hidden-state trajectories, before any diagnostic description is generated.
+HALP shows that pre-generation internal representations can support probes of later
+hallucination outcomes \cite{kogilathota-etal-2026-halp}. This supports the broader
+premise that subsequent behavior can be readable before decoding, but hallucination
+is not affective Misread and our objective is not a detector. We characterize the
+three-condition structure first and examine its behavioral association separately.
+We do not turn the resulting coordinates into one uncertainty or Misread score.
+State Dispersion, Modality Split, and signed Joint Lean describe prompt stability,
+unimodal separation, and joint direction, respectively.
+
+\subsection{Frozen Representation Evaluation}
+
+Our learned representations are evaluated only after the Conflict/Aligned encoders
+are frozen. A controlled MLP probe is trained and tested within Conflict samples to
+measure association with later Misread labels. Single-Point, Trajectory MLP, and TME
+share data, supervision budgets, probes, and test intersections, while retaining
+their native representation structures and objectives. This evaluates each complete
+method rather than attributing a difference to one unablated component.
+
+\subsection{State-guided Response}
+
+State-guided response is an application of state analysis rather than the central
+claim. It is evaluated by response-level Affective Misattribution and cue preservation;
+it is not presented as correcting the base model's earlier Diagnostic Misread.

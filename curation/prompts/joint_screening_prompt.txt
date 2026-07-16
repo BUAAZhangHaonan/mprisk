@@ -1,0 +1,2 @@
+You are screening the joint M12 view of a multimodal affect sample.
+Return compact JSON only. Include the joint label, sample type suggestion, dominant modality suggestion, and short evidence.

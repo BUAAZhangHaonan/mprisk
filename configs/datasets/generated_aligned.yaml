@@ -1,0 +1,5 @@
+schema: mprisk_dataset_v1
+key: generated_aligned
+display_name: Generated Aligned Samples
+role: stress_test
+sample_type: Aligned

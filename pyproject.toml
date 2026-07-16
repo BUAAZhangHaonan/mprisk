@@ -1,0 +1,70 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mprisk"
+version = "0.1.0"
+description = "Paper engineering repository for multimodal pre-generation misjudgment risk analysis."
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "MIT" }
+authors = [
+  { name = "BUAAZhangHaonan" }
+]
+dependencies = [
+  "fastapi>=0.115",
+  "httpx>=0.28",
+  "joblib>=1.4",
+  "jsonschema>=4.23",
+  "matplotlib>=3.10",
+  "numpy>=2.2",
+  "pandas>=2.2",
+  "pyarrow>=19.0",
+  "pydantic>=2.11",
+  "pyyaml>=6.0",
+  "safetensors>=0.5",
+  "scikit-learn>=1.6",
+  "scipy>=1.15",
+  "seaborn>=0.13",
+  "torch>=2.6",
+  "umap-learn==0.5.12",
+  "tqdm>=4.67",
+  "uvicorn>=0.34"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6",
+  "mypy>=1.8"
+]
+model = [
+  "accelerate>=1.6",
+  "torch>=2.6",
+  "torchvision>=0.21",
+  "torchaudio>=2.6",
+  "transformers>=4.57",
+  "qwen-vl-utils",
+  "timm>=1.0",
+  "sentencepiece>=0.2"
+]
+qwen-omni = [
+  "accelerate>=1.6,<2",
+  "qwen-omni-utils[decord]==0.0.9",
+  "transformers>=4.57,<5"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "curation/tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

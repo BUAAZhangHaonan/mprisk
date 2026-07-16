@@ -1,0 +1,8 @@
+schema: mprisk_experiment_v1
+key: baselines
+baselines:
+  - unimodal_disagreement
+  - output_entropy
+  - semantic_uncertainty
+  - classifier_risk
+  - posthoc_full_response

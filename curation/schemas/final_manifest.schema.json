@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MPRisk Final Manifest Row",
+  "type": "object",
+  "required": ["sample_id", "source_dataset", "source_id", "protocol", "sample_type", "split_group_id", "views"],
+  "properties": {
+    "sample_id": {"type": "string"},
+    "source_dataset": {"type": "string"},
+    "source_id": {"type": "string"},
+    "protocol": {"type": "string"},
+    "sample_type": {"enum": ["Conflict", "Ambiguous", "Aligned"]},
+    "split_group_id": {"type": "string"},
+    "views": {
+      "type": "object",
+      "required": ["M1", "M2", "M12"]
+    },
+    "dominant_modality": {"enum": ["M1", "M2", "balanced", "unclear"]},
+    "annotator_agreement": {"type": "number"},
+    "source_is_generated": {"type": "boolean"},
+    "use_in_main": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

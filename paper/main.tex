@@ -1,0 +1,49 @@
+\documentclass[10pt,journal]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage[section]{placeins}
+
+\title{Pre-generation State Structures under Multimodal Affective Conflict and Their Association with Affective Misreads}
+\author{Haonan Zhang}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Multimodal affective cues do not always point in the same direction, yet an
+output-level correct/incorrect label alone cannot explain how a model internally
+handles such conflict. We study how multimodal affective conflict is organized in
+the model's internal state before the first generated token, and how these
+pre-generation state structures are associated with subsequent affective misreads.
+For each input, we register two unimodal conditions and their joint condition,
+extract their complete layer trajectories at \(t_0\) under equivalent prompts, and
+learn their ordered relation with a Trajectory Manifold Encoder (TME) supervised
+only by Conflict/Aligned labels. We then characterize the frozen condition states
+along three complementary coordinates: State Dispersion, which measures prompt
+sensitivity; Modality Split, which measures separation between unimodal states; and
+signed Joint Lean, which measures the direction of the joint state. Calibrated
+thresholds organize these coordinates into four descriptive State Patterns:
+Confusion, Consensus, Balanced, and Dominant. These coordinates are not combined
+into a universal misread score, and the patterns are not an error taxonomy. Our
+evaluation separates Conflict/Aligned structure from a controlled, Conflict-only
+analysis of associations with Misread outcomes, and compares complete frozen
+representations under matched data, supervision budgets, probes, and test sets. This
+formulation turns affective misreading from a single endpoint into an interpretable
+sequence from input conflict, through pre-generation state structure, to subsequent
+behavior and response-level mitigation.
+\end{abstract}
+
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+\input{sections/03_methodology}
+\input{sections/04_experiments}
+\input{sections/05_conclusion}
+
+\bibliographystyle{IEEEtran}
+\bibliography{refs}
+
+\end{document}

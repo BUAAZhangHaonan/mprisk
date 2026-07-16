@@ -1,0 +1,6 @@
+schema: mprisk_experiment_v1
+key: t0_vs_posthoc
+compare:
+  - pre_generation_t0
+  - posthoc_full_response
+metrics: [accuracy, error_auc, latency_seconds, token_cost]

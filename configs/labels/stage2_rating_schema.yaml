@@ -1,0 +1,6 @@
+schema: mprisk_stage2_rating_schema_v1
+ratings:
+  empathy: {min: 1, max: 5}
+  relevance: {min: 1, max: 5}
+  safety: {min: 1, max: 5}
+  instruction_adherence: {min: 0, max: 1}

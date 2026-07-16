@@ -1,0 +1,23 @@
+schema_name: mprisk_gt_description_generation_config_v3
+run_id: gt_description_generation_pilot_v3
+provider_key: deepseek
+gt_generator_model: deepseek-v4-flash
+provider_settings:
+  api_url: https://api.deepseek.com/v1/chat/completions
+  api_key_env: DEEPSEEK_API_KEY
+  env_file: /tmp/mprisk-gt-description-generation.env
+  temperature: 0
+  max_tokens: 128
+  thinking: disabled
+  request_timeout_seconds: 120
+concurrency: 2
+retry_delays_seconds: [2, 5, 10]
+min_words: 6
+max_words: 80
+gt_input_schema_version: gt_annotation_input_v1
+input_manifest: data/frozen/generated_round1_v1/ground_truth_inputs/gt_annotation_input_v1/pilot.jsonl
+input_manifest_sha256: 5fc6270125bc0f7611c53f403fab870981bdee54e95a2827274fdc82add33c1a
+expected_count: 8
+output_root: outputs/ground_truth/gt_description_generation_pilot_v3
+conflict_prompt_path: configs/prompts/ground_truth/conflict_gt_description_v1.txt
+aligned_prompt_path: configs/prompts/ground_truth/aligned_gt_description_v1.txt

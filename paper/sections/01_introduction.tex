@@ -1,0 +1,99 @@
+\section{Introduction}
+
+Multimodal models increasingly interpret people from several affective channels at
+once. In favorable cases, facial behavior, language, and voice reinforce one another.
+In harder cases, a positive utterance may accompany visible strain, or a calm face may
+co-occur with distressed speech. Such conflict matters because a model can produce a
+fluent response while grounding its affective interpretation in the wrong cue. An
+output-level label tells us whether this affective misread occurred, but not what
+internal configuration preceded it. Multimodal affect datasets such as CH-SIMS v2
+provide a basis for studying how these cues interact \cite{liu2022chsims}; our concern
+is the organization of that interaction inside a generative model before it speaks.
+Recent conflict-centered benchmarks show systematic modality bias and performance
+degradation under affective conflict \cite{han2025benchmarking,sun2026emomm}, but
+output accuracy and attention summaries do not by themselves describe the geometry
+of the complete pre-generation relation.
+
+We therefore ask a two-part question: how is multimodal affective conflict organized
+in the model's internal state before the first generated token, and how are these
+pre-generation state structures associated with subsequent affective misreads? This
+question differs from moving a binary error classifier to an earlier time step. It
+also differs from learning another Conflict detector. Conflict/Aligned describes a
+property of the registered multimodal input, whereas Misread/Non-misread describes a
+model's later behavior relative to a reference affect description. We use the former
+to learn a stable relation space and reserve the latter for an independent behavioral
+analysis. Misread labels are never used to train the state encoder.
+
+Our measurement point is \(t_0\), the last conditioning state before the first
+generated token. For every sample, we construct two unimodal conditions \(M_1\) and
+\(M_2\), together with the joint condition \(M_{12}\), and extract their complete
+layer trajectories under \(P\) registered, semantically equivalent prompts. The
+Trajectory Manifold Encoder (TME) maps each condition trajectory to a unit-sphere
+embedding and maps the ordered three-condition relation to a sample-level relation
+embedding. TME learns this relation from sample-level Conflict/Aligned supervision;
+the class label is not copied onto any individual condition trajectory. After
+training, the encoder is frozen. Its condition-level embeddings and sample-level
+relation embeddings are cached separately because they answer different questions.
+
+The condition-level embeddings define three complementary State Indices. State
+Dispersion \(S\) asks whether the internal state remains stable when the same task is
+phrased in equivalent ways. Modality Split \(D\) asks whether the two unimodal inputs
+pull the model toward distinct internal directions. Signed Joint Lean \(R\) asks
+which unimodal direction the joint input approaches; by convention, \(R>0\) denotes
+V-lean and \(R<0\) denotes T/A-lean. Put simply, \(S\) asks whether the model stands
+steadily, \(D\) asks whether the modalities pull apart, and \(R\) asks which way the
+joint state leans. They are coordinates of different phenomena, not three versions of
+one severity variable, and we do not combine them into a universal Misread
+probability.
+
+Aligned calibration data partition these coordinates into four State Patterns.
+Confusion means that equivalent prompts move the state too much to assign a stable
+direction. Among stable states, Consensus means that the unimodal states do not
+separate significantly; Balanced means that they separate but the joint state does
+not lean significantly toward either one; and Dominant means that a significant
+split is accompanied by a significant directional lean. State Pattern is therefore
+a mechanism-motivated descriptive partition of pre-generation configurations, not a
+taxonomy of errors. A Confusion state may still yield a correct description, and a Dominant state
+may lean toward either the reference-supported cue or a misleading surface cue.
+Likewise, Consensus may reflect genuinely aligned evidence or a failure to encode an
+objective conflict. The patterns describe how a model organizes evidence, not whether
+its eventual answer must be right or wrong.
+
+This distinction determines our evidence chain. First, we measure whether Conflict
+inputs have a different prevalence of affective misreads from Aligned inputs. Second,
+we test whether Conflict and Aligned inputs differ in their State Index and State
+Pattern distributions. Third, within Conflict samples only, we measure how \(S\),
+\(D\), State Pattern, and the direction of \(R\) are empirically associated with
+Misread outcomes. Signed Joint Lean primarily explains direction; its absolute value
+is not treated as a general error score. Fourth, we freeze each learned representation
+and train the same controlled Conflict-only Misread probe to test how much behavioral
+information the representation retains. Finally, we evaluate whether state-guided
+responses reduce response-level Affective Misattribution by preserving overlooked
+cues. This last step does not claim to change the base model's earlier Diagnostic
+Misread.
+
+Our representation comparison follows the same boundary. Single-Point,
+Trajectory MLP, and TME use the same master split, Conflict/Aligned data, Conflict
+supervision budget, three conditions, probe architecture, probe budget, and held-out
+intersection. Each method nevertheless retains its native representation and training
+objective: the two baselines use ordinary classifiers, whereas TME uses its spherical
+ordered-relation module and Proxy Anchor objective. The comparison therefore concerns
+each complete method. Without component ablations, an advantage cannot be assigned
+solely to full-layer trajectories, the manifold geometry, or Proxy Anchor.
+
+The contributions of this work are as follows:
+\begin{itemize}
+  \item We formulate affective conflict analysis as the measurement of
+  pre-generation state structure and its association with subsequent Misread
+  behavior, explicitly separating input-side Conflict/Aligned supervision from
+  output-side Misread evaluation.
+  \item We introduce TME and a registered three-condition, multi-prompt protocol that
+  exports condition-level spherical states and sample-level relation embeddings at
+  \(t_0\).
+  \item We define State Dispersion, Modality Split, signed Joint Lean, and four
+  calibrated State Patterns that explain complementary internal phenomena without
+  constructing a scalar error score or an ordered error hierarchy.
+  \item We establish a matched evaluation of complete frozen representations with a
+  Conflict-only Misread probe, and separate this representation analysis from the
+  downstream evaluation of response-level Affective Misattribution.
+\end{itemize}

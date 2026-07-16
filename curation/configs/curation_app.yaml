@@ -1,0 +1,5 @@
+schema: mprisk_curation_app_config_v1
+database_path: curation/outputs/curation.sqlite
+exports_dir: curation/outputs/exports
+default_queue_limit: 100
+require_two_annotators: true

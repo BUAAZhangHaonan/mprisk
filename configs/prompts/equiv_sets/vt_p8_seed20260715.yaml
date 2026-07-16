@@ -1,0 +1,42 @@
+schema: mprisk_equiv_prompt_set_v1
+key: vt_p8_seed20260715
+protocol: vt
+version: v1
+active: true
+selection_seed: 20260715
+selection_seed_semantics: immutable_prompt_subset_selection_seed_not_run_date
+source_subset: data/processed/prompt_banks/pregen_risk_v1_agent/subset_p8_seed20260715.yaml
+canonical_prompt: "Based on the complete input, describe the person's overall emotional state in one concise sentence. Do not address the person, give advice, or explain your reasoning."
+templates:
+  - prompt_id: pregen_risk_v1_p004
+    role: user
+    enabled: true
+    template_text: "In a single concise sentence, capture the individual's overall emotional condition from the entire presented input."
+  - prompt_id: pregen_risk_v1_p019
+    role: user
+    enabled: true
+    template_text: "Set out one concise sentence describing the individual's overall emotional condition from the full provided input."
+  - prompt_id: pregen_risk_v1_p050
+    role: user
+    enabled: true
+    template_text: "In a single concise sentence, present the person's overall emotional state from the full available input."
+  - prompt_id: pregen_risk_v1_p062
+    role: user
+    enabled: true
+    template_text: "Give a concise sentence describing the person's overall emotional condition from the complete received input."
+  - prompt_id: pregen_risk_v1_p064
+    role: user
+    enabled: true
+    template_text: "Render a concise sentence describing the individual's overall emotional condition from the full input."
+  - prompt_id: pregen_risk_v1_p071
+    role: user
+    enabled: true
+    template_text: "From the complete available input, report the individual's overall emotional state in one concise sentence."
+  - prompt_id: pregen_risk_v1_p089
+    role: user
+    enabled: true
+    template_text: "Draft a single concise sentence describing the individual's overall emotional condition from the entire given input."
+  - prompt_id: pregen_risk_v1_p115
+    role: user
+    enabled: true
+    template_text: "Based on the full presented input, describe the individual's overall emotional state in one concise sentence."
