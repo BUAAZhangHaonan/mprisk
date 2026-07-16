@@ -1,4 +1,4 @@
-"""DeepSeek provider adapter for strict, resumable GT Description generation."""
+"""Provider-independent, strict, resumable GT Description generation."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
@@ -117,14 +116,6 @@ class GTDescriptionGenerationResult:
     output_root: Path
 
 
-class TransientAPIError(RuntimeError):
-    pass
-
-
-class PermanentAPIError(RuntimeError):
-    pass
-
-
 class GTDescriptionValidationError(ValueError):
     pass
 
@@ -136,17 +127,6 @@ def load_config(path: str | Path) -> GTDescriptionGenerationConfig:
             f"Unsupported GT Description generation config: {payload.get('schema_name')!r}"
         )
     return GTDescriptionGenerationConfig.model_validate(payload)
-
-
-def load_api_key(config: GTDescriptionGenerationConfig) -> str:
-    value = os.environ.get(config.api_key_variable)
-    if value:
-        return value
-    values = _read_env_file(config.env_file)
-    value = values.get(config.api_key_variable)
-    if value:
-        return value
-    raise ValueError("DEEPSEEK_API_KEY is required for GT Description generation")
 
 
 def prepare_tasks(
@@ -223,57 +203,6 @@ def prepare_tasks(
             )
         )
     return tasks
-
-
-class DeepSeekClient:
-    """Provider adapter; GT Description task semantics remain provider-independent."""
-
-    def __init__(
-        self,
-        config: GTDescriptionGenerationConfig,
-        api_key: str,
-        transport: httpx.AsyncBaseTransport | None = None,
-    ):
-        self.config = config
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(config.request_timeout_seconds), transport=transport
-        )
-        self.headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-
-    async def close(self) -> None:
-        await self.client.aclose()
-
-    async def complete(self, task: GTDescriptionGenerationTask) -> dict[str, Any]:
-        body = {
-            "model": self.config.gt_generator_model,
-            "messages": [
-                {"role": "system", "content": task.system_prompt},
-                {"role": "user", "content": _canonical_json(task.model_input)},
-            ],
-            "response_format": {"type": "json_object"},
-            "thinking": {"type": "disabled"},
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-            "stream": False,
-        }
-        try:
-            response = await self.client.post(
-                self.config.api_url, headers=self.headers, json=body
-            )
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise TransientAPIError(type(exc).__name__) from exc
-        if response.status_code in {408, 409, 429} or response.status_code >= 500:
-            raise TransientAPIError(f"HTTP {response.status_code}")
-        if response.status_code >= 400:
-            raise PermanentAPIError(f"HTTP {response.status_code}")
-        try:
-            payload = response.json()
-        except json.JSONDecodeError as exc:
-            raise PermanentAPIError("API response is not JSON") from exc
-        return _validate_response_envelope(payload, self.config.gt_generator_model)
 
 
 class GTDescriptionGenerationLedger:
@@ -442,7 +371,7 @@ async def run_gt_description_generation(
     repo_root: str | Path,
     config_path: str | Path,
     retry_failed: bool = False,
-    client: DeepSeekClient | Any | None = None,
+    client: Any | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> GTDescriptionGenerationResult:
     root = Path(repo_root).resolve()
@@ -455,7 +384,10 @@ async def run_gt_description_generation(
     ledger.prepare(tasks)
     owns_client = client is None
     if client is None:
+        from mprisk.ground_truth.providers.deepseek import DeepSeekClient, load_api_key
+
         client = DeepSeekClient(config, load_api_key(config))
+    from mprisk.ground_truth.providers.deepseek import TransientProviderError
     semaphore = asyncio.Semaphore(config.concurrency)
 
     async def worker(sample_id: str) -> None:
@@ -477,7 +409,7 @@ async def run_gt_description_generation(
                     ledger.finish_attempt(sample_id, attempt, started, "completed", result)
                     ledger.complete(sample_id, result)
                     return
-                except TransientAPIError as exc:
+                except TransientProviderError as exc:
                     last_error = exc
                     ledger.finish_attempt(
                         sample_id, attempt, started, "transient_error", exc=exc
@@ -722,31 +654,6 @@ def _export(
         _atomic_write(output_root / name, content)
 
 
-def _validate_response_envelope(payload: Any, model: str) -> dict[str, Any]:
-    if not isinstance(payload, dict) or payload.get("model") != model:
-        raise PermanentAPIError("API returned an unexpected model")
-    choices = payload.get("choices")
-    if not isinstance(choices, list) or len(choices) != 1:
-        raise PermanentAPIError("API must return exactly one choice")
-    choice = choices[0]
-    if choice.get("finish_reason") != "stop":
-        raise PermanentAPIError(f"Unexpected finish_reason: {choice.get('finish_reason')!r}")
-    message = choice.get("message")
-    if not isinstance(message, dict) or message.get("reasoning_content") not in (None, ""):
-        raise PermanentAPIError("Thinking was not disabled")
-    content = message.get("content")
-    if not isinstance(content, str) or not content:
-        raise PermanentAPIError("API returned empty content")
-    return {
-        "response_id": payload.get("id"),
-        "response_model": payload.get("model"),
-        "system_fingerprint": payload.get("system_fingerprint"),
-        "finish_reason": choice.get("finish_reason"),
-        "content": content,
-        "usage": payload.get("usage") or {},
-    }
-
-
 def _validate_model_input(payload: dict[str, Any]) -> None:
     if set(payload) != {
         "archetype",
@@ -764,19 +671,6 @@ def _validate_model_input(payload: dict[str, Any]) -> None:
         payload["surface_emotion"], str
     ):
         raise TypeError("surface_emotion must be a string or null")
-
-
-def _read_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        text = line.strip()
-        if not text or text.startswith("#"):
-            continue
-        if "=" not in text:
-            raise ValueError(f"Invalid env line in {path}")
-        key, value = text.split("=", 1)
-        values[key.strip()] = value.strip().strip("\"'")
-    return values
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

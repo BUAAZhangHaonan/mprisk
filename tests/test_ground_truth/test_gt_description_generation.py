@@ -8,16 +8,16 @@ from typing import Any
 
 import pytest
 
-from mprisk.ground_truth.deepseek_gt import (
+from mprisk.ground_truth.description_generation import (
     GTDescriptionGenerationLedger,
     GTDescriptionValidationError,
-    load_api_key,
     load_config,
     prepare_tasks,
     run_gt_description_generation,
     validate_gt_description_content,
     verify_gt_description_generation,
 )
+from mprisk.ground_truth.providers.deepseek import load_api_key
 
 
 def _annotation_row(sample_id: str, sample_type: str) -> dict[str, Any]:

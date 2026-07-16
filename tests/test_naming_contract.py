@@ -163,7 +163,7 @@ def test_gt_semantic_fields_use_scenario_context() -> None:
         (ROOT / relative).read_text(encoding="utf-8")
         for relative in (
             "src/mprisk/ground_truth/annotation_inputs.py",
-            "src/mprisk/ground_truth/deepseek_gt.py",
+            "src/mprisk/ground_truth/description_generation.py",
         )
     )
     legacy_field = "_".join(("context", "text"))
@@ -176,6 +176,8 @@ def test_active_paths_use_task_level_names() -> None:
     required = (
         "src/mprisk/diagnostic_affect/generation.py",
         "src/mprisk/ground_truth/annotation_inputs.py",
+        "src/mprisk/ground_truth/description_generation.py",
+        "src/mprisk/ground_truth/providers/deepseek.py",
         "scripts/build_gt_annotation_input_pilot.py",
         "scripts/run_gt_description_generation.py",
         "configs/ground_truth/gt_description_generation_pilot_v1.yaml",
@@ -184,3 +186,24 @@ def test_active_paths_use_task_level_names() -> None:
         "docs/NAMING_CONVENTIONS.md",
     )
     assert all((ROOT / relative).is_file() for relative in required)
+
+
+def test_gt_description_task_contract_is_not_vendor_scoped() -> None:
+    task_source = (
+        ROOT / "src/mprisk/ground_truth/description_generation.py"
+    ).read_text(encoding="utf-8")
+    provider_source = (
+        ROOT / "src/mprisk/ground_truth/providers/deepseek.py"
+    ).read_text(encoding="utf-8")
+    for symbol in (
+        "class GTDescriptionGenerationConfig",
+        "class GTDescriptionGenerationTask",
+        "class GTDescriptionGenerationResult",
+        "class GTDescriptionGenerationLedger",
+        "def prepare_tasks",
+        "def run_gt_description_generation",
+        "def verify_gt_description_generation",
+    ):
+        assert symbol in task_source
+        assert symbol not in provider_source
+    assert not (ROOT / "src/mprisk/ground_truth/deepseek_gt.py").exists()

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from mprisk.ground_truth.deepseek_gt import verify_gt_description_generation
+from mprisk.ground_truth.description_generation import verify_gt_description_generation
 
 
 def main() -> int:
