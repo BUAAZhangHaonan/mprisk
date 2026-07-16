@@ -29,9 +29,18 @@ def _write_inputs(tmp_path: Path, count: int = 8) -> tuple[Path, Path]:
     diagnostic_rows = []
     for index in range(count):
         sample_id = f"sample-{index:03d}"
-        reference_rows.append({"sample_id": sample_id, "GT_DESCRIPTION": f"Reference {index}."})
+        reference_rows.append(
+            {
+                "schema_name": "mprisk_gt_description_v1",
+                "gt_input_schema_version": "gt_annotation_input_v1",
+                "sample_id": sample_id,
+                "GT_DESCRIPTION": f"Reference {index}.",
+            }
+        )
         diagnostic_rows.append(
             {
+                "schema_name": "mprisk_diagnostic_affect_description_v2",
+                "run_id": "diagnostic-affect-test-v2",
                 "sample_id": sample_id,
                 "DIAGNOSTIC_AFFECT_DESCRIPTION": f"Diagnostic description {index}.",
                 "subject_model_key": "subject_model",
@@ -56,6 +65,12 @@ def _config(tmp_path: Path, references: Path, diagnostics: Path) -> MisreadJudge
         api_url="https://example.invalid/chat/completions",
         temperature=0,
         confidence_threshold=0.5,
+        gt_description_schema_name="mprisk_gt_description_v1",
+        gt_input_schema_version="gt_annotation_input_v1",
+        diagnostic_affect_description_schema_name=(
+            "mprisk_diagnostic_affect_description_v2"
+        ),
+        diagnostic_run_id="diagnostic-affect-test-v2",
         gt_description_manifest_path=references,
         diagnostic_affect_description_manifest_path=diagnostics,
         output_root=tmp_path / "output",
@@ -172,6 +187,45 @@ def test_missing_gt_description_fails_before_any_client_call(tmp_path: Path) -> 
     assert client.calls == 0
 
 
+@pytest.mark.parametrize(
+    ("manifest", "field", "value", "message"),
+    [
+        ("gt", "schema_name", "mprisk_deepseek_gt_v1", "GT Description manifest schema"),
+        ("gt", "schema_name", None, "GT Description manifest schema"),
+        (
+            "gt",
+            "gt_input_schema_version",
+            "gt_annotation_input_v0",
+            "GT Description manifest schema",
+        ),
+        (
+            "diagnostic",
+            "schema_name",
+            "mprisk_diagnostic_affect_description_v1",
+            "Diagnostic manifest identity",
+        ),
+        ("diagnostic", "run_id", "another-run", "Diagnostic manifest identity"),
+    ],
+)
+def test_manifest_schema_and_run_identity_are_strict(
+    tmp_path: Path,
+    manifest: str,
+    field: str,
+    value: str | None,
+    message: str,
+) -> None:
+    references, diagnostics = _write_inputs(tmp_path)
+    path = references if manifest == "gt" else diagnostics
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    if value is None:
+        rows[0].pop(field)
+    else:
+        rows[0][field] = value
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    with pytest.raises(ValueError, match=message):
+        build_tasks(_config(tmp_path, references, diagnostics))
+
+
 def test_ledger_rejects_signature_mismatch_and_exports_atomic_outputs(tmp_path: Path) -> None:
     references, diagnostics = _write_inputs(tmp_path)
     config = _config(tmp_path, references, diagnostics)
@@ -211,6 +265,8 @@ def test_queue_manual_import_and_final_labels(tmp_path: Path) -> None:
     assert result["completed"] == 8
     verified = verify_misread_judgment_artifacts(config, require_complete=True)
     assert verified["queue_count"] == 2
+    with pytest.raises(ValueError, match="exactly cover"):
+        export_final_labels(config)
     decisions = tmp_path / "human.jsonl"
     decisions.write_text(
         "".join(
@@ -273,7 +329,26 @@ def test_queue_manual_import_and_final_labels(tmp_path: Path) -> None:
     import_human_decisions(config, decisions)
     final = export_final_labels(config)
     assert len(final) == 8
-    assert final[0]["binary_label"] == 1
+    assert all(
+        set(row)
+        == {"schema_name", "sample_id", "misread_label", "misread_binary_label"}
+        for row in final
+    )
+    assert final[0]["misread_label"] == "Misread"
+    assert final[0]["misread_binary_label"] == 1
+    assert final[1]["misread_label"] == "Non-misread"
+    assert final[1]["misread_binary_label"] == 0
+    assert all(row["schema_name"] == "mprisk_misread_label_v1" for row in final)
+    assert not (config.output_root / "final_binary_labels.jsonl").exists()
+    provenance = json.loads(
+        (config.output_root / "misread_labels_provenance.json").read_text()
+    )
+    assert provenance["schema_name"] == "mprisk_misread_label_provenance_v1"
+    assert provenance["label_schema_name"] == "mprisk_misread_label_v1"
+    assert provenance["label_semantics"]["misread_binary_label"] == (
+        "1=Misread; 0=Non-misread"
+    )
+    assert provenance["counts"] == {"Misread": 1, "Non-misread": 7}
 
 
 def test_empty_review_queue_requires_an_empty_human_decision_set(tmp_path: Path) -> None:
@@ -295,10 +370,22 @@ def test_empty_review_queue_requires_an_empty_human_decision_set(tmp_path: Path)
 
     asyncio.run(run_misread_judgment(config=config, client=Client()))
     assert verify_misread_judgment_artifacts(config, require_complete=True)["queue_count"] == 0
+    final_without_manual_file = export_final_labels(config)
+    assert len(final_without_manual_file) == 8
+    provenance = json.loads(
+        (config.output_root / "misread_labels_provenance.json").read_text()
+    )
+    assert provenance["review_resolution"] == "not_required"
+    assert "human_decisions.jsonl" not in provenance["source_artifacts"]
     empty = tmp_path / "empty.jsonl"
     empty.write_text("")
     import_human_decisions(config, empty)
     assert len(export_final_labels(config)) == 8
+    provenance = json.loads(
+        (config.output_root / "misread_labels_provenance.json").read_text()
+    )
+    assert provenance["review_resolution"] == "not_required"
+    assert "human_decisions.jsonl" in provenance["source_artifacts"]
 
 
 def test_explicit_retry_retries_failures_without_repeating_completed_records(

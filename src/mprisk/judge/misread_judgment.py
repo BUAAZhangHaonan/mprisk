@@ -33,8 +33,14 @@ MISREAD_JUDGMENT_PROMPT = (
 CONFIG_SCHEMA = "mprisk_misread_judgment_config_v2"
 PROVENANCE_SCHEMA = "mprisk_misread_judgment_provenance_v2"
 SIGNATURE_SCHEMA = "mprisk_misread_judgment_signature_v2"
+FINAL_LABEL_SCHEMA = "mprisk_misread_label_v1"
+FINAL_LABEL_PROVENANCE_SCHEMA = "mprisk_misread_label_provenance_v1"
 DECISIONS = frozenset({"MISREAD", "NON_MISREAD", "UNCERTAIN"})
 FINAL_DECISIONS = frozenset({"MISREAD", "NON_MISREAD"})
+CANONICAL_MISREAD_LABELS = {
+    "MISREAD": "Misread",
+    "NON_MISREAD": "Non-misread",
+}
 _SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 
 
@@ -55,6 +61,12 @@ class MisreadJudgeConfig(BaseModel):
     api_url: str
     temperature: Literal[0]
     confidence_threshold: Literal[0.5]
+    gt_description_schema_name: Literal["mprisk_gt_description_v1"]
+    gt_input_schema_version: Literal["gt_annotation_input_v1"]
+    diagnostic_affect_description_schema_name: Literal[
+        "mprisk_diagnostic_affect_description_v2"
+    ]
+    diagnostic_run_id: str
     gt_description_manifest_path: Path
     diagnostic_affect_description_manifest_path: Path
     output_root: Path
@@ -67,7 +79,7 @@ class MisreadJudgeConfig(BaseModel):
             raise ValueError("request_timeout_seconds must be positive")
         return value
 
-    @field_validator("run_id", "subject_model_key", "split")
+    @field_validator("run_id", "subject_model_key", "split", "diagnostic_run_id")
     @classmethod
     def identity_must_be_non_empty(cls, value: str) -> str:
         if not value.strip():
@@ -106,13 +118,23 @@ def build_tasks(config: MisreadJudgeConfig) -> list[MisreadJudgeTask]:
         raise ValueError("GT and Diagnostic Affect Description manifests must have identical IDs")
     tasks: list[MisreadJudgeTask] = []
     for sample_id in sorted(references):
-        reference = _required_text(references[sample_id], "GT_DESCRIPTION")
+        reference_row = references[sample_id]
+        if (
+            reference_row.get("schema_name") != config.gt_description_schema_name
+            or reference_row.get("gt_input_schema_version")
+            != config.gt_input_schema_version
+        ):
+            raise ValueError(f"GT Description manifest schema mismatch: {sample_id}")
+        reference = _required_text(reference_row, "GT_DESCRIPTION")
         diagnostic_row = diagnostics[sample_id]
         diagnostic = _required_text(
             diagnostic_row, "DIAGNOSTIC_AFFECT_DESCRIPTION"
         )
         if (
-            diagnostic_row.get("subject_model_key") != config.subject_model_key
+            diagnostic_row.get("schema_name")
+            != config.diagnostic_affect_description_schema_name
+            or diagnostic_row.get("run_id") != config.diagnostic_run_id
+            or diagnostic_row.get("subject_model_key") != config.subject_model_key
             or diagnostic_row.get("protocol") != config.protocol
             or diagnostic_row.get("split") != config.split
         ):
@@ -373,7 +395,7 @@ def validate_misread_judgment_response(raw: Any) -> dict[str, Any]:
         raise MisreadJudgmentValidationError("judge decision is invalid")
     if (
         isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
+        or not isinstance(confidence, int | float)
         or not 0 <= confidence <= 1
     ):
         raise MisreadJudgmentValidationError("judge confidence must be in [0,1]")
@@ -472,6 +494,7 @@ def import_human_decisions(config: MisreadJudgeConfig, path: str | Path) -> None
 
 
 def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
+    verify_misread_judgment_artifacts(config, require_complete=True)
     records = _read_jsonl(config.output_root / "judgments.jsonl")
     queue = _read_jsonl(config.output_root / "human_review_queue.jsonl")
     queued = {row["sample_id"] for row in queue}
@@ -495,15 +518,41 @@ def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
             raise ValueError("Every UNCERTAIN judgment requires a human final decision")
         output.append(
             {
+                "schema_name": FINAL_LABEL_SCHEMA,
                 "sample_id": row["sample_id"],
-                "final_decision": decision,
-                "binary_label": int(decision == "MISREAD"),
+                "misread_label": CANONICAL_MISREAD_LABELS[decision],
+                "misread_binary_label": int(decision == "MISREAD"),
             }
         )
     expected_ids = {task.sample_id for task in build_tasks(config)}
     if {row["sample_id"] for row in output} != expected_ids:
-        raise ValueError("Final binary labels must cover every configured sample")
-    _atomic_jsonl(config.output_root / "final_binary_labels.jsonl", output)
+        raise ValueError("Final Misread labels must cover every configured sample")
+    labels_path = config.output_root / "misread_labels.jsonl"
+    _atomic_jsonl(labels_path, output)
+    label_counts = Counter(row["misread_label"] for row in output)
+    source_artifact_names = ["judgments.jsonl", "human_review_queue.jsonl"]
+    if human_path.is_file():
+        source_artifact_names.append("human_decisions.jsonl")
+    provenance = {
+        "schema_name": FINAL_LABEL_PROVENANCE_SCHEMA,
+        "run_id": config.run_id,
+        "label_schema_name": FINAL_LABEL_SCHEMA,
+        "label_semantics": {
+            "misread_label": ["Misread", "Non-misread"],
+            "misread_binary_label": "1=Misread; 0=Non-misread",
+        },
+        "counts": dict(sorted(label_counts.items())),
+        "review_resolution": "human_decisions" if queued else "not_required",
+        "source_artifacts": {
+            name: {"path": name, "sha256": _sha256(config.output_root / name)}
+            for name in source_artifact_names
+        },
+        "artifact": {"path": labels_path.name, "sha256": _sha256(labels_path)},
+    }
+    _atomic_bytes(
+        config.output_root / "misread_labels_provenance.json",
+        (json.dumps(provenance, sort_keys=True, indent=2) + "\n").encode(),
+    )
     return output
 
 
@@ -598,6 +647,12 @@ def _materialize(
         "run_id": config.run_id,
         "signature": signature,
         "confidence_threshold": config.confidence_threshold,
+        "gt_description_schema_name": config.gt_description_schema_name,
+        "gt_input_schema_version": config.gt_input_schema_version,
+        "diagnostic_affect_description_schema_name": (
+            config.diagnostic_affect_description_schema_name
+        ),
+        "diagnostic_run_id": config.diagnostic_run_id,
         "threshold_interpretation": (
             "round-one provisional operational threshold; not a paper-validated threshold"
         ),

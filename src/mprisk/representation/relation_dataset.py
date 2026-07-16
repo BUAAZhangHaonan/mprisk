@@ -11,7 +11,9 @@ from mprisk.utils.io import write_json, write_jsonl
 
 CONDITIONS = ("M1", "M2", "M12")
 LABEL_TO_ID = {"Aligned": 0, "Conflict": 1}
-FORBIDDEN_FIELDS = frozenset({"misread", "binary_label", "final_decision"})
+FORBIDDEN_FIELDS = frozenset(
+    {"misread", "binary_label", "final_decision", "misread_label", "misread_binary_label"}
+)
 
 
 @dataclass(frozen=True)

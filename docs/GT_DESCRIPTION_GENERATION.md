@@ -36,9 +36,11 @@ Thinking is disabled and temperature is zero. The response must be exact JSON wi
 `GT_DESCRIPTION`, containing one English declarative sentence. Invalid content is recorded as a
 failure without repair. Only transport errors and configured retryable HTTP statuses are retried.
 
-The final manifest copies every annotation-input field byte-for-value and adds only
-`GT_DESCRIPTION`. Raw request/response evidence, attempts, failures, provenance, and pending human
-review status are exported separately.
+The final manifest uses the distinct `mprisk_gt_description_v1` row schema. It preserves every
+annotation-input field except the input-only `schema_name`, records the generation `run_id`, keeps
+`gt_input_schema_version`, and adds only `GT_DESCRIPTION`. Raw request/response evidence, attempts,
+failures, provenance, and pending human review status are exported separately. Provenance records
+both the output schema and the annotation-input schema version.
 
 ```bash
 PYTHONPATH=src python scripts/build_gt_annotation_input_pilot.py

@@ -118,7 +118,17 @@ def test_relation_dataset_rejects_missing_registered_split(tmp_path) -> None:
         )
 
 
-@pytest.mark.parametrize("field", ["misread", "MISREAD", "binary_label", "final_decision"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "misread",
+        "MISREAD",
+        "binary_label",
+        "final_decision",
+        "misread_label",
+        "misread_binary_label",
+    ],
+)
 def test_relation_dataset_strictly_rejects_misread_fields(tmp_path, field: str) -> None:
     source = tmp_path / "bundle.jsonl"
     bundle = _bundle()

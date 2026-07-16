@@ -212,8 +212,16 @@ def test_mock_generation_adds_only_gt_description_and_verifies(tmp_path: Path) -
     generated = _read_jsonl(result.output_root / "gt_manifest.jsonl")
     for row in generated:
         expected = original[row["sample_id"]]
-        assert set(row) == set(expected) | {"GT_DESCRIPTION"}
-        assert {key: row[key] for key in expected} == expected
+        assert set(row) == set(expected) | {"run_id", "GT_DESCRIPTION"}
+        assert row["schema_name"] == "mprisk_gt_description_v1"
+        assert row["gt_input_schema_version"] == "gt_annotation_input_v1"
+        assert row["run_id"] == "test_gt_description_generation_v1"
+        for key in set(expected) - {"schema_name"}:
+            assert row[key] == expected[key]
+    provenance = json.loads(
+        (result.output_root / "provenance.json").read_text(encoding="utf-8")
+    )
+    assert provenance["gt_description_schema_name"] == "mprisk_gt_description_v1"
 
 
 def test_invalid_response_is_preserved_as_failure(tmp_path: Path) -> None:

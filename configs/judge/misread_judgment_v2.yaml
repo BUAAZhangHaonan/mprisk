@@ -8,6 +8,10 @@ split: test
 api_url: https://api.deepseek.com/v1/chat/completions
 temperature: 0
 confidence_threshold: 0.5
+gt_description_schema_name: mprisk_gt_description_v1
+gt_input_schema_version: gt_annotation_input_v1
+diagnostic_affect_description_schema_name: mprisk_diagnostic_affect_description_v2
+diagnostic_run_id: pending_diagnostic_affect_description_v2
 gt_description_manifest_path: outputs/ground_truth/pending/gt_description_manifest.jsonl
 diagnostic_affect_description_manifest_path: outputs/diagnostic_affect/pending/manifest.jsonl
 output_root: outputs/misread_judgment/pending_v2

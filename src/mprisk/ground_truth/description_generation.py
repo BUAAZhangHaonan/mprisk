@@ -26,6 +26,7 @@ from mprisk.ground_truth.annotation_inputs import (
 )
 
 CONFIG_SCHEMA = "mprisk_gt_description_generation_config_v1"
+OUTPUT_SCHEMA = "mprisk_gt_description_v1"
 PROVENANCE_SCHEMA = "mprisk_gt_description_generation_provenance_v1"
 
 
@@ -520,9 +521,14 @@ def verify_gt_description_generation(
     for row in manifest:
         sample_id = _text(row, "sample_id")
         expected = input_by_id[sample_id]
-        if set(row) != set(expected) | {"GT_DESCRIPTION"}:
+        if set(row) != set(expected) | {"run_id", "GT_DESCRIPTION"}:
             raise ValueError(f"Final GT manifest fields differ for {sample_id}")
-        if {key: row[key] for key in expected} != expected:
+        expected_output = {
+            **expected,
+            "schema_name": OUTPUT_SCHEMA,
+            "run_id": config.run_id,
+        }
+        if {key: row[key] for key in expected_output} != expected_output:
             raise ValueError(f"Final GT manifest changed annotation input fields for {sample_id}")
         validate_gt_description_content(
             _canonical_json({"GT_DESCRIPTION": row["GT_DESCRIPTION"]}),
@@ -546,6 +552,7 @@ def verify_gt_description_generation(
     if (
         provenance.get("run_id") != config.run_id
         or provenance.get("gt_generator_model") != config.gt_generator_model
+        or provenance.get("gt_description_schema_name") != OUTPUT_SCHEMA
         or provenance.get("gt_input_schema_version") != GT_INPUT_SCHEMA_VERSION
     ):
         raise ValueError("GT provenance run identity mismatch")
@@ -587,7 +594,12 @@ def _export(
             annotation_input = json.loads(row["annotation_input_json"])
             result = json.loads(row["result_json"])
             manifest.append(
-                {**annotation_input, "GT_DESCRIPTION": result["GT_DESCRIPTION"]}
+                {
+                    **annotation_input,
+                    "schema_name": OUTPUT_SCHEMA,
+                    "run_id": config.run_id,
+                    "GT_DESCRIPTION": result["GT_DESCRIPTION"],
+                }
             )
             raw.append(
                 {
@@ -636,6 +648,7 @@ def _export(
         "schema_name": PROVENANCE_SCHEMA,
         "run_id": config.run_id,
         "gt_generator_model": config.gt_generator_model,
+        "gt_description_schema_name": OUTPUT_SCHEMA,
         "gt_input_schema_version": config.gt_input_schema_version,
         "thinking": config.thinking,
         "temperature": config.temperature,
