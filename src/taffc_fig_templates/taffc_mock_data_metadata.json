@@ -1,0 +1,26 @@
+{
+  "seed": 20260716,
+  "warning": "Synthetic mock data for layout planning only. Never use as empirical evidence.",
+  "relations": {
+    "Aligned": 1842,
+    "Conflict": 1756
+  },
+  "states_aligned": {
+    "Consensus": 1252,
+    "Balanced": 332,
+    "Dominant": 166,
+    "Confusion": 92
+  },
+  "states_conflict": {
+    "Consensus": 491,
+    "Balanced": 474,
+    "Dominant": 470,
+    "Confusion": 321
+  },
+  "conflict_misread_counts": {
+    "0": 108,
+    "1": 228,
+    "2": 314,
+    "3": 245
+  }
+}

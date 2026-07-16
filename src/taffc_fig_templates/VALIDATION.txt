@@ -1,0 +1,9 @@
+Validation performed in the supplied runtime:
+
+1. All five scripts completed without exceptions.
+2. All five output images are exactly 1448 x 1086 pixels.
+3. Every script loads the same taffc_mock_data.npz file.
+4. The reference-versus-output contact sheet was inspected after the final run.
+5. The generated figures contain an explicit synthetic-data footer.
+
+These are layout templates only; all numerical values are fabricated.

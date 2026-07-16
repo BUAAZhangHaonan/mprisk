@@ -53,21 +53,31 @@ from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.data.manifests import read_jsonl
 from mprisk.utils.io import write_json, write_jsonl
 
-
-# V2 speeds up SDR bootstrap (mainline uses 2000 replicates which is too slow
-# for visualization-graded iteration). 200 replicates gives a usable SE at
-# ~10x speedup.
+# V2 only speed-up: smaller bootstrap replicates (200 vs 2000).
+# SDR formulas stay exactly as paper (no normalization of D or delta);
+# cross-model normalization uses S/kappa, D/tau, R/delta downstream.
 _spherical_mod.BOOTSTRAP_REPLICATES = 200
+
+# Optionally swap GRU-TME for LSTM-TME (set USE_LSTM_TME=True to enable).
+USE_LSTM_TME = True
+if USE_LSTM_TME:
+    from mprisk_v2.lstm_tme import install_v2_tme_factory  # noqa: E402
+    install_v2_tme_factory()
+
+# Optionally replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
+USE_SDR_AUX_LOSS = True
+if USE_SDR_AUX_LOSS:
+    from mprisk_v2.sdr_loss import install_sdr_aware_loss  # noqa: E402
+    install_sdr_aware_loss(
+        aux_weight=1.0,
+        margin_D=0.60,   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
+        margin_R=0.40,
+        warmup_epochs=10,
+    )
 
 
 def _v2_relaxed_shape_check(entries, sample_id):
-    """V2 only requires layer_count and hidden_dim to match across M1/M2/M12.
-
-    The mainline mprisk check also requires t0_token_index to match, which is
-    impossible when M1 (V only) and M2 (T only) naturally have different
-    sequence lengths. V2 drops that constraint because each condition's
-    trajectory is sliced at its own t0 position before comparison.
-    """
+    """V2 only requires layer_count and hidden_dim to match across M1/M2/M12."""
     present = {entry.condition for entry in entries}
     missing = [c for c in ("M1", "M2", "M12") if c not in present]
     if missing:
@@ -79,8 +89,6 @@ def _v2_relaxed_shape_check(entries, sample_id):
         )
 
 
-# Apply monkey-patch ONCE at import time. V2 deliberately diverges from the
-# mainline check (see docstring).
 _state_dataset_mod._require_consistent_entry_shape = _v2_relaxed_shape_check
 
 
