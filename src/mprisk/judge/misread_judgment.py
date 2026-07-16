@@ -1,4 +1,4 @@
-"""Strict, blinded reference-guided misread labeling."""
+"""Strict, blinded Misread judgment from two canonical descriptions."""
 
 from __future__ import annotations
 
@@ -22,34 +22,41 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 
-JUDGE_PROTOCOL = """Compare the reference description with the diagnostic affect description.
-Return MISREAD when the diagnostic is led by surface cues, contradicts the primary affect, wrongly
-compresses distinct affects, omits a decisive component, or gives a confidently opposite account.
-Return NON_MISREAD when the core affect is compatible, synonymous, or a valid simplification.
-Return UNCERTAIN only when the comparison cannot decide. Return exact JSON with decision,
-confidence, and one short rationale sentence."""
-CONFIG_SCHEMA = "mprisk_reference_guided_judge_config_v1"
-PROVENANCE_SCHEMA = "mprisk_reference_guided_judge_provenance_v1"
+MISREAD_JUDGMENT_PROMPT = (
+    "Compare the reference description with the diagnostic affect description. Return MISREAD "
+    "when the diagnostic is led by surface cues, contradicts the primary affect, wrongly "
+    "compresses distinct affects, omits a decisive component, or gives a confidently opposite "
+    "account. Return NON_MISREAD when the core affect is compatible, synonymous, or a valid "
+    "simplification. Return UNCERTAIN only when the comparison cannot decide. Return exact JSON "
+    "with decision, confidence, and one short rationale sentence."
+)
+CONFIG_SCHEMA = "mprisk_misread_judgment_config_v2"
+PROVENANCE_SCHEMA = "mprisk_misread_judgment_provenance_v2"
+SIGNATURE_SCHEMA = "mprisk_misread_judgment_signature_v2"
 DECISIONS = frozenset({"MISREAD", "NON_MISREAD", "UNCERTAIN"})
 FINAL_DECISIONS = frozenset({"MISREAD", "NON_MISREAD"})
 _SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 
 
-class JudgeValidationError(ValueError):
+class MisreadJudgmentValidationError(ValueError):
     """The service did not return the required strict decision object."""
 
 
-class JudgeConfig(BaseModel):
+class MisreadJudgeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_name: Literal["mprisk_reference_guided_judge_config_v1"]
-    run_id: Literal["reference_guided_misread_v1"]
-    model: Literal["deepseek-v4-flash"]
+    schema_name: Literal["mprisk_misread_judgment_config_v2"]
+    run_id: str
+    status: Literal["pending", "ready"]
+    judge_model: Literal["deepseek-v4-flash"]
+    subject_model_key: str
+    protocol: Literal["VT", "VA"]
+    split: str
     api_url: str
     temperature: Literal[0]
-    confidence_threshold: Literal[0.85]
-    reference_manifest_path: Path
-    diagnostic_manifest_path: Path
+    confidence_threshold: Literal[0.5]
+    gt_description_manifest_path: Path
+    diagnostic_affect_description_manifest_path: Path
     output_root: Path
     request_timeout_seconds: float
 
@@ -60,45 +67,64 @@ class JudgeConfig(BaseModel):
             raise ValueError("request_timeout_seconds must be positive")
         return value
 
+    @field_validator("run_id", "subject_model_key", "split")
+    @classmethod
+    def identity_must_be_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Misread judgment identity fields must be non-empty")
+        return value
+
 
 @dataclass(frozen=True)
-class JudgeTask:
+class MisreadJudgeTask:
     sample_id: str
     request: dict[str, Any]
     input_hash: str
     request_hash: str
 
 
-def load_config(path: str | Path) -> JudgeConfig:
-    return JudgeConfig.model_validate(load_yaml(path))
+def load_config(path: str | Path) -> MisreadJudgeConfig:
+    return MisreadJudgeConfig.model_validate(load_yaml(path))
 
 
-def load_api_key(_: JudgeConfig) -> str:
+def load_api_key(_: MisreadJudgeConfig) -> str:
     value = os.environ.get("DEEPSEEK_API_KEY")
     if not value:
-        raise ValueError("DEEPSEEK_API_KEY is required for reference-guided judging")
+        raise ValueError("DEEPSEEK_API_KEY is required for Misread Judgment")
     return value
 
 
-def build_tasks(config: JudgeConfig) -> list[JudgeTask]:
-    references = _index_rows(_read_jsonl(config.reference_manifest_path), "GT_DESCRIPTION")
-    diagnostics = _index_rows(_read_jsonl(config.diagnostic_manifest_path), "text")
-    if len(references) != 162 or len(diagnostics) != 162 or set(references) != set(diagnostics):
-        raise ValueError(
-            "Reference and diagnostic manifests must contain the same exact 162 sample_ids"
-        )
-    tasks: list[JudgeTask] = []
+def build_tasks(config: MisreadJudgeConfig) -> list[MisreadJudgeTask]:
+    references = _index_rows(
+        _read_jsonl(config.gt_description_manifest_path), "GT_DESCRIPTION"
+    )
+    diagnostics = _index_rows(
+        _read_jsonl(config.diagnostic_affect_description_manifest_path),
+        "DIAGNOSTIC_AFFECT_DESCRIPTION",
+    )
+    if not references or set(references) != set(diagnostics):
+        raise ValueError("GT and Diagnostic Affect Description manifests must have identical IDs")
+    tasks: list[MisreadJudgeTask] = []
     for sample_id in sorted(references):
         reference = _required_text(references[sample_id], "GT_DESCRIPTION")
-        diagnostic = _required_text(diagnostics[sample_id], "text")
+        diagnostic_row = diagnostics[sample_id]
+        diagnostic = _required_text(
+            diagnostic_row, "DIAGNOSTIC_AFFECT_DESCRIPTION"
+        )
+        if (
+            diagnostic_row.get("subject_model_key") != config.subject_model_key
+            or diagnostic_row.get("protocol") != config.protocol
+            or diagnostic_row.get("split") != config.split
+        ):
+            raise ValueError(f"Diagnostic manifest identity mismatch: {sample_id}")
         blind_payload = {
             "GT_DESCRIPTION": reference,
             "DIAGNOSTIC_AFFECT_DESCRIPTION": diagnostic,
         }
         request = {
-            "model": config.model,
+            "model": config.judge_model,
             "messages": [
-                {"role": "system", "content": JUDGE_PROTOCOL},
+                {"role": "system", "content": MISREAD_JUDGMENT_PROMPT},
                 {"role": "user", "content": _canonical_json(blind_payload)},
             ],
             "temperature": config.temperature,
@@ -108,7 +134,7 @@ def build_tasks(config: JudgeConfig) -> list[JudgeTask]:
         encoded = _canonical_json(request)
         _validate_blind_request(encoded, sample_id)
         tasks.append(
-            JudgeTask(
+            MisreadJudgeTask(
                 sample_id=sample_id,
                 request=request,
                 input_hash=_hash_text(_canonical_json(blind_payload)),
@@ -118,13 +144,13 @@ def build_tasks(config: JudgeConfig) -> list[JudgeTask]:
     return tasks
 
 
-class ReferenceGuidedClient:
-    def __init__(self, config: JudgeConfig, api_key: str) -> None:
+class MisreadJudgeClient:
+    def __init__(self, config: MisreadJudgeConfig, api_key: str) -> None:
         self.config = config
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(config.request_timeout_seconds))
         self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    async def complete(self, task: JudgeTask) -> str:
+    async def complete(self, task: MisreadJudgeTask) -> str:
         try:
             response = await self.client.post(
                 self.config.api_url, headers=self.headers, json=task.request
@@ -136,23 +162,23 @@ class ReferenceGuidedClient:
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
-            raise JudgeValidationError("API response envelope is not JSON") from exc
-        if payload.get("model") != self.config.model:
-            raise JudgeValidationError("API response model does not match fixed model")
+            raise MisreadJudgmentValidationError("API response envelope is not JSON") from exc
+        if payload.get("model") != self.config.judge_model:
+            raise MisreadJudgmentValidationError("API response model does not match fixed model")
         choices = payload.get("choices")
         if not isinstance(choices, list) or len(choices) != 1:
-            raise JudgeValidationError("API response must contain exactly one choice")
+            raise MisreadJudgmentValidationError("API response must contain exactly one choice")
         message = choices[0].get("message") if isinstance(choices[0], dict) else None
         content = message.get("content") if isinstance(message, dict) else None
         if not isinstance(content, str):
-            raise JudgeValidationError("API response has no string content")
+            raise MisreadJudgmentValidationError("API response has no string content")
         return content
 
     async def close(self) -> None:
         await self.client.aclose()
 
 
-class JudgeLedger:
+class MisreadJudgeLedger:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path)
@@ -191,7 +217,7 @@ class JudgeLedger:
             if retry_failed:
                 self.connection.execute("UPDATE tasks SET status='pending' WHERE status='failed'")
 
-    def add_tasks(self, tasks: Sequence[JudgeTask]) -> None:
+    def add_tasks(self, tasks: Sequence[MisreadJudgeTask]) -> None:
         with self.connection:
             for task in tasks:
                 existing = self.connection.execute(
@@ -292,25 +318,33 @@ class JudgeLedger:
         self.connection.close()
 
 
-async def run_judge(
-    *, config: JudgeConfig, client: Any | None = None, retry_failed: bool = False
+async def run_misread_judgment(
+    *, config: MisreadJudgeConfig, client: Any | None = None, retry_failed: bool = False
 ) -> dict[str, int]:
+    if config.status != "ready":
+        raise ValueError("Misread judgment config is pending required manifests")
     tasks = build_tasks(config)
     signature = _signature(config, tasks)
-    ledger = JudgeLedger(config.output_root / "batch_state.sqlite3")
+    ledger = MisreadJudgeLedger(config.output_root / "batch_state.sqlite3")
     ledger.prepare(signature, retry_failed=retry_failed)
     ledger.add_tasks(tasks)
     by_id = {task.sample_id: task for task in tasks}
     owns_client = client is None
     if client is None:
-        client = ReferenceGuidedClient(config, load_api_key(config))
+        client = MisreadJudgeClient(config, load_api_key(config))
     try:
         for sample_id in ledger.pending(retry_failed=retry_failed):
             attempt = ledger.start(sample_id)
             started_at = _now()
             try:
                 raw = await client.complete(by_id[sample_id])
-                ledger.complete(sample_id, attempt, started_at, raw, validate_judge_response(raw))
+                ledger.complete(
+                    sample_id,
+                    attempt,
+                    started_at,
+                    raw,
+                    validate_misread_judgment_response(raw),
+                )
             except Exception as exc:
                 ledger.fail(sample_id, attempt, started_at, exc)
         _materialize(config, signature, ledger)
@@ -321,40 +355,42 @@ async def run_judge(
         ledger.close()
 
 
-def validate_judge_response(raw: Any) -> dict[str, Any]:
+def validate_misread_judgment_response(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, str):
-        raise JudgeValidationError("judge response must be a string")
+        raise MisreadJudgmentValidationError("judge response must be a string")
     try:
         value = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise JudgeValidationError("judge response must be exact JSON") from exc
+        raise MisreadJudgmentValidationError("judge response must be exact JSON") from exc
     if not isinstance(value, dict) or set(value) != {"decision", "confidence", "rationale"}:
-        raise JudgeValidationError(
+        raise MisreadJudgmentValidationError(
             "judge response must contain exactly decision, confidence, rationale"
         )
     decision = value["decision"]
     confidence = value["confidence"]
     rationale = value["rationale"]
     if decision not in DECISIONS:
-        raise JudgeValidationError("judge decision is invalid")
+        raise MisreadJudgmentValidationError("judge decision is invalid")
     if (
         isinstance(confidence, bool)
         or not isinstance(confidence, (int, float))
         or not 0 <= confidence <= 1
     ):
-        raise JudgeValidationError("judge confidence must be in [0,1]")
+        raise MisreadJudgmentValidationError("judge confidence must be in [0,1]")
     if not isinstance(rationale, str) or rationale != rationale.strip() or "\n" in rationale:
-        raise JudgeValidationError("judge rationale must be one short line")
+        raise MisreadJudgmentValidationError("judge rationale must be one short line")
     if (
         len(_SENTENCE_END.findall(rationale)) != 1
         or rationale[-1] not in ".!?"
         or len(rationale.split()) > 30
     ):
-        raise JudgeValidationError("judge rationale must be one short sentence")
+        raise MisreadJudgmentValidationError("judge rationale must be one short sentence")
     return {"decision": decision, "confidence": float(confidence), "rationale": rationale}
 
 
-def verify_judge_artifacts(config: JudgeConfig, *, require_complete: bool) -> dict[str, Any]:
+def verify_misread_judgment_artifacts(
+    config: MisreadJudgeConfig, *, require_complete: bool
+) -> dict[str, Any]:
     tasks = build_tasks(config)
     expected_ids = {task.sample_id for task in tasks}
     root = config.output_root
@@ -365,10 +401,10 @@ def verify_judge_artifacts(config: JudgeConfig, *, require_complete: bool) -> di
         raise ValueError("Judgment export contains duplicate sample_id values")
     record_ids = {str(row.get("sample_id")) for row in records}
     if require_complete and (record_ids != expected_ids or failures):
-        raise ValueError("Completed judge export must cover all 162 tasks with no failures")
+        raise ValueError("Completed Misread judgment export must cover all tasks with no failures")
     expected_queue: set[str] = set()
     for row in records:
-        validate_judge_response(
+        validate_misread_judgment_response(
             _canonical_json(
                 {
                     "decision": row.get("decision"),
@@ -388,8 +424,10 @@ def verify_judge_artifacts(config: JudgeConfig, *, require_complete: bool) -> di
         if row.get("confidence_threshold") != config.confidence_threshold:
             raise ValueError("Human review queue threshold mismatch")
     provenance = _read_json(root / "provenance.json")
-    if provenance.get("schema") != PROVENANCE_SCHEMA or provenance.get("signature") != _signature(
-        config, tasks
+    if (
+        provenance.get("schema_name") != PROVENANCE_SCHEMA
+        or provenance.get("run_id") != config.run_id
+        or provenance.get("signature") != _signature(config, tasks)
     ):
         raise ValueError("Judge provenance signature mismatch")
     if (
@@ -409,7 +447,7 @@ def verify_judge_artifacts(config: JudgeConfig, *, require_complete: bool) -> di
     }
 
 
-def import_human_decisions(config: JudgeConfig, path: str | Path) -> None:
+def import_human_decisions(config: MisreadJudgeConfig, path: str | Path) -> None:
     queue = _read_jsonl(config.output_root / "human_review_queue.jsonl")
     queued = {row["sample_id"] for row in queue}
     decisions = _read_jsonl(path)
@@ -433,7 +471,7 @@ def import_human_decisions(config: JudgeConfig, path: str | Path) -> None:
     )
 
 
-def export_final_labels(config: JudgeConfig) -> list[dict[str, Any]]:
+def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
     records = _read_jsonl(config.output_root / "judgments.jsonl")
     queue = _read_jsonl(config.output_root / "human_review_queue.jsonl")
     queued = {row["sample_id"] for row in queue}
@@ -462,16 +500,17 @@ def export_final_labels(config: JudgeConfig) -> list[dict[str, Any]]:
                 "binary_label": int(decision == "MISREAD"),
             }
         )
-    if len(output) != 162 or len({row["sample_id"] for row in output}) != 162:
-        raise ValueError("Final binary labels must cover the exact 162 samples")
+    expected_ids = {task.sample_id for task in build_tasks(config)}
+    if {row["sample_id"] for row in output} != expected_ids:
+        raise ValueError("Final binary labels must cover every configured sample")
     _atomic_jsonl(config.output_root / "final_binary_labels.jsonl", output)
     return output
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run blinded reference-guided misread labeling.")
+    parser = argparse.ArgumentParser(description="Run blinded Misread judgment.")
     parser.add_argument(
-        "--config", type=Path, default=Path("configs/judge/reference_guided_misread_v1.yaml")
+        "--config", type=Path, default=Path("configs/judge/misread_judgment_v2.yaml")
     )
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--import-human", type=Path)
@@ -488,15 +527,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.export_final:
         print(_canonical_json({"count": len(export_final_labels(config))}))
     elif args.verify:
-        print(_canonical_json(verify_judge_artifacts(config, require_complete=True)))
+        print(
+            _canonical_json(
+                verify_misread_judgment_artifacts(config, require_complete=True)
+            )
+        )
     else:
         print(
-            _canonical_json(asyncio.run(run_judge(config=config, retry_failed=args.retry_failed)))
+            _canonical_json(
+                asyncio.run(
+                    run_misread_judgment(
+                        config=config, retry_failed=args.retry_failed
+                    )
+                )
+            )
         )
     return 0
 
 
-def _materialize(config: JudgeConfig, signature: dict[str, Any], ledger: JudgeLedger) -> None:
+def _materialize(
+    config: MisreadJudgeConfig,
+    signature: dict[str, Any],
+    ledger: MisreadJudgeLedger,
+) -> None:
     rows = [dict(row) for row in ledger.rows()]
     judgments = []
     failures = []
@@ -541,7 +594,8 @@ def _materialize(config: JudgeConfig, signature: dict[str, Any], ledger: JudgeLe
     for name, content in payloads.items():
         _atomic_bytes(config.output_root / name, content)
     provenance = {
-        "schema": PROVENANCE_SCHEMA,
+        "schema_name": PROVENANCE_SCHEMA,
+        "run_id": config.run_id,
         "signature": signature,
         "confidence_threshold": config.confidence_threshold,
         "threshold_interpretation": (
@@ -557,17 +611,26 @@ def _materialize(config: JudgeConfig, signature: dict[str, Any], ledger: JudgeLe
     )
 
 
-def _signature(config: JudgeConfig, tasks: Sequence[JudgeTask]) -> dict[str, Any]:
+def _signature(
+    config: MisreadJudgeConfig, tasks: Sequence[MisreadJudgeTask]
+) -> dict[str, Any]:
     return {
-        "schema": "mprisk_reference_guided_judge_signature_v1",
+        "schema_name": SIGNATURE_SCHEMA,
         "run_id": config.run_id,
         "config_sha256": _hash_text(_canonical_json(config.model_dump(mode="json"))),
-        "model": config.model,
+        "judge_model": config.judge_model,
+        "subject_model_key": config.subject_model_key,
+        "protocol": config.protocol,
+        "split": config.split,
         "temperature": config.temperature,
         "confidence_threshold": config.confidence_threshold,
-        "protocol_sha256": _hash_text(JUDGE_PROTOCOL),
-        "reference_manifest_sha256": _sha256(config.reference_manifest_path),
-        "diagnostic_manifest_sha256": _sha256(config.diagnostic_manifest_path),
+        "prompt_sha256": _hash_text(MISREAD_JUDGMENT_PROMPT),
+        "gt_description_manifest_sha256": _sha256(
+            config.gt_description_manifest_path
+        ),
+        "diagnostic_affect_description_manifest_sha256": _sha256(
+            config.diagnostic_affect_description_manifest_path
+        ),
         "task_count": len(tasks),
     }
 

@@ -175,17 +175,35 @@ def test_gt_semantic_fields_use_scenario_context() -> None:
 def test_active_paths_use_task_level_names() -> None:
     required = (
         "src/mprisk/diagnostic_affect/generation.py",
+        "src/mprisk/judge/misread_judgment.py",
         "src/mprisk/ground_truth/annotation_inputs.py",
         "src/mprisk/ground_truth/description_generation.py",
         "src/mprisk/ground_truth/providers/deepseek.py",
         "scripts/build_gt_annotation_input_pilot.py",
         "scripts/run_gt_description_generation.py",
         "configs/ground_truth/gt_description_generation_pilot_v1.yaml",
+        "configs/experiments/diagnostic_affect_description_v2.yaml",
+        "configs/judge/misread_judgment_v2.yaml",
         "configs/labels/condition_affect_annotation_schema_v2.yaml",
         "configs/labels/sample_relation_schema_v2.yaml",
         "docs/NAMING_CONVENTIONS.md",
     )
     assert all((ROOT / relative).is_file() for relative in required)
+
+
+def test_active_judgment_and_diagnostic_paths_have_no_legacy_aliases() -> None:
+    forbidden = (
+        "src/mprisk/judge/reference_guided.py",
+        "scripts/run_reference_guided_judge.py",
+        "configs/judge/reference_guided_misread_v1.yaml",
+        "configs/experiments/diagnostic_affect_description_v1.yaml",
+    )
+    assert all(not (ROOT / relative).exists() for relative in forbidden)
+    judge_source = (ROOT / "src/mprisk/judge/misread_judgment.py").read_text(
+        encoding="utf-8"
+    )
+    assert '"DIAGNOSTIC_AFFECT_DESCRIPTION"' in judge_source
+    assert "diagnostic_affect_description_manifest_path" in judge_source
 
 
 def test_gt_description_task_contract_is_not_vendor_scoped() -> None:

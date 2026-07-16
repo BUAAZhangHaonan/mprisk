@@ -76,6 +76,8 @@ def _model_path(tmp_path: Path) -> Path:
 
 def _plan(tmp_path: Path, *, protocol: str = "VT"):
     return build_diagnostic_affect_description_plan(
+        schema_name="mprisk_diagnostic_affect_description_config_v2",
+        run_id="diagnostic-affect-test-v2",
         manifest_path=_write_manifest(tmp_path),
         subject_model_key="subject_model",
         model_family="subject_family",
@@ -93,6 +95,10 @@ def test_plan_uses_explicit_identity_and_does_not_leak_annotations(tmp_path: Pat
 
     assert plan.counts == {"VT": 2}
     assert plan.signature["subject_model_key"] == "subject_model"
+    assert plan.signature["schema_name"] == (
+        "mprisk_diagnostic_affect_description_signature_v2"
+    )
+    assert plan.signature["run_id"] == "diagnostic-affect-test-v2"
     assert plan.signature["model_family"] == "subject_family"
     assert plan.signature["dataset"] == "demo"
     assert plan.signature["split"] == "test"
@@ -184,6 +190,8 @@ def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Pat
     export_diagnostic_affect_descriptions(ledger.completed_records(), destination)
     row = json.loads(destination.read_text(encoding="utf-8"))
     assert row["subject_model_key"] == "subject_model"
+    assert row["schema_name"] == "mprisk_diagnostic_affect_description_v2"
+    assert row["run_id"] == "diagnostic-affect-test-v2"
     assert row["condition"] == "M12"
     assert row["DIAGNOSTIC_AFFECT_DESCRIPTION"] == result.text
     assert "text" not in row
@@ -194,6 +202,8 @@ def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> Non
     manifest = _write_manifest(tmp_path)
     model_path = _model_path(tmp_path)
     plan = build_diagnostic_affect_description_plan(
+        schema_name="mprisk_diagnostic_affect_description_config_v2",
+        run_id="diagnostic-affect-test-v2",
         manifest_path=manifest,
         subject_model_key="subject_model",
         model_family="subject_family",
@@ -245,6 +255,7 @@ def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> Non
         manifest_path=manifest,
         output_root=output,
         subject_model_key="subject_model",
+        run_id="diagnostic-affect-test-v2",
         protocol="VT",
         condition="M12",
         dataset="demo",
@@ -255,8 +266,8 @@ def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> Non
 
 def test_config_is_strict_and_rejects_legacy_schema(tmp_path: Path) -> None:
     config = {
-        "schema_name": "mprisk_diagnostic_affect_description_config_v1",
-        "run_name": "test",
+        "schema_name": "mprisk_diagnostic_affect_description_config_v2",
+        "run_id": "test-v2",
         "asset_config": "assets.yaml",
         "manifest_path": "manifest.jsonl",
         "output_root": "output",

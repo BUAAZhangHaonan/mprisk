@@ -27,9 +27,10 @@ CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
-CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v1"
-OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v1"
-PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v1"
+CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
+OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v2"
+PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v2"
+SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v2"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 _SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
 _SUPPORTED_CONDITIONS = frozenset({"M12"})
@@ -53,6 +54,8 @@ class DiagnosticAffectDescriptionPlan:
 
 def build_diagnostic_affect_description_plan(
     *,
+    schema_name: str,
+    run_id: str,
     manifest_path: Path,
     subject_model_key: str,
     model_family: str,
@@ -78,7 +81,10 @@ def build_diagnostic_affect_description_plan(
         raise ValueError(f"Unsupported Diagnostic Affect Description protocol: {protocol!r}")
     if condition not in _SUPPORTED_CONDITIONS:
         raise ValueError(f"Unsupported Diagnostic Affect Description condition: {condition!r}")
+    if schema_name != CONFIG_SCHEMA:
+        raise ValueError(f"Unsupported Diagnostic Affect Description schema: {schema_name!r}")
     for field_name, value in (
+        ("run_id", run_id),
         ("subject_model_key", subject_model_key),
         ("model_family", model_family),
         ("dataset", dataset),
@@ -169,7 +175,8 @@ def build_diagnostic_affect_description_plan(
     counts = {protocol: len(tasks)}
     model_path = model_path.expanduser().resolve()
     signature = {
-        "schema": "mprisk_diagnostic_affect_description_signature_v1",
+        "schema_name": SIGNATURE_SCHEMA,
+        "run_id": run_id,
         "manifest_sha256": _sha256(manifest_path),
         "asset_config_sha256": asset_config_sha256,
         "subject_model_key": subject_model_key,
@@ -379,6 +386,12 @@ class DiagnosticAffectDescriptionLedger:
             )
 
     def completed_records(self) -> list[dict[str, Any]]:
+        signature_row = self.connection.execute(
+            "SELECT value FROM metadata WHERE key='signature'"
+        ).fetchone()
+        if signature_row is None:
+            raise ValueError("Description ledger has no immutable signature")
+        signature = json.loads(signature_row["value"])
         records = []
         for row in self.connection.execute(
             """SELECT sample_id,protocol,input_sha256,media_sha256,prompt_sha256,result_json,
@@ -389,11 +402,14 @@ class DiagnosticAffectDescriptionLedger:
             request = json.loads(row["request_json"])
             records.append(
                 {
-                    "schema": OUTPUT_SCHEMA,
+                    "schema_name": OUTPUT_SCHEMA,
+                    "run_id": signature["run_id"],
                     "sample_id": row["sample_id"],
                     "subject_model_key": request["model_key"],
                     "protocol": row["protocol"].upper(),
                     "condition": request["condition"],
+                    "dataset": signature["dataset"],
+                    "split": signature["split"],
                     "DIAGNOSTIC_AFFECT_DESCRIPTION": result["text"],
                     "token_ids": result["token_ids"],
                     "eos_token_ids": result["eos_token_ids"],
@@ -539,6 +555,7 @@ def verify_diagnostic_affect_descriptions(
     manifest_path: Path,
     output_root: Path,
     subject_model_key: str,
+    run_id: str,
     protocol: str,
     condition: str,
     dataset: str,
@@ -564,7 +581,8 @@ def verify_diagnostic_affect_descriptions(
     if not strict_full and not set(observed).issubset(expected):
         raise ValueError("Description smoke manifest contains unknown sample IDs")
     expected_fields = {
-        "schema", "sample_id", "subject_model_key", "protocol", "condition",
+        "schema_name", "run_id", "sample_id", "subject_model_key", "protocol", "condition",
+        "dataset", "split",
         "DIAGNOSTIC_AFFECT_DESCRIPTION", "token_ids", "eos_token_ids", "finish_reason",
         "input_token_count", "input_sha256", "media_sha256", "prompt_sha256", "provenance",
     }
@@ -572,10 +590,13 @@ def verify_diagnostic_affect_descriptions(
         if set(record) != expected_fields:
             raise ValueError("Description manifest fields are not strict")
         if (
-            record.get("schema") != OUTPUT_SCHEMA
+            record.get("schema_name") != OUTPUT_SCHEMA
+            or record.get("run_id") != run_id
             or record.get("subject_model_key") != subject_model_key
             or record.get("protocol") != protocol
             or record.get("condition") != condition
+            or record.get("dataset") != dataset
+            or record.get("split") != split
         ):
             raise ValueError("Description manifest schema or condition mismatch")
         if observed[str(record["sample_id"])] != expected[str(record["sample_id"])]:
@@ -617,12 +638,17 @@ def verify_diagnostic_affect_descriptions(
         raise ValueError("Description ledger summary is incomplete or contains failures")
     counts = {protocol: len(records)}
     provenance = _read_json(output_root / "provenance.json")
-    if provenance.get("schema") != PROVENANCE_SCHEMA:
+    if (
+        provenance.get("schema_name") != PROVENANCE_SCHEMA
+        or provenance.get("run_id") != run_id
+    ):
         raise ValueError("Description provenance schema mismatch")
     if provenance.get("canonical_prompt") != CANONICAL_DIAGNOSTIC_AFFECT_PROMPT:
         raise ValueError("Description provenance prompt mismatch")
     signature = provenance.get("signature")
     expected_identity = {
+        "schema_name": SIGNATURE_SCHEMA,
+        "run_id": run_id,
         "subject_model_key": subject_model_key,
         "protocol": protocol,
         "condition": condition,
@@ -657,7 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/experiments/diagnostic_affect_description_v1.yaml"),
+        default=Path("configs/experiments/diagnostic_affect_description_v2.yaml"),
     )
     parser.add_argument("--manifest-path", type=Path)
     parser.add_argument("--output-root", type=Path)
@@ -703,6 +729,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             protocol=protocol,
         )
     plan = build_diagnostic_affect_description_plan(
+        schema_name=str(config["schema_name"]),
+        run_id=str(config["run_id"]),
         manifest_path=manifest_path,
         subject_model_key=subject_model_key,
         model_family=asset.family,
@@ -734,6 +762,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         manifest_path=manifest_path,
         output_root=output_root,
         subject_model_key=subject_model_key,
+        run_id=str(config["run_id"]),
         protocol=protocol,
         condition=condition,
         dataset=dataset,
@@ -771,7 +800,8 @@ def _materialize(
     _atomic_json(
         output_root / "provenance.json",
         {
-            "schema": PROVENANCE_SCHEMA,
+            "schema_name": PROVENANCE_SCHEMA,
+            "run_id": signature["run_id"],
             "canonical_prompt": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
             "signature": signature,
             "artifacts": {
@@ -793,7 +823,7 @@ def _read_config(path: Path) -> dict[str, Any]:
         raise ValueError(f"Unsupported diagnostic-description config: {path}")
     required = {
         "schema_name",
-        "run_name",
+        "run_id",
         "asset_config",
         "manifest_path",
         "output_root",

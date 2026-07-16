@@ -12,6 +12,7 @@ exports. A name may identify one concept only.
 | Model judging Misread | `judge_model` |
 | Human/reference description | `GT_DESCRIPTION` / GT Description |
 | Subject-model M12 description | `DIAGNOSTIC_AFFECT_DESCRIPTION` / Diagnostic Affect Description |
+| Blinded comparison task | Misread Judgment |
 
 GT Description generation and Misread judging are separate stages. DeepSeek is a provider/model,
 not the task name.
@@ -56,6 +57,11 @@ manifests, sidecars, checkpoints, prompt IDs, cache roots, or figure-map keys.
 - Legacy configs live under `configs/legacy/` and are read-only records. Active loaders reject
   their schemas; there are no import aliases, symlinks, or silent dual-schema readers.
 
+Diagnostic Affect Description v2 uses `schema_name` consistently in configs, manifests,
+signatures, and provenance. Every artifact also carries the same immutable `run_id`. Misread
+Judgment v2 names the measured model as `subject_model_key` and the external judge as
+`judge_model`; it reads only `GT_DESCRIPTION` and `DIAGNOSTIC_AFFECT_DESCRIPTION`.
+
 The label-schema transition follows this rule exactly:
 
 - `mprisk_stage1_relation_schema_v1` and `mprisk_sample_type_schema_v1` are immutable. The current
@@ -65,3 +71,10 @@ The label-schema transition follows this rule exactly:
   the canonical M1/M2/M12 and reference-dominance terminology for new annotation artifacts.
 - No active loader selects v2 by filename discovery. A new pipeline needs a separate strict
   consumer that binds both v2 schema IDs and writes a new artifact identity.
+
+## Deferred naming migrations
+
+The current cache, representation, state, and figure pipelines are running under immutable
+ledgers. Their `sdr` module/API names and existing AP/AUPRC result keys are intentionally deferred
+until those runs finish. Renaming them now would change runtime identity and invalidate resumable
+artifacts. This deferment does not define new paper terminology and does not authorize aliases.

@@ -1,1 +1,1 @@
-"""Reference-guided diagnostic-labeling workflows."""
+"""Blinded Misread Judgment workflows."""

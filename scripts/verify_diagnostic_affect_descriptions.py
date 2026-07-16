@@ -12,6 +12,7 @@ def main() -> int:
     parser.add_argument("--manifest-path", required=True, type=Path)
     parser.add_argument("--output-root", required=True, type=Path)
     parser.add_argument("--subject-model-key", required=True)
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--protocol", required=True, choices=("VT", "VA"))
     parser.add_argument("--condition", default="M12", choices=("M12",))
     parser.add_argument("--dataset", required=True)
@@ -24,6 +25,7 @@ def main() -> int:
                 manifest_path=args.manifest_path,
                 output_root=args.output_root,
                 subject_model_key=args.subject_model_key,
+                run_id=args.run_id,
                 protocol=args.protocol,
                 condition=args.condition,
                 dataset=args.dataset,
