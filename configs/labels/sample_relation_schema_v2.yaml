@@ -1,0 +1,38 @@
+schema: mprisk_sample_relation_schema_v2
+sample_types:
+  Conflict:
+    definition: M1 and M2 are clear and different, and the M12 condition label is clear.
+    required:
+      - m1_is_clear = true
+      - m2_is_clear = true
+      - m12_is_clear = true
+      - m1_label != m2_label
+      - m12_label in {positive, negative, neutral}
+  Ambiguous:
+    definition: At least one condition is unclear, annotators disagree, or M12 has no stable conclusion.
+    required_any:
+      - m1_is_clear = false
+      - m2_is_clear = false
+      - m12_is_clear = false
+      - annotator disagreement is high
+  Aligned:
+    definition: M1, M2, and M12 condition labels are clear and match.
+    required:
+      - m1_is_clear = true
+      - m2_is_clear = true
+      - m12_is_clear = true
+      - m1_label = m2_label = m12_label
+
+coarse_labels:
+  - positive
+  - negative
+  - neutral
+  - uncertain
+  - invalid
+
+reference_dominant_modality:
+  - V
+  - T
+  - A
+  - Balanced
+  - Unclear

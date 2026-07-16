@@ -35,6 +35,8 @@ M1 and M2 must never be values of a modality or lean-direction field.
 - The three state indices are State Dispersion (`S`), Modality Split (`D`), and signed Joint Lean
   (`R`). Their categorical result is State Pattern.
 - `joint_lean_direction` uses `V`, `T_or_A`, `No-lean`, or explicit `unclear`.
+- `reference_dominant_modality` is a separate human/reference annotation with values `V`, `T`,
+  `A`, `Balanced`, or `Unclear`. It must never be used as the signed Joint Lean output.
 - TME means Trajectory Manifold Encoder. Its representation target is Conflict/Aligned; Proxy
   Anchor is the training objective, not part of the representation name.
 
@@ -53,3 +55,13 @@ manifests, sidecars, checkpoints, prompt IDs, cache roots, or figure-map keys.
   belong in configs and provenance, not module names.
 - Legacy configs live under `configs/legacy/` and are read-only records. Active loaders reject
   their schemas; there are no import aliases, symlinks, or silent dual-schema readers.
+
+The label-schema transition follows this rule exactly:
+
+- `mprisk_stage1_relation_schema_v1` and `mprisk_sample_type_schema_v1` are immutable. The current
+  state-dataset and state-bundle code is an isolated legacy consumer of v1-shaped fields, not a
+  strict schema-ID binding.
+- `mprisk_condition_affect_annotation_schema_v2` and `mprisk_sample_relation_schema_v2` define
+  the canonical M1/M2/M12 and reference-dominance terminology for new annotation artifacts.
+- No active loader selects v2 by filename discovery. A new pipeline needs a separate strict
+  consumer that binds both v2 schema IDs and writes a new artifact identity.

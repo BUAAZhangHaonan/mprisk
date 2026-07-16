@@ -1,4 +1,4 @@
-schema: mprisk_stage1_relation_schema_v1
+schema: mprisk_condition_affect_annotation_schema_v2
 fields:
   sample_id: string
   source_dataset: string
@@ -8,18 +8,18 @@ fields:
   m2_modality: string
   m1_label: string
   m2_label: string
-  joint_label: string
+  m12_label: string
   m1_specific_affect: string
   m2_specific_affect: string
-  joint_specific_affect: string
+  m12_specific_affect: string
   m1_is_clear: bool
   m2_is_clear: bool
-  joint_is_clear: bool
+  m12_is_clear: bool
   m1_confidence: float
   m2_confidence: float
-  joint_confidence: float
+  m12_confidence: float
   sample_type: string
-  dominant_modality: string
+  reference_dominant_modality: string
   quality_flags: list[string]
   annotator_agreement: float
   notes: string
@@ -36,8 +36,9 @@ sample_types:
   - Ambiguous
   - Aligned
 
-dominant_modality:
-  - M1
-  - M2
-  - balanced
-  - unclear
+reference_dominant_modality:
+  - V
+  - T
+  - A
+  - Balanced
+  - Unclear

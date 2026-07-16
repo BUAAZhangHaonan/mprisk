@@ -8,8 +8,10 @@
 
 Main experiments focus on `Conflict` and `Aligned`. `Ambiguous` is reserved for appendix or supplemental analysis.
 
-The final data layer uses relation labels instead of a shared affective coordinate. M1, M2, and
-M12 are conditions, not modality names. Each curated sample must carry:
+The v2 data layer uses relation labels instead of a shared affective coordinate. M1, M2, and M12
+are conditions, not modality names. New annotation artifacts explicitly bind
+`mprisk_condition_affect_annotation_schema_v2` and `mprisk_sample_relation_schema_v2`. Each
+curated v2 sample must carry:
 
 ```text
 m1_label
@@ -19,7 +21,7 @@ m1_is_clear
 m2_is_clear
 m12_is_clear
 sample_type
-joint_lean_direction
+reference_dominant_modality
 ```
 
 Allowed coarse labels are `positive`, `negative`, `neutral`, `uncertain`, and `invalid`.
@@ -36,7 +38,16 @@ For each protocol, the pipeline builds three conditions:
 - `M2`: second unimodal condition.
 - `M12`: joint multimodal condition.
 
-`joint_lean_direction` is `V`, `T_or_A`, `No-lean`, or explicit `unclear`; it never uses M1 or M2.
+`reference_dominant_modality` is an annotated/reference property. It is `V`, `T`, `A`,
+`Balanced`, or `Unclear`, restricted by protocol to the modalities actually present.
+
+`joint_lean_direction` belongs only to state-measurement output. It is derived from signed Joint
+Lean (`R`) after the TME representation is frozen; it is never copied from annotation labels.
+
+The current state-dataset and state-bundle implementation is an isolated legacy consumer of
+v1-shaped fields; it does not validate the v1 schema IDs. The v2 files are not selected
+implicitly. A later v2 pipeline must use a separate strict consumer, bind both schema IDs, and
+produce new versioned artifacts.
 
 ## Main Datasets
 
