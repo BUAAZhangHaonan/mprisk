@@ -14,7 +14,6 @@ from mprisk.viz.figure_inputs import (
     build_state_figure_inputs,
 )
 
-
 MODELS = (
     ("qwen3_vl_8b", "VT", "Qwen3-VL-8B"),
     ("internvl3_5_8b", "VT", "InternVL3.5-8B"),
@@ -140,11 +139,19 @@ def _build_fig08(root: Path, output_dir: Path, command: list[str]) -> Path:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Resume artifact-backed Fig. 4-8 export.")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
-    parser.add_argument("--downstream-root", type=Path, default=Path("outputs/downstream/three_seed_v1"))
+    parser.add_argument(
+        "--downstream-root",
+        type=Path,
+        default=Path("outputs/downstream/three_seed_v1"),
+    )
     parser.add_argument("--config", type=Path, default=Path("configs/paper/figure_map.yaml"))
     args = parser.parse_args(argv)
     root = args.repo_root.resolve()
-    downstream = args.downstream_root if args.downstream_root.is_absolute() else root / args.downstream_root
+    downstream = (
+        args.downstream_root
+        if args.downstream_root.is_absolute()
+        else root / args.downstream_root
+    )
     config = args.config if args.config.is_absolute() else root / args.config
     ready = _ready_paths(downstream)
     if ready is None:
