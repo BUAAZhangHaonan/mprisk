@@ -17,6 +17,11 @@ exports. A name may identify one concept only.
 GT Description generation and Misread judging are separate stages. DeepSeek is a provider/model,
 not the task name.
 
+GT Description generation selects adapters with `provider_key`. Vendor-specific settings and
+credentials live only under `provider_settings` and `ground_truth/providers/`; task modules never
+name a vendor API or credential. The active generation config is v3 because this provider boundary
+changes its schema. Unknown providers and settings fail explicitly and never select an alternative.
+
 ## Protocol, modality, and condition
 
 - A **protocol** is `VT` or `VA`.

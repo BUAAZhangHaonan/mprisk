@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from mprisk.ground_truth.description_generation import (
@@ -17,7 +18,19 @@ from mprisk.ground_truth.description_generation import (
     validate_gt_description_content,
     verify_gt_description_generation,
 )
-from mprisk.ground_truth.providers.deepseek import load_api_key
+from mprisk.ground_truth.providers.base import (
+    GTDescriptionProviderRequest,
+    GTDescriptionProviderResponse,
+)
+from mprisk.ground_truth.providers.deepseek import (
+    DeepSeekProvider,
+    DeepSeekProviderSettings,
+    load_api_key,
+)
+from mprisk.ground_truth.providers.registry import (
+    get_provider,
+    validate_provider_settings,
+)
 
 
 def _annotation_row(sample_id: str, sample_type: str) -> dict[str, Any]:
@@ -68,18 +81,21 @@ def _write_config(tmp_path: Path) -> Path:
     (tmp_path / "aligned.txt").write_text("Aligned GT prompt", encoding="utf-8")
     (tmp_path / ".env").write_text("DEEPSEEK_API_KEY=test\n", encoding="utf-8")
     config = {
-        "schema_name": "mprisk_gt_description_generation_config_v1",
-        "run_id": "test_gt_description_generation_v1",
+        "schema_name": "mprisk_gt_description_generation_config_v3",
+        "run_id": "test_gt_description_generation_v3",
+        "provider_key": "deepseek",
         "gt_generator_model": "deepseek-v4-flash",
-        "api_url": "https://api.deepseek.com/chat/completions",
-        "env_file": ".env",
-        "api_key_variable": "DEEPSEEK_API_KEY",
-        "temperature": 0,
-        "max_tokens": 128,
-        "thinking": "disabled",
+        "provider_settings": {
+            "api_url": "https://api.deepseek.com/chat/completions",
+            "env_file": ".env",
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "temperature": 0,
+            "max_tokens": 128,
+            "thinking": "disabled",
+            "request_timeout_seconds": 10.0,
+        },
         "concurrency": 2,
         "retry_delays_seconds": [0.0],
-        "request_timeout_seconds": 10.0,
         "min_words": 6,
         "max_words": 80,
         "gt_input_schema_version": "gt_annotation_input_v1",
@@ -95,37 +111,47 @@ def _write_config(tmp_path: Path) -> Path:
     return config_path
 
 
-class FakeClient:
+class FakeProvider:
     def __init__(self) -> None:
         self.tasks: list[Any] = []
 
-    async def complete(self, task: Any) -> dict[str, Any]:
-        self.tasks.append(task)
+    async def complete(
+        self, request: GTDescriptionProviderRequest
+    ) -> GTDescriptionProviderResponse:
+        self.tasks.append(request)
         description = (
             "The person feels guarded and distressed despite the calm outward presentation."
-            if task.sample_type == "Conflict"
+            if request.system_prompt == "Conflict GT prompt"
             else "The person consistently expresses a calm and settled emotional state."
         )
-        return {
-            "response_id": f"response-{task.sample_id}",
-            "response_model": "deepseek-v4-flash",
-            "system_fingerprint": None,
-            "finish_reason": "stop",
-            "content": json.dumps({"GT_DESCRIPTION": description}),
-            "usage": {"prompt_tokens": 1, "completion_tokens": 1},
-        }
+        return GTDescriptionProviderResponse(
+            response_id="fake-response",
+            response_model=request.model,
+            finish_reason="stop",
+            content=json.dumps({"GT_DESCRIPTION": description}),
+            usage={"prompt_tokens": 1, "completion_tokens": 1},
+            provider_metadata={},
+        )
+
+    async def close(self) -> None:
+        raise AssertionError("Injected providers are not owned by the task")
 
 
-class InvalidClient:
-    async def complete(self, task: Any) -> dict[str, Any]:
-        return {
-            "response_id": f"invalid-{task.sample_id}",
-            "response_model": "deepseek-v4-flash",
-            "system_fingerprint": None,
-            "finish_reason": "stop",
-            "content": json.dumps({"GT_DESCRIPTION": "The person sounds angry!"}),
-            "usage": {},
-        }
+class InvalidProvider:
+    async def complete(
+        self, request: GTDescriptionProviderRequest
+    ) -> GTDescriptionProviderResponse:
+        return GTDescriptionProviderResponse(
+            response_id="invalid-response",
+            response_model=request.model,
+            finish_reason="stop",
+            content=json.dumps({"GT_DESCRIPTION": "The person sounds angry!"}),
+            usage={},
+            provider_metadata={},
+        )
+
+    async def close(self) -> None:
+        raise AssertionError("Injected providers are not owned by the task")
 
 
 async def _no_sleep(_: float) -> None:
@@ -138,6 +164,7 @@ def test_config_and_tasks_use_canonical_gt_description_names(tmp_path: Path) -> 
     tasks = prepare_tasks(tmp_path, config)
 
     assert config.gt_generator_model == "deepseek-v4-flash"
+    assert config.provider_key == "deepseek"
     assert config.conflict_prompt_path == Path("conflict.txt")
     assert config.aligned_prompt_path == Path("aligned.txt")
     assert len(tasks) == 2
@@ -189,18 +216,18 @@ def test_ledger_rejects_changed_generation_identity(tmp_path: Path) -> None:
 
 def test_mock_generation_adds_only_gt_description_and_verifies(tmp_path: Path) -> None:
     config_path = _write_config(tmp_path)
-    client = FakeClient()
+    provider = FakeProvider()
     result = asyncio.run(
         run_gt_description_generation(
             repo_root=tmp_path,
             config_path=config_path,
-            client=client,
+            provider=provider,
             sleep=_no_sleep,
         )
     )
 
     assert (result.total, result.completed, result.failed, result.pending) == (2, 2, 0, 0)
-    assert len(client.tasks) == 2
+    assert len(provider.tasks) == 2
     verified = verify_gt_description_generation(
         tmp_path, config_path, require_complete=True
     )
@@ -215,7 +242,7 @@ def test_mock_generation_adds_only_gt_description_and_verifies(tmp_path: Path) -
         assert set(row) == set(expected) | {"run_id", "GT_DESCRIPTION"}
         assert row["schema_name"] == "mprisk_gt_description_v1"
         assert row["gt_input_schema_version"] == "gt_annotation_input_v1"
-        assert row["run_id"] == "test_gt_description_generation_v1"
+        assert row["run_id"] == "test_gt_description_generation_v3"
         for key in set(expected) - {"schema_name"}:
             assert row[key] == expected[key]
     provenance = json.loads(
@@ -230,7 +257,7 @@ def test_invalid_response_is_preserved_as_failure(tmp_path: Path) -> None:
         run_gt_description_generation(
             repo_root=tmp_path,
             config_path=config_path,
-            client=InvalidClient(),
+            provider=InvalidProvider(),
             sleep=_no_sleep,
         )
     )
@@ -247,27 +274,27 @@ def test_failed_rows_require_explicit_retry(tmp_path: Path) -> None:
         run_gt_description_generation(
             repo_root=tmp_path,
             config_path=config_path,
-            client=InvalidClient(),
+            provider=InvalidProvider(),
             sleep=_no_sleep,
         )
     )
-    client = FakeClient()
+    provider = FakeProvider()
     unchanged = asyncio.run(
         run_gt_description_generation(
             repo_root=tmp_path,
             config_path=config_path,
-            client=client,
+            provider=provider,
             sleep=_no_sleep,
         )
     )
     assert unchanged.failed == 2
-    assert client.tasks == []
+    assert provider.tasks == []
     completed = asyncio.run(
         run_gt_description_generation(
             repo_root=tmp_path,
             config_path=config_path,
             retry_failed=True,
-            client=client,
+            provider=provider,
             sleep=_no_sleep,
         )
     )
@@ -278,11 +305,104 @@ def test_api_key_has_no_alternate_provider_fallback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = load_config(_write_config(tmp_path))
-    config = config.model_copy(update={"env_file": tmp_path / config.env_file})
-    config.env_file.write_text("OTHER_API_KEY=forbidden\n", encoding="utf-8")
+    settings = DeepSeekProviderSettings.model_validate(config.provider_settings)
+    settings = settings.model_copy(update={"env_file": tmp_path / settings.env_file})
+    settings.env_file.write_text("OTHER_API_KEY=forbidden\n", encoding="utf-8")
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with pytest.raises(ValueError, match="DEEPSEEK_API_KEY"):
-        load_api_key(config)
+        load_api_key(settings)
+
+
+def test_unknown_provider_hard_fails_without_fallback(tmp_path: Path) -> None:
+    config_payload = json.loads(_write_config(tmp_path).read_text(encoding="utf-8"))
+    config_payload["provider_key"] = "unknown-provider"
+    config_path = tmp_path / "unknown.json"
+    config_path.write_text(json.dumps(config_payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="Unknown GT Description provider"):
+        load_config(config_path)
+    with pytest.raises(ValueError, match="Unknown GT Description provider"):
+        get_provider("unknown-provider", "model", {})
+    with pytest.raises(ValueError, match="Unknown GT Description provider"):
+        get_provider("DeepSeek", "model", config_payload["provider_settings"])
+
+
+def test_deepseek_adapter_rejects_unknown_or_invalid_settings(tmp_path: Path) -> None:
+    config = load_config(_write_config(tmp_path))
+    with pytest.raises(ValueError, match="extra_forbidden"):
+        validate_provider_settings(
+            "deepseek", {**config.provider_settings, "fallback_provider": "forbidden"}
+        )
+    with pytest.raises(ValueError, match="thinking"):
+        validate_provider_settings(
+            "deepseek", {**config.provider_settings, "thinking": "enabled"}
+        )
+
+
+def test_deepseek_adapter_builds_and_validates_exact_request(tmp_path: Path) -> None:
+    config = load_config(_write_config(tmp_path))
+    settings = DeepSeekProviderSettings.model_validate(config.provider_settings)
+    observed: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed["authorization"] = request.headers["Authorization"]
+        observed["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": "response-1",
+                "model": config.gt_generator_model,
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "GT_DESCRIPTION": (
+                                        "The person feels calm and secure throughout the exchange."
+                                    )
+                                }
+                            ),
+                            "reasoning_content": None,
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 10},
+            },
+        )
+
+    async def exercise() -> GTDescriptionProviderResponse:
+        provider = DeepSeekProvider(
+            config.gt_generator_model,
+            settings,
+            "secret",
+            transport=httpx.MockTransport(handler),
+        )
+        try:
+            return await provider.complete(
+                GTDescriptionProviderRequest(
+                    model=config.gt_generator_model,
+                    system_prompt="System prompt",
+                    model_input={"archetype": {"id": "x"}},
+                )
+            )
+        finally:
+            await provider.close()
+
+    response = asyncio.run(exercise())
+    assert response.response_id == "response-1"
+    assert observed["authorization"] == "Bearer secret"
+    assert observed["body"] == {
+        "model": "deepseek-v4-flash",
+        "messages": [
+            {"role": "system", "content": "System prompt"},
+            {"role": "user", "content": '{"archetype":{"id":"x"}}'},
+        ],
+        "response_format": {"type": "json_object"},
+        "thinking": {"type": "disabled"},
+        "temperature": 0,
+        "max_tokens": 128,
+        "stream": False,
+    }
 
 
 def test_gt_description_validation_accepts_exact_contract() -> None:

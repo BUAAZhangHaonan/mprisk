@@ -23,16 +23,21 @@ The legacy archive codes `A` and `C` are mapped once at ingestion and retained o
 
 ## Generator contract
 
-The only active config schema is `mprisk_gt_description_generation_config_v1`.
-It uses `gt_generator_model`, `conflict_prompt_path`, and `aligned_prompt_path` and binds the
-annotation-input schema version, manifest SHA-256, expected row count, model, prompts, and output
-directory into the ledger identity.
+The only active config schema is `mprisk_gt_description_generation_config_v3`.
+It uses the task-level fields `provider_key`, `gt_generator_model`, `provider_settings`,
+`conflict_prompt_path`, and `aligned_prompt_path`. The selected adapter strictly validates the
+entire `provider_settings` mapping. An unknown provider or setting is an error; there is no
+alternate-provider fallback. The annotation-input schema version, manifest SHA-256, expected row
+count, provider, provider-settings SHA-256, model, prompts, and output directory are bound into the
+ledger identity.
 
 The provider request contains only `archetype`, `dialogue`, `scenario_context`, and
 `surface_emotion`. It excludes sample type, protocol, media, source provenance, and future model
 outputs. Conflict and Aligned choose different fixed prompts before the request is built.
 
-Thinking is disabled and temperature is zero. The response must be exact JSON with only
+The active DeepSeek adapter owns its endpoint, API-key environment variable, timeout, token,
+temperature, and thinking settings. The generic task does not import or instantiate a vendor
+client. Thinking is disabled and temperature is zero. The response must be exact JSON with only
 `GT_DESCRIPTION`, containing one English declarative sentence. Invalid content is recorded as a
 failure without repair. Only transport errors and configured retryable HTTP statuses are retried.
 
@@ -45,12 +50,12 @@ both the output schema and the annotation-input schema version.
 ```bash
 PYTHONPATH=src python scripts/build_gt_annotation_input_pilot.py
 PYTHONPATH=src python scripts/run_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v1.yaml
+  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml
 PYTHONPATH=src python scripts/verify_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v1.yaml \
+  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml \
   --require-complete
 ```
 
 Resume processes pending rows only. `--retry-failed` is explicit. The frozen old GT inputs,
 configs, prompts, and outputs remain read-only legacy evidence and are never silently loaded by the
-new schema.
+new schema. The superseded pilot config is a legacy record and is never accepted as v3.

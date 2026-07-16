@@ -11,7 +11,7 @@ import sqlite3
 import tempfile
 from collections import Counter
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -24,10 +24,20 @@ from mprisk.ground_truth.annotation_inputs import (
     GT_INPUT_SCHEMA_VERSION,
     GTAnnotationInput,
 )
+from mprisk.ground_truth.providers.base import (
+    GTDescriptionProvider,
+    GTDescriptionProviderRequest,
+    GTDescriptionProviderResponse,
+    TransientProviderError,
+)
+from mprisk.ground_truth.providers.registry import (
+    get_provider,
+    validate_provider_settings,
+)
 
-CONFIG_SCHEMA = "mprisk_gt_description_generation_config_v1"
+CONFIG_SCHEMA = "mprisk_gt_description_generation_config_v3"
 OUTPUT_SCHEMA = "mprisk_gt_description_v1"
-PROVENANCE_SCHEMA = "mprisk_gt_description_generation_provenance_v1"
+PROVENANCE_SCHEMA = "mprisk_gt_description_generation_provenance_v3"
 
 
 class _StrictModel(BaseModel):
@@ -35,18 +45,13 @@ class _StrictModel(BaseModel):
 
 
 class GTDescriptionGenerationConfig(_StrictModel):
-    schema_name: Literal["mprisk_gt_description_generation_config_v1"]
+    schema_name: Literal["mprisk_gt_description_generation_config_v3"]
     run_id: str
-    gt_generator_model: Literal["deepseek-v4-flash"]
-    api_url: str
-    env_file: Path
-    api_key_variable: Literal["DEEPSEEK_API_KEY"]
-    temperature: Literal[0]
-    max_tokens: Literal[128]
-    thinking: Literal["disabled"]
+    provider_key: str
+    gt_generator_model: str
+    provider_settings: dict[str, Any]
     concurrency: int
     retry_delays_seconds: list[float]
-    request_timeout_seconds: float
     min_words: int
     max_words: int
     gt_input_schema_version: Literal["gt_annotation_input_v1"]
@@ -62,6 +67,13 @@ class GTDescriptionGenerationConfig(_StrictModel):
     def run_id_must_be_non_empty(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("run_id must be non-empty")
+        return value
+
+    @field_validator("provider_key", "gt_generator_model")
+    @classmethod
+    def provider_identity_must_be_non_empty(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("provider_key and gt_generator_model must be non-empty")
         return value
 
     @field_validator("concurrency", "expected_count")
@@ -127,7 +139,9 @@ def load_config(path: str | Path) -> GTDescriptionGenerationConfig:
         raise ValueError(
             f"Unsupported GT Description generation config: {payload.get('schema_name')!r}"
         )
-    return GTDescriptionGenerationConfig.model_validate(payload)
+    config = GTDescriptionGenerationConfig.model_validate(payload)
+    validate_provider_settings(config.provider_key, config.provider_settings)
+    return config
 
 
 def prepare_tasks(
@@ -155,7 +169,11 @@ def prepare_tasks(
     ledger_signature = {
         "schema_name": config.schema_name,
         "run_id": config.run_id,
+        "provider_key": config.provider_key,
         "gt_generator_model": config.gt_generator_model,
+        "provider_settings_sha256": hashlib.sha256(
+            _canonical_json(config.provider_settings).encode()
+        ).hexdigest(),
         "gt_input_schema_version": config.gt_input_schema_version,
         "input_manifest_sha256": config.input_manifest_sha256,
         "expected_count": config.expected_count,
@@ -372,7 +390,7 @@ async def run_gt_description_generation(
     repo_root: str | Path,
     config_path: str | Path,
     retry_failed: bool = False,
-    client: Any | None = None,
+    provider: GTDescriptionProvider | None = None,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
 ) -> GTDescriptionGenerationResult:
     root = Path(repo_root).resolve()
@@ -383,12 +401,13 @@ async def run_gt_description_generation(
     output_root = _resolve_repo_path(root, config.output_root)
     ledger = GTDescriptionGenerationLedger(output_root / "batch_state.sqlite3")
     ledger.prepare(tasks)
-    owns_client = client is None
-    if client is None:
-        from mprisk.ground_truth.providers.deepseek import DeepSeekClient, load_api_key
-
-        client = DeepSeekClient(config, load_api_key(config))
-    from mprisk.ground_truth.providers.deepseek import TransientProviderError
+    owns_provider = provider is None
+    if provider is None:
+        provider = get_provider(
+            config.provider_key,
+            config.gt_generator_model,
+            config.provider_settings,
+        )
     semaphore = asyncio.Semaphore(config.concurrency)
 
     async def worker(sample_id: str) -> None:
@@ -398,15 +417,20 @@ async def run_gt_description_generation(
             for retry_index in range(len(config.retry_delays_seconds) + 1):
                 attempt = ledger.start(sample_id)
                 started = _now()
-                envelope: dict[str, Any] | None = None
+                response: GTDescriptionProviderResponse | None = None
                 try:
-                    envelope = await client.complete(task)
+                    request = GTDescriptionProviderRequest(
+                        model=config.gt_generator_model,
+                        system_prompt=task.system_prompt,
+                        model_input=task.model_input,
+                    )
+                    response = await provider.complete(request)
                     description = validate_gt_description_content(
-                        envelope["content"],
+                        response.content,
                         min_words=config.min_words,
                         max_words=config.max_words,
                     )
-                    result = {**envelope, "GT_DESCRIPTION": description}
+                    result = {**asdict(response), "GT_DESCRIPTION": description}
                     ledger.finish_attempt(sample_id, attempt, started, "completed", result)
                     ledger.complete(sample_id, result)
                     return
@@ -426,7 +450,7 @@ async def run_gt_description_generation(
                         attempt,
                         started,
                         "failed",
-                        response=envelope,
+                        response=None if response is None else asdict(response),
                         exc=exc,
                     )
                     break
@@ -447,8 +471,8 @@ async def run_gt_description_generation(
             output_root=output_root,
         )
     finally:
-        if owns_client:
-            await client.close()
+        if owns_provider:
+            await provider.close()
         ledger.close()
 
 
@@ -551,9 +575,12 @@ def verify_gt_description_generation(
         raise ValueError("Unexpected GT provenance schema")
     if (
         provenance.get("run_id") != config.run_id
+        or provenance.get("provider_key") != config.provider_key
         or provenance.get("gt_generator_model") != config.gt_generator_model
         or provenance.get("gt_description_schema_name") != OUTPUT_SCHEMA
         or provenance.get("gt_input_schema_version") != GT_INPUT_SCHEMA_VERSION
+        or provenance.get("provider_settings_sha256")
+        != hashlib.sha256(_canonical_json(config.provider_settings).encode()).hexdigest()
     ):
         raise ValueError("GT provenance run identity mismatch")
     for artifact in provenance["artifacts"].values():
@@ -647,12 +674,13 @@ def _export(
     provenance = {
         "schema_name": PROVENANCE_SCHEMA,
         "run_id": config.run_id,
+        "provider_key": config.provider_key,
         "gt_generator_model": config.gt_generator_model,
         "gt_description_schema_name": OUTPUT_SCHEMA,
         "gt_input_schema_version": config.gt_input_schema_version,
-        "thinking": config.thinking,
-        "temperature": config.temperature,
-        "max_tokens": config.max_tokens,
+        "provider_settings_sha256": hashlib.sha256(
+            _canonical_json(config.provider_settings).encode()
+        ).hexdigest(),
         "config_sha256": _sha256(config_file),
         "input_manifest": config.input_manifest.as_posix(),
         "input_manifest_sha256": config.input_manifest_sha256,

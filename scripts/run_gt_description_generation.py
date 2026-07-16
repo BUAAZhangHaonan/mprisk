@@ -23,7 +23,7 @@ def main() -> int:
     parser.add_argument(
         "--config",
         type=Path,
-        default=root / "configs/ground_truth/gt_description_generation_pilot_v1.yaml",
+        default=root / "configs/ground_truth/gt_description_generation_pilot_v3.yaml",
     )
     args = parser.parse_args()
     result = asyncio.run(

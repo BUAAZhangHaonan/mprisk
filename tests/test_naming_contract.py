@@ -178,10 +178,12 @@ def test_active_paths_use_task_level_names() -> None:
         "src/mprisk/judge/misread_judgment.py",
         "src/mprisk/ground_truth/annotation_inputs.py",
         "src/mprisk/ground_truth/description_generation.py",
+        "src/mprisk/ground_truth/providers/base.py",
+        "src/mprisk/ground_truth/providers/registry.py",
         "src/mprisk/ground_truth/providers/deepseek.py",
         "scripts/build_gt_annotation_input_pilot.py",
         "scripts/run_gt_description_generation.py",
-        "configs/ground_truth/gt_description_generation_pilot_v1.yaml",
+        "configs/ground_truth/gt_description_generation_pilot_v3.yaml",
         "configs/experiments/diagnostic_affect_description_v2.yaml",
         "configs/judge/misread_judgment_v2.yaml",
         "configs/labels/condition_affect_annotation_schema_v2.yaml",
@@ -224,4 +226,17 @@ def test_gt_description_task_contract_is_not_vendor_scoped() -> None:
     ):
         assert symbol in task_source
         assert symbol not in provider_source
+    for vendor_symbol in (
+        "DeepSeek",
+        "DEEPSEEK_API_KEY",
+        "api_url",
+        "api_key_env",
+        "thinking",
+    ):
+        assert vendor_symbol not in task_source
+    registry_source = (
+        ROOT / "src/mprisk/ground_truth/providers/registry.py"
+    ).read_text(encoding="utf-8")
+    assert "def get_provider" in registry_source
+    assert '"deepseek"' in registry_source
     assert not (ROOT / "src/mprisk/ground_truth/deepseek_gt.py").exists()
