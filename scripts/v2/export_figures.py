@@ -46,8 +46,9 @@ def main() -> int:
 
     dfs: dict[str, pd.DataFrame] = {}
     thresholds: dict[str, dict] = {}
+    from mprisk.data.protocol_views import normalize_protocol
     for mk, mc in cfg["models"].items():
-        protocol = mc["protocol"]
+        protocol = normalize_protocol(mc["protocol"])
         patterns_path = (
             output_root / "state_data" / mk / protocol / "state_patterns.jsonl"
         )
