@@ -77,7 +77,7 @@ def _build_fig08(root: Path, output_dir: Path, command: list[str]) -> Path:
     sources: list[Path] = []
     for repr_key, label, feature_field in REPRESENTATIONS:
         if repr_key == "tme_proxy_anchor_v1":
-            source = run / repr_key / "official_test/spherical_embedding_manifest.jsonl"
+            source = run / repr_key / "official_test/frozen_tme_representations.jsonl"
         else:
             source = run / repr_key / "official_test/frozen_baseline_representations.jsonl"
         if not source.is_file():
