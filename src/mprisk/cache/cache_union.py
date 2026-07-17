@@ -377,12 +377,10 @@ def build_cache_union(
             entries = list(executor.map(validate, jobs))
     entries.sort(key=_union_entry_sort_key)
     source_counts = dict(Counter(entry["source_provenance"]["source_id"] for entry in entries))
-    runtime_fingerprints = {
-        str(entry["source_provenance"]["runtime_provenance_fingerprint"])
-        for entry in entries
-    }
-    if len(runtime_fingerprints) != 1:
-        raise CacheUnionError("Cache entries have incompatible stable runtime provenance")
+    runtime_fingerprints_by_condition = _runtime_fingerprint_map(
+        entries,
+        source_ids=source_ids,
+    )
     payload = {
         "schema": UNION_SCHEMA,
         "version": UNION_VERSION,
@@ -401,7 +399,9 @@ def build_cache_union(
             "expected_signature_sha256": _fingerprint(expected_signature),
             "extractor_semantic_fingerprint": fingerprint,
             "model_asset_fingerprint": model_asset_fingerprint,
-            "runtime_provenance_fingerprint": next(iter(runtime_fingerprints)),
+            "runtime_provenance_fingerprints_by_condition": (
+                runtime_fingerprints_by_condition
+            ),
             "sources": [
                 {
                     "source_id": source.source_id,
@@ -639,6 +639,7 @@ def _validate_and_materialize_entry(
                 "source_split": source_request.get("split"),
                 "sidecar_path": str(sidecar),
                 "semantic_request_fingerprint": semantic_request_fingerprint,
+                "runtime_condition": expected.request.condition,
                 "runtime_provenance_fingerprint": runtime_fingerprint,
                 "model_asset_fingerprint": source_task.model_asset_fingerprint,
                 "runtime_provenance": runtime_payload,
@@ -646,6 +647,57 @@ def _validate_and_materialize_entry(
         }
     )
     return union_entry
+
+
+def _runtime_fingerprint_map(
+    entries: Sequence[dict[str, Any]],
+    *,
+    source_ids: Sequence[str],
+) -> dict[str, str]:
+    by_source: defaultdict[str, defaultdict[str, set[str]]] = defaultdict(
+        lambda: defaultdict(set)
+    )
+    for entry in entries:
+        source_provenance = entry.get("source_provenance")
+        if not isinstance(source_provenance, dict):
+            raise CacheUnionError("Union entry has no source provenance")
+        condition = str(entry.get("condition", "")).upper()
+        runtime_condition = str(source_provenance.get("runtime_condition", "")).upper()
+        if not condition or runtime_condition != condition:
+            raise CacheUnionError("Runtime provenance condition does not match its cache task")
+        source_id = str(source_provenance.get("source_id", ""))
+        fingerprint = str(source_provenance.get("runtime_provenance_fingerprint", ""))
+        if not source_id or not fingerprint:
+            raise CacheUnionError("Runtime provenance identity is incomplete")
+        by_source[source_id][condition].add(fingerprint)
+
+    source_maps: dict[str, dict[str, str]] = {}
+    for source_id in source_ids:
+        condition_sets = by_source.get(source_id)
+        if not condition_sets:
+            raise CacheUnionError(f"Cache source has no resolved runtime identity: {source_id}")
+        condition_map = {}
+        for condition, fingerprints in sorted(condition_sets.items()):
+            if len(fingerprints) != 1:
+                raise CacheUnionError(
+                    f"Cache source has multiple runtime fingerprints for {condition}: "
+                    f"{source_id}"
+                )
+            condition_map[condition] = next(iter(fingerprints))
+        source_maps[source_id] = condition_map
+    reference_source = source_ids[0]
+    reference_map = source_maps[reference_source]
+    mismatched = [
+        source_id
+        for source_id, condition_map in source_maps.items()
+        if condition_map != reference_map
+    ]
+    if mismatched:
+        raise CacheUnionError(
+            "Cache sources have different condition-specific runtime fingerprint maps: "
+            + ", ".join(mismatched)
+        )
+    return reference_map
 
 
 def _blocked_payload(

@@ -107,12 +107,12 @@ def _make_code_repo(tmp_path: Path, *, marker: str = "same") -> Path:
     return repository
 
 
-def _request(sample_id: str, *, split: str) -> PrefillRequest:
+def _request(sample_id: str, *, split: str, condition: str = "M1") -> PrefillRequest:
     return PrefillRequest(
         sample_id=sample_id,
         model_key="model",
         protocol="vt",
-        condition="M1",
+        condition=condition,
         prompt_set_key="prompts",
         prompt_id="p1",
         dataset_key="delivery_20260716",
@@ -142,33 +142,32 @@ def _source(
     weight_sha256: str,
     status: str = "completed",
 ) -> CacheSource:
-    source_root = tmp_path / source_id
-    artifact_root = source_root / "prompts" / request.prompt_id
-    result = PrefillResult(
-        request=request,
-        trajectory=np.ones((2, 3), dtype=np.float32),
-        token_count=5,
-        t0_token_index=4,
-        provenance={
-            "schema": "fake_prefill_v1",
-            "model_path": signature["model_path"],
-            "model_class": "FakeModel",
-            "processor_class": "FakeProcessor",
-            "transformers_version": "1",
-            "torch_version": "1",
-            "source_dtype": "bfloat16",
-            "stored_dtype": "float32",
-            "attn_implementation": "sdpa",
-            "num_hidden_layers": 2,
-            "hidden_size": 3,
-            "hidden_state_index_offset": 1,
-            "model_config_sha256": config_sha256,
-            "weight_index_sha256": weight_sha256,
-            "video_fps": 1.0,
-        },
+    return _source_many(
+        tmp_path,
+        source_id=source_id,
+        requests=(request,),
+        signature=signature,
+        code_repo=code_repo,
+        config_sha256=config_sha256,
+        weight_sha256=weight_sha256,
+        statuses={_task_id(request): status},
     )
-    artifact = write_prefill_result(result, output_root=artifact_root, update_manifest=False)
+
+
+def _source_many(
+    tmp_path: Path,
+    *,
+    source_id: str,
+    requests: tuple[PrefillRequest, ...],
+    signature: dict[str, object],
+    code_repo: Path,
+    config_sha256: str,
+    weight_sha256: str,
+    statuses: dict[str, str] | None = None,
+) -> CacheSource:
+    source_root = tmp_path / source_id
     ledger = source_root / "batch_state.sqlite3"
+    source_root.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(ledger)
     connection.executescript(
         """
@@ -181,14 +180,41 @@ def _source(
         """
     )
     connection.execute("INSERT INTO metadata VALUES('signature',?)", (_canonical(signature),))
-    connection.execute(
-        "INSERT INTO tasks VALUES(?,?,?)",
-        (
-            _task_id(request),
-            status,
-            _canonical(artifact.entry) if status == "completed" else None,
-        ),
-    )
+    for request in requests:
+        artifact_root = source_root / "prompts" / request.prompt_id
+        result = PrefillResult(
+            request=request,
+            trajectory=np.ones((2, 3), dtype=np.float32),
+            token_count=5,
+            t0_token_index=4,
+            provenance={
+                "schema": "fake_prefill_v1",
+                "model_path": signature["model_path"],
+                "model_class": "FakeModel",
+                "processor_class": "FakeProcessor",
+                "transformers_version": "1",
+                "torch_version": "1",
+                "source_dtype": "bfloat16",
+                "stored_dtype": "float32",
+                "attn_implementation": "sdpa",
+                "num_hidden_layers": 2,
+                "hidden_size": 3,
+                "hidden_state_index_offset": 1,
+                "model_config_sha256": config_sha256,
+                "weight_index_sha256": weight_sha256,
+                "video_fps": None if request.condition == "M2" else 1.0,
+            },
+        )
+        artifact = write_prefill_result(result, output_root=artifact_root, update_manifest=False)
+        status = (statuses or {}).get(_task_id(request), "completed")
+        connection.execute(
+            "INSERT INTO tasks VALUES(?,?,?)",
+            (
+                _task_id(request),
+                status,
+                _canonical(artifact.entry) if status == "completed" else None,
+            ),
+        )
     connection.commit()
     connection.close()
     evidence = source_root / "extractor_evidence.json"
@@ -200,6 +226,26 @@ def _source(
         output_path=evidence,
     )
     return CacheSource(source_id, source_root.resolve(), ledger.resolve(), evidence.resolve())
+
+
+def _set_runtime_provenance_field(
+    source: CacheSource,
+    request: PrefillRequest,
+    field: str,
+    value: object,
+) -> None:
+    connection = sqlite3.connect(source.ledger_path)
+    entry = json.loads(
+        connection.execute(
+            "SELECT entry_json FROM tasks WHERE task_id=?",
+            (_task_id(request),),
+        ).fetchone()[0]
+    )
+    connection.close()
+    sidecar = Path(entry["cache_root"]) / entry["metadata"]["sidecar_path"]
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    payload["provenance"][field] = value
+    sidecar.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def _expected(request: PrefillRequest) -> ExpectedCacheTask:
@@ -573,5 +619,103 @@ def test_union_evidence_binds_every_referenced_model_weight_shard(tmp_path: Path
             output_path=tmp_path / "union.json",
             expected_resolved_tasks=1,
             expected_raw_tasks=1,
+            checksum_workers=1,
+        )
+
+
+def test_runtime_fingerprints_are_condition_specific_and_match_across_sources(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    signature = _signature(model, manifest="expected")
+    first_requests = (
+        _request("first-m1", split="train", condition="M1"),
+        _request("first-m2", split="train", condition="M2"),
+        _request("first-m12", split="train", condition="M12"),
+    )
+    second_requests = (
+        _request("second-m1", split="train", condition="M1"),
+        _request("second-m2", split="train", condition="M2"),
+        _request("second-m12", split="train", condition="M12"),
+    )
+    first = _source_many(
+        tmp_path,
+        source_id="first",
+        requests=first_requests,
+        signature=_signature(model, manifest="first"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    second = _source_many(
+        tmp_path,
+        source_id="second",
+        requests=second_requests,
+        signature=_signature(model, manifest="second"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    expected = [_expected(request) for request in (*first_requests, *second_requests)]
+    common = {
+        "expected_tasks": expected,
+        "expected_signature": signature,
+        "sources": [first, second],
+        "expected_resolved_tasks": 6,
+        "expected_raw_tasks": 6,
+        "checksum_workers": 1,
+    }
+
+    result = build_cache_union(output_path=tmp_path / "valid-union.json", **common)
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    runtime_map = payload["provenance"]["runtime_provenance_fingerprints_by_condition"]
+    assert set(runtime_map) == {"M1", "M2", "M12"}
+    assert runtime_map["M1"] == runtime_map["M12"]
+    assert runtime_map["M1"] != runtime_map["M2"]
+    assert all(
+        entry["source_provenance"]["runtime_condition"] == entry["condition"]
+        for entry in payload["entries"]
+    )
+    m2_entries = [entry for entry in payload["entries"] if entry["condition"] == "M2"]
+    assert all(
+        entry["source_provenance"]["runtime_provenance"]["video_fps"] is None
+        for entry in m2_entries
+    )
+
+    _set_runtime_provenance_field(second, second_requests[1], "video_fps", 2.0)
+    with pytest.raises(CacheUnionError, match="different condition-specific runtime"):
+        build_cache_union(output_path=tmp_path / "cross-source-mismatch.json", **common)
+
+
+def test_union_rejects_multiple_runtime_fingerprints_within_one_condition(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    signature = _signature(model, manifest="expected")
+    requests = (
+        _request("first-m1", split="train", condition="M1"),
+        _request("second-m1", split="train", condition="M1"),
+    )
+    source = _source_many(
+        tmp_path,
+        source_id="source",
+        requests=requests,
+        signature=_signature(model, manifest="source"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    _set_runtime_provenance_field(source, requests[1], "video_fps", 2.0)
+
+    with pytest.raises(CacheUnionError, match="multiple runtime fingerprints for M1"):
+        build_cache_union(
+            expected_tasks=[_expected(request) for request in requests],
+            expected_signature=signature,
+            sources=[source],
+            output_path=tmp_path / "union.json",
+            expected_resolved_tasks=2,
+            expected_raw_tasks=2,
             checksum_workers=1,
         )
