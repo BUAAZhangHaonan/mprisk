@@ -18,6 +18,7 @@ import yaml
 matplotlib.use("Agg")
 from matplotlib import pyplot as plt  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
+from matplotlib.ticker import PercentFormatter  # noqa: E402
 
 from mprisk.viz.figure_inputs import (  # noqa: E402
     CONCEPTUAL_INPUT_SCHEMA,
@@ -785,9 +786,14 @@ def _render_sdr_distributions(
     _require_columns(rows, {"model", "sample_type", "S", "D", "R", "metric", "value"})
     _validate_state_provenance(rows, provenance)
     _validate_fig04_masks(rows, provenance)
-    figure, axes = plt.subplots(3, 3, figsize=(10.2, 7.2), constrained_layout=True)
+    figure, axes = plt.subplots(3, 3, figsize=(10.8, 7.5), constrained_layout=True)
     groups = ("Aligned", "Conflict")
     colors = {"Aligned": "#2a9d8f", "Conflict": "#d1495b"}
+    metric_labels = {
+        "S": "State Dispersion (S)",
+        "D": "Modality Split (D)",
+        "abs_R": "Absolute Joint Lean (|R|)",
+    }
     for model_index, (model_key, model_label) in enumerate(MODEL_SPECS):
         for metric_index, metric in enumerate(("S", "D", "abs_R")):
             axis = axes[model_index, metric_index]
@@ -806,7 +812,7 @@ def _render_sdr_distributions(
             boxes = axis.boxplot(values, tick_labels=groups, patch_artist=True)
             for patch, group in zip(boxes["boxes"], groups, strict=True):
                 patch.set_facecolor(colors[group])
-            axis.set_title(f"{model_label} | {metric}", fontsize=9)
+            axis.set_title(f"{model_label}\n{metric_labels[metric]}", fontsize=8.5)
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -844,7 +850,9 @@ def _render_four_state_stacks(
         if any(abs(total - 1.0) > 1e-6 for total in bottoms):
             raise ValueError(f"Fig. 5 proportions must sum to one for {model_key}")
         axis.set_ylim(0.0, 1.0)
+        axis.yaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
         axis.set_title(model_label)
+    axes[0].set_ylabel("Samples (%)")
     axes[-1].legend(fontsize=7, loc="center left", bbox_to_anchor=(1.02, 0.5))
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
@@ -885,9 +893,30 @@ def _render_d_signed_r(
                         s=14,
                     )
         axis.axhline(0.0, color="black", linewidth=0.8)
-        axis.text(0.99, 0.96, "V lean", transform=axis.transAxes, ha="right", va="top")
-        axis.text(0.99, 0.04, "T/A lean", transform=axis.transAxes, ha="right", va="bottom")
-        axis.set(xlabel="D", ylabel="signed R", title=model_label)
+        text_box = {"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.8}
+        axis.text(
+            0.99,
+            0.96,
+            "V lean",
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            bbox=text_box,
+        )
+        axis.text(
+            0.99,
+            0.04,
+            "T/A lean",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+            bbox=text_box,
+        )
+        axis.set(
+            xlabel="Modality Split (D)",
+            ylabel="signed Joint Lean (R)",
+            title=model_label,
+        )
     axes[-1].legend(fontsize=6, loc="center left", bbox_to_anchor=(1.02, 0.5))
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
@@ -962,6 +991,14 @@ def _render_misread_bias(
             yticks=(0.0, 25.0, 50.0, 75.0, 100.0),
             xticklabels=pending["xticklabels"],
         )
+        if column == 2:
+            axes[0, column].tick_params(axis="x", labelsize=7)
+            plt.setp(
+                axes[0, column].get_xticklabels(),
+                rotation=20,
+                ha="right",
+                rotation_mode="anchor",
+            )
         bottom = [
             row
             for row in rows
@@ -988,10 +1025,25 @@ def _render_misread_bias(
                 )
         axis.axhline(0.0, color="black", linewidth=0.8)
         axis.set_title(f"{model_label} | stable Conflict D-signed R", fontsize=8)
-        axis.set_xlabel("D")
-        axis.set_ylabel("signed R")
-        axis.text(0.98, 0.93, "V lean", ha="right", transform=axis.transAxes)
-        axis.text(0.98, 0.07, "T/A lean", ha="right", transform=axis.transAxes)
+        axis.set_xlabel("Modality Split (D)")
+        axis.set_ylabel("signed Joint Lean (R)")
+        text_box = {"facecolor": "white", "edgecolor": "none", "alpha": 0.75, "pad": 0.8}
+        axis.text(
+            0.98,
+            0.93,
+            "V lean",
+            ha="right",
+            transform=axis.transAxes,
+            bbox=text_box,
+        )
+        axis.text(
+            0.98,
+            0.07,
+            "T/A lean",
+            ha="right",
+            transform=axis.transAxes,
+            bbox=text_box,
+        )
     figure.suptitle(title)
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
@@ -1057,7 +1109,15 @@ def _render_representation_comparison(
         raise ValueError("Fig. 8 provenance must lock the registered representative backbone")
     if provenance.get("umap") != expected_umap:
         raise ValueError("Fig. 8 provenance must lock the installed UMAP version and parameters")
-    figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.5), constrained_layout=True)
+    figure, axes = plt.subplots(2, 3, figsize=(11.0, 7.2))
+    figure.subplots_adjust(
+        left=0.07,
+        right=0.98,
+        bottom=0.12,
+        top=0.90,
+        wspace=0.28,
+        hspace=0.38,
+    )
     for column, representation in enumerate(("Single-Point", "Trajectory MLP", "TME")):
         selected = [
             row
@@ -1086,6 +1146,8 @@ def _render_representation_comparison(
                 projection[indexes, 0], projection[indexes, 1], color=color, label=sample_type, s=14
             )
         axes[0, column].set_title(f"{representation} | UMAP")
+        axes[0, column].set_xlabel("UMAP-1")
+        axes[0, column].set_ylabel("UMAP-2")
         axes[0, column].legend(fontsize=7)
         _pending_axis(
             axes[1, column],
@@ -1101,7 +1163,7 @@ def _render_representation_comparison(
     figure.suptitle(title)
     figure.text(
         0.5,
-        0.01,
+        0.025,
         f"umap-learn {umap_version}; n_neighbors={UMAP_CONFIG['n_neighbors']}; "
         f"min_dist={UMAP_CONFIG['min_dist']}; metric={UMAP_CONFIG['metric']}; "
         f"random_state={UMAP_CONFIG['random_state']}",

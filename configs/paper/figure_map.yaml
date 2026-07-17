@@ -13,19 +13,19 @@ figures:
     input: outputs/paper_exports/figures/fig03_spherical_sdr.json
     output: paper/figures/generated/fig03_spherical_sdr.pdf
   fig04_sdr_distributions:
-    title: Per-Model S/D/|R| Distributions
+    title: Conflict and Aligned State Index Distributions
     input: outputs/paper_exports/figures/fig04_sdr_distributions.csv
     output: paper/figures/generated/fig04_sdr_distributions.pdf
   fig05_four_state_stacks:
-    title: Per-Model Four-State Proportions
+    title: Conflict and Aligned State Pattern Proportions
     input: outputs/paper_exports/figures/fig05_four_state_stacks.csv
     output: paper/figures/generated/fig05_four_state_stacks.pdf
   fig06_stable_d_signed_r:
-    title: Per-Model Stable D and Signed R
+    title: Stable-State Modality Split and Signed Joint Lean
     input: outputs/paper_exports/figures/fig06_stable_d_signed_r.csv
     output: paper/figures/generated/fig06_stable_d_signed_r.pdf
   fig07_misread_bias:
-    title: Misread Relations and Modality Bias
+    title: State-Misread Associations and Modality Bias
     input: outputs/paper_exports/figures/fig07_misread_bias.csv
     output: paper/figures/generated/fig07_misread_bias.pdf
   fig08_representation_comparison:

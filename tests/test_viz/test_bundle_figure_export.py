@@ -283,6 +283,7 @@ def test_ready_fig7_renders_pending_misread_and_real_bias_panels(
     assert "State Dispersion (S) vs Misread" in extracted
     assert "Modality Split (D) vs Misread" in extracted
     assert "State Pattern vs Misread" in extracted
+    assert "signed Joint Lean (R)" in extracted
     assert extracted.count("stable Conflict D-signed R") == 3
 
 
@@ -476,6 +477,8 @@ def test_ready_fig8_renders_real_ac_and_pending_misread_panels(
     assert extracted.count("Pending Misread annotations") == 3
     assert "Conflict samples retained (%)" in extracted
     assert extracted.count("AUPRC") >= 3
+    assert extracted.count("UMAP-1") == 3
+    assert extracted.count("UMAP-2") == 3
 
 
 def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
