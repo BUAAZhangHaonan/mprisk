@@ -416,6 +416,68 @@ def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
         _render_representation_comparison("Fig. 8", rows, {}, tmp_path / "fig08.pdf")
 
 
+def test_ready_fig8_renders_real_ac_and_pending_misread_panels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib.metadata
+
+    import numpy as np
+    import umap
+
+    class FakeUMAP:
+        def __init__(self, **kwargs: object) -> None:
+            assert kwargs == UMAP_CONFIG
+
+        def fit_transform(self, features: np.ndarray) -> np.ndarray:
+            return features[:, :2]
+
+    monkeypatch.setattr(umap, "UMAP", FakeUMAP)
+    rows = []
+    for representation in ("Single-Point", "Trajectory MLP", "TME"):
+        for index in range(16):
+            rows.append(
+                {
+                    "panel": "ac",
+                    "representation": representation,
+                    "model": "qwen3_vl_8b",
+                    "protocol": "VT",
+                    "seed": "20260717",
+                    "sample_id": f"sample-{index}",
+                    "sample_type": "Aligned" if index < 8 else "Conflict",
+                    "representation_split": "official_test",
+                    "feature": json.dumps([float(index), float(index % 3), 0.5]),
+                    "status": "Ready",
+                }
+            )
+    provenance = {
+        "representation_split": "official_test",
+        "representative_backbone": {
+            "model": "qwen3_vl_8b",
+            "protocol": "VT",
+            "seed": "20260717",
+        },
+        "umap": {
+            "package": "umap-learn",
+            "version": importlib.metadata.version("umap-learn"),
+            **UMAP_CONFIG,
+        },
+    }
+    output = tmp_path / "fig08.pdf"
+
+    _render_representation_comparison("Fig. 8", rows, provenance, output)
+
+    assert output.read_bytes().startswith(b"%PDF-")
+    extracted = subprocess.run(
+        ["pdftotext", str(output), "-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert extracted.count("Pending Misread annotations") == 3
+    assert "Conflict samples retained (%)" in extracted
+    assert extracted.count("AUPRC") >= 3
+
+
 def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
     root = Path(__file__).resolve().parents[2]
     figure_map = yaml.safe_load((root / "configs/paper/figure_map.yaml").read_text())

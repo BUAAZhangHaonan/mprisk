@@ -1091,6 +1091,12 @@ def _render_representation_comparison(
             axes[1, column],
             f"{representation} | Misread AUPRC",
             "Pending Misread annotations",
+            xlabel="Conflict samples retained (%)",
+            ylabel="AUPRC",
+            xlim=(0.0, 100.0),
+            ylim=(0.0, 1.0),
+            xticks=(0.0, 25.0, 50.0, 75.0, 100.0),
+            yticks=(0.0, 0.25, 0.5, 0.75, 1.0),
         )
     figure.suptitle(title)
     figure.text(
