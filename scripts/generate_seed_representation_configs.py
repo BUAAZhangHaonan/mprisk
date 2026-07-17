@@ -94,6 +94,17 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
                     "min_delta": 0.0001,
                     "seed": seed,
                 }
+                if repr_key == "tme_proxy_anchor_v1":
+                    payload.update(
+                        {
+                            "state_selection_min_d_gap": 1e-6,
+                            "state_selection_min_raw_theta_gap_rad": (
+                                0.08726646259971647
+                            ),
+                            "state_selection_max_d_mannwhitney_p": 0.05,
+                            "state_selection_min_d_effect_size": 0.20,
+                        }
+                    )
                 destination = output_dir / f"seed{seed}" / f"{model_key}_{repr_key}.yaml"
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(
@@ -125,6 +136,15 @@ def synchronize_main_configs(repo_root: Path) -> list[Path]:
                 0.08726646259971647 if is_tme else 0.0
             )
             payload["d_aux_samples_per_class"] = 2 if is_tme else 0
+            if is_tme:
+                payload.update(
+                    {
+                        "state_selection_min_d_gap": 1e-6,
+                        "state_selection_min_raw_theta_gap_rad": 0.08726646259971647,
+                        "state_selection_max_d_mannwhitney_p": 0.05,
+                        "state_selection_min_d_effect_size": 0.20,
+                    }
+                )
             path.write_text(
                 yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
                 encoding="utf-8",
