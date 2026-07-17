@@ -12,6 +12,7 @@ families need independent, model-native cache contracts before registration.
 from __future__ import annotations
 
 import copy
+import hashlib
 import os
 import site
 import time
@@ -21,6 +22,9 @@ from typing import Any
 import numpy as np
 
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
+
+PREFILL_STRATEGY = "qwen_vl_prompt_kv"
+PREFILL_STRATEGY_VERSION = "v1"
 
 _SAFETY_PREFIX_FRACTION = 0.5
 """If the common prefix is shorter than this fraction of the shortest full
@@ -132,6 +136,11 @@ class QwenVlPromptKvPrefillExtractor:
                 )
 
             _assert_identical_token_prefix(model_inputs_per_prompt, prefix_len)
+            prefix_identity = _prefix_identity(
+                model_inputs_per_prompt[0],
+                prefix_len=prefix_len,
+                request=requests[0],
+            )
             full_position_ids = [self._full_position_ids(mi) for mi in model_inputs_per_prompt]
             prefix_inputs = self._build_prefix_inputs(
                 model_inputs_per_prompt[0],
@@ -174,6 +183,7 @@ class QwenVlPromptKvPrefillExtractor:
                         full_inputs=full_inputs,
                         full_position_ids=position_ids,
                         prefix_len=prefix_len,
+                        prefix_identity=prefix_identity,
                         past_key_values=suffix_cache,
                     )
                     if int(prefix_cache.get_seq_length()) != prefix_len:
@@ -268,6 +278,7 @@ class QwenVlPromptKvPrefillExtractor:
         full_inputs: Any,
         full_position_ids: Any,
         prefix_len: int,
+        prefix_identity: str,
         past_key_values: Any,
     ) -> PrefillResult:
         import torch
@@ -340,10 +351,12 @@ class QwenVlPromptKvPrefillExtractor:
         base_provenance.update(
             {
                 "kv_cache": True,
+                "prefill_strategy": PREFILL_STRATEGY,
+                "prefill_strategy_version": PREFILL_STRATEGY_VERSION,
+                "prefix_identity": prefix_identity,
                 "prefix_len": int(prefix_len),
                 "suffix_len": int(suffix_len),
-                "schema": base_provenance.get("schema", "mprisk_qwen3_vl_prefill_provenance_v1")
-                + "_kv",
+                "schema": "mprisk_qwen3_vl_prefill_provenance_v2",
             }
         )
         trajectory_np = trajectory.detach().to(dtype=torch.float32, device="cpu").numpy()
@@ -408,6 +421,37 @@ def _require_isolated_python_environment() -> None:
             "KV extraction requires PYTHONNOUSERSITE=1 so Transformers cannot be imported "
             "from ~/.local. Set it before starting Python."
         )
+
+
+def _prefix_identity(
+    model_inputs: Any,
+    *,
+    prefix_len: int,
+    request: PrefillRequest,
+) -> str:
+    digest = hashlib.sha256()
+    for value in (
+        PREFILL_STRATEGY,
+        PREFILL_STRATEGY_VERSION,
+        request.model_key,
+        request.protocol,
+        request.condition,
+        request.sample_id,
+        request.prompt_set_key,
+        str(prefix_len),
+    ):
+        digest.update(value.encode("utf-8"))
+        digest.update(b"\0")
+    for key in ("input_ids", "attention_mask", "mm_token_type_ids"):
+        tensor = model_inputs.get(key)
+        if tensor is None:
+            raise RuntimeError(f"Qwen3-VL processor output is missing {key}")
+        prefix = tensor[..., :prefix_len].detach().contiguous().cpu()
+        digest.update(key.encode("utf-8"))
+        digest.update(str(tuple(prefix.shape)).encode("ascii"))
+        digest.update(str(prefix.dtype).encode("ascii"))
+        digest.update(prefix.numpy().tobytes(order="C"))
+    return digest.hexdigest()
 
 
 def _assert_identical_token_prefix(model_inputs: Sequence[Any], prefix_len: int) -> None:

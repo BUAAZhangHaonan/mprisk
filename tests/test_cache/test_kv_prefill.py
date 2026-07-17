@@ -151,6 +151,7 @@ def test_exact_mrope_positions_and_original_mask_are_forwarded(
         full_inputs=full_inputs,
         full_position_ids=exact_positions,
         prefix_len=3,
+        prefix_identity="a" * 64,
         past_key_values=cache,
     )
     forwarded = recorded["forward_kwargs"]
@@ -159,3 +160,6 @@ def test_exact_mrope_positions_and_original_mask_are_forwarded(
     assert forwarded["use_cache"] is True
     assert result.token_count == 5
     assert result.t0_token_index == 4
+    assert result.provenance["prefill_strategy"] == "qwen_vl_prompt_kv"
+    assert result.provenance["prefill_strategy_version"] == "v1"
+    assert result.provenance["prefix_identity"] == "a" * 64

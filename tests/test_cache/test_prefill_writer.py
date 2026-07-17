@@ -31,7 +31,12 @@ def _result() -> PrefillResult:
         trajectory=np.arange(6, dtype=np.float32).reshape(2, 3),
         token_count=4,
         t0_token_index=3,
-        provenance={"model_class": "Qwen2_5OmniThinkerForConditionalGeneration"},
+        provenance={
+            "model_class": "Qwen2_5OmniThinkerForConditionalGeneration",
+            "prefill_strategy": "full_prefill",
+            "prefill_strategy_version": "v1",
+            "prefix_identity": None,
+        },
     )
 
 
@@ -44,6 +49,9 @@ def test_prefill_writer_round_trips_through_full_cache_manifest(tmp_path) -> Non
     assert sidecar["request"]["prompt_set_key"] == "main_p8"
     assert sidecar["entry"]["prompt_id"] == "p01"
     assert sidecar["entry"]["metadata"]["t0_token_index"] == 3
+    assert sidecar["entry"]["metadata"]["prefill_strategy"] == "full_prefill"
+    assert sidecar["entry"]["metadata"]["prefill_strategy_version"] == "v1"
+    assert sidecar["entry"]["metadata"]["prefix_identity"] is None
 
     manifest = load_full_cache_manifest(
         tmp_path,

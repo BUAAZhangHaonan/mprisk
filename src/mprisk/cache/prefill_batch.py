@@ -21,19 +21,27 @@ import numpy as np
 from safetensors.numpy import load_file
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.cache.prefill_strategy_registry import create_prompt_kv_extractor
 from mprisk.cache.prefill_writer import (
     prefill_artifact_paths,
     write_full_cache_manifest,
     write_prefill_result,
 )
-from mprisk.models.base_wrapper import PrefillRequest
+from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
 from mprisk.models.qwen_omni import build_condition_request
 from mprisk.models.wrapper_registry import get_wrapper
 from mprisk.prompts.compiler import compile_prompt
 from mprisk.prompts.template_bank import PromptTemplate, load_equiv_prompt_set
 
 WrapperFactory = Callable[..., Any]
+PromptKvExtractorFactory = Callable[..., Any]
 CONDITIONS = ("M1", "M2", "M12")
+FULL_PREFILL_STRATEGY = "full_prefill"
+QWEN_VL_PROMPT_KV_STRATEGY = "qwen_vl_prompt_kv"
+PREFILL_STRATEGY_VERSIONS = {
+    FULL_PREFILL_STRATEGY: "v1",
+    QWEN_VL_PROMPT_KV_STRATEGY: "v1",
+}
 DEFAULT_ASSET_CONFIG = Path("configs/assets/model_assets.yaml")
 
 
@@ -83,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
     parser.add_argument("--attn-implementation", choices=("sdpa", "eager"))
+    parser.add_argument(
+        "--prefill-strategy",
+        default=FULL_PREFILL_STRATEGY,
+        choices=tuple(PREFILL_STRATEGY_VERSIONS),
+    )
     parser.add_argument("--min-pixels", type=int)
     parser.add_argument("--max-pixels", type=int)
     parser.add_argument("--output-root", required=True, type=Path)
@@ -105,6 +118,7 @@ def main(
     argv: Sequence[str] | None = None,
     *,
     wrapper_factory: WrapperFactory | None = None,
+    prompt_kv_extractor_factory: PromptKvExtractorFactory | None = None,
 ) -> int:
     args = build_parser().parse_args(argv)
     if args.materialize_every <= 0:
@@ -140,40 +154,36 @@ def main(
     for task, recorded_entry in ledger.completed_tasks(plan):
         request = _request_for_task(args, task)
         prompt_root = output_root / "prompts" / task.prompt_id
-        recovered_entry = _recover_entry(request, prompt_root)
+        recovered_entry = _recover_entry(
+            request,
+            prompt_root,
+            prefill_strategy=args.prefill_strategy,
+            prefill_strategy_version=_prefill_strategy_version(args.prefill_strategy),
+        )
         if recovered_entry is None:
             raise FileNotFoundError(f"Completed task has no cache artifact: {task.task_id}")
         if recovered_entry.entry != recorded_entry:
             raise ValueError(f"Completed task ledger entry mismatch: {task.task_id}")
-    processed = 0
     try:
         wrapper.load()
-        for task in ledger.pending_tasks(plan):
-            request = _request_for_task(args, task)
-            prompt_root = output_root / "prompts" / task.prompt_id
-            try:
-                recovered = _recover_entry(request, prompt_root)
-                if recovered is None:
-                    result = wrapper.extract_prefill(request)
-                    artifact = write_prefill_result(
-                        result,
-                        output_root=prompt_root,
-                        update_manifest=False,
-                    )
-                    entry = artifact.entry
-                    provenance = dict(result.provenance)
-                else:
-                    entry = recovered.entry
-                    provenance = recovered.provenance
-                ledger.complete(task.task_id, entry, provenance)
-            except Exception as exc:
-                ledger.fail(task.task_id, exc)
-                _materialize_failures(ledger, output_root)
-                if args.fail_fast:
-                    raise
-            processed += 1
-            if processed % args.materialize_every == 0:
-                _materialize_outputs(ledger, output_root, plan.prompt_ids)
+        if args.prefill_strategy == FULL_PREFILL_STRATEGY:
+            _run_full_prefill_tasks(
+                args=args,
+                plan=plan,
+                ledger=ledger,
+                wrapper=wrapper,
+                output_root=output_root,
+            )
+        else:
+            factory = prompt_kv_extractor_factory or create_prompt_kv_extractor
+            extractor = factory(args.prefill_strategy, wrapper)
+            _run_prompt_kv_tasks(
+                args=args,
+                plan=plan,
+                ledger=ledger,
+                extractor=extractor,
+                output_root=output_root,
+            )
     finally:
         wrapper.close()
         _materialize_outputs(ledger, output_root, plan.prompt_ids)
@@ -189,6 +199,7 @@ def main(
 
 def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
     _resolve_runtime_asset(args)
+    _validate_prefill_strategy(args)
     rows = _read_jsonl(args.manifest)
     _validate_rows(rows, args.protocol)
     prompt_set = load_equiv_prompt_set(args.prompt_set)
@@ -238,7 +249,7 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
                     )
                 )
     signature = {
-        "schema": "mprisk_prefill_batch_signature_v2",
+        "schema": "mprisk_prefill_batch_signature_v3",
         "asset_config_sha256": _sha256(args.asset_config),
         "manifest_sha256": _sha256(args.manifest),
         "prompt_set_sha256": _sha256(args.prompt_set),
@@ -251,6 +262,8 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
         "model_path": str(args.model_path.expanduser().resolve()),
         "dtype": args.dtype,
         "attn_implementation": args.attn_implementation,
+        "prefill_strategy": args.prefill_strategy,
+        "prefill_strategy_version": _prefill_strategy_version(args.prefill_strategy),
         "min_pixels": args.min_pixels,
         "max_pixels": args.max_pixels,
         "joint_audio_mode": args.joint_audio_mode,
@@ -345,6 +358,34 @@ class BatchLedger:
                 ).rowcount
             if changed == 1:
                 yield task
+
+    def pending_task_groups(
+        self,
+        plan: BatchPlan,
+    ) -> Iterator[tuple[tuple[BatchTask, ...], tuple[BatchTask, ...]]]:
+        """Claim pending tasks by complete sample-condition prompt group."""
+        statuses = {
+            str(row["task_id"]): str(row["status"])
+            for row in self.connection.execute("SELECT task_id,status FROM tasks").fetchall()
+        }
+        grouped: dict[tuple[str, str], list[BatchTask]] = {}
+        for task in plan.tasks:
+            grouped.setdefault((task.sample_id, task.condition), []).append(task)
+        for all_group_tasks in grouped.values():
+            pending = [task for task in all_group_tasks if statuses[task.task_id] == "pending"]
+            if not pending:
+                continue
+            with self.connection:
+                changed = 0
+                for task in pending:
+                    changed += self.connection.execute(
+                        """UPDATE tasks SET status='running', attempts=attempts+1
+                           WHERE task_id=? AND status='pending'""",
+                        (task.task_id,),
+                    ).rowcount
+            if changed != len(pending):
+                raise RuntimeError("Could not atomically claim a complete prompt-KV task group")
+            yield tuple(all_group_tasks), tuple(pending)
 
     def completed_tasks(self, plan: BatchPlan) -> Iterator[tuple[BatchTask, dict[str, Any]]]:
         by_id = {task.task_id: task for task in plan.tasks}
@@ -451,7 +492,144 @@ def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillReque
     )
 
 
-def _recover_entry(request: PrefillRequest, prompt_root: Path) -> RecoveredArtifact | None:
+def _run_full_prefill_tasks(
+    *,
+    args: argparse.Namespace,
+    plan: BatchPlan,
+    ledger: BatchLedger,
+    wrapper: Any,
+    output_root: Path,
+) -> int:
+    processed = 0
+    version = _prefill_strategy_version(args.prefill_strategy)
+    for task in ledger.pending_tasks(plan):
+        request = _request_for_task(args, task)
+        prompt_root = output_root / "prompts" / task.prompt_id
+        try:
+            recovered = _recover_entry(
+                request,
+                prompt_root,
+                prefill_strategy=args.prefill_strategy,
+                prefill_strategy_version=version,
+            )
+            if recovered is None:
+                result = _with_prefill_identity(
+                    wrapper.extract_prefill(request),
+                    prefill_strategy=args.prefill_strategy,
+                    prefill_strategy_version=version,
+                    prefix_identity=None,
+                )
+                artifact = write_prefill_result(
+                    result,
+                    output_root=prompt_root,
+                    update_manifest=False,
+                )
+                entry = artifact.entry
+                provenance = dict(result.provenance)
+            else:
+                entry = recovered.entry
+                provenance = recovered.provenance
+            ledger.complete(task.task_id, entry, provenance)
+        except Exception as exc:
+            ledger.fail(task.task_id, exc)
+            _materialize_failures(ledger, output_root)
+            if args.fail_fast:
+                raise
+        processed += 1
+        if processed % args.materialize_every == 0:
+            _materialize_outputs(ledger, output_root, plan.prompt_ids)
+    return processed
+
+
+def _run_prompt_kv_tasks(
+    *,
+    args: argparse.Namespace,
+    plan: BatchPlan,
+    ledger: BatchLedger,
+    extractor: Any,
+    output_root: Path,
+) -> int:
+    processed = 0
+    version = _prefill_strategy_version(args.prefill_strategy)
+    for all_tasks, pending_tasks in ledger.pending_task_groups(plan):
+        missing: list[BatchTask] = []
+        for task in pending_tasks:
+            request = _request_for_task(args, task)
+            prompt_root = output_root / "prompts" / task.prompt_id
+            try:
+                recovered = _recover_entry(
+                    request,
+                    prompt_root,
+                    prefill_strategy=args.prefill_strategy,
+                    prefill_strategy_version=version,
+                )
+                if recovered is None:
+                    missing.append(task)
+                else:
+                    ledger.complete(task.task_id, recovered.entry, recovered.provenance)
+            except Exception as exc:
+                ledger.fail(task.task_id, exc)
+                if args.fail_fast:
+                    raise
+        if missing:
+            prompt_texts = []
+            prompt_ids = []
+            for task in all_tasks:
+                if task.prompt_text is None:
+                    raise ValueError(f"Task {task.task_id} has an unresolved prompt")
+                prompt_texts.append(task.prompt_text)
+                prompt_ids.append(task.prompt_id)
+            first = all_tasks[0]
+            try:
+                results = extractor.extract_condition_batch(
+                    sample_row=first.row,
+                    build_request_fn=build_condition_request,
+                    prompt_texts=prompt_texts,
+                    condition=first.condition,
+                    protocol=args.protocol,
+                    prompt_set_key=first.prompt_set_key,
+                    prompt_ids=prompt_ids,
+                    common_kwargs={
+                        "joint_audio_mode": args.joint_audio_mode,
+                        "video_fps": args.video_fps,
+                    },
+                )
+                by_prompt_id = {result.request.prompt_id: result for result in results}
+                if set(by_prompt_id) != set(prompt_ids):
+                    raise RuntimeError("Prompt-KV results do not match the complete prompt group")
+                for task in missing:
+                    result = by_prompt_id[task.prompt_id]
+                    _validate_prefill_result_identity(
+                        result,
+                        prefill_strategy=args.prefill_strategy,
+                        prefill_strategy_version=version,
+                    )
+                    prompt_root = output_root / "prompts" / task.prompt_id
+                    artifact = write_prefill_result(
+                        result,
+                        output_root=prompt_root,
+                        update_manifest=False,
+                    )
+                    ledger.complete(task.task_id, artifact.entry, dict(result.provenance))
+            except Exception as exc:
+                for task in missing:
+                    ledger.fail(task.task_id, exc)
+                _materialize_failures(ledger, output_root)
+                if args.fail_fast:
+                    raise
+        processed += len(pending_tasks)
+        if processed % args.materialize_every == 0:
+            _materialize_outputs(ledger, output_root, plan.prompt_ids)
+    return processed
+
+
+def _recover_entry(
+    request: PrefillRequest,
+    prompt_root: Path,
+    *,
+    prefill_strategy: str,
+    prefill_strategy_version: str,
+) -> RecoveredArtifact | None:
     paths = prefill_artifact_paths(request, output_root=prompt_root)
     existing = (paths.shard_path.is_file(), paths.sidecar_path.is_file())
     if existing == (False, False):
@@ -486,7 +664,103 @@ def _recover_entry(request: PrefillRequest, prompt_root: Path) -> RecoveredArtif
     provenance = payload.get("provenance")
     if not isinstance(provenance, dict):
         raise ValueError(f"Existing sidecar provenance is invalid: {paths.sidecar_path}")
+    _validate_prefill_provenance(
+        provenance,
+        prefill_strategy=prefill_strategy,
+        prefill_strategy_version=prefill_strategy_version,
+    )
+    metadata = entry.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError(f"Existing cache metadata is invalid: {paths.sidecar_path}")
+    for key in ("prefill_strategy", "prefill_strategy_version", "prefix_identity"):
+        if metadata.get(key) != provenance.get(key):
+            raise ValueError(f"Existing cache {key} mismatch: {paths.sidecar_path}")
     return RecoveredArtifact(entry=entry, provenance=provenance)
+
+
+def _with_prefill_identity(
+    result: PrefillResult,
+    *,
+    prefill_strategy: str,
+    prefill_strategy_version: str,
+    prefix_identity: str | None,
+) -> PrefillResult:
+    provenance = dict(result.provenance)
+    provenance.update(
+        {
+            "prefill_strategy": prefill_strategy,
+            "prefill_strategy_version": prefill_strategy_version,
+            "prefix_identity": prefix_identity,
+        }
+    )
+    _validate_prefill_provenance(
+        provenance,
+        prefill_strategy=prefill_strategy,
+        prefill_strategy_version=prefill_strategy_version,
+    )
+    return PrefillResult(
+        request=result.request,
+        trajectory=result.trajectory,
+        token_count=result.token_count,
+        t0_token_index=result.t0_token_index,
+        provenance=provenance,
+    )
+
+
+def _validate_prefill_result_identity(
+    result: PrefillResult,
+    *,
+    prefill_strategy: str,
+    prefill_strategy_version: str,
+) -> None:
+    _validate_prefill_provenance(
+        dict(result.provenance),
+        prefill_strategy=prefill_strategy,
+        prefill_strategy_version=prefill_strategy_version,
+    )
+
+
+def _validate_prefill_provenance(
+    provenance: dict[str, Any],
+    *,
+    prefill_strategy: str,
+    prefill_strategy_version: str,
+) -> None:
+    if provenance.get("prefill_strategy") != prefill_strategy:
+        raise ValueError("Prefill result strategy does not match the configured strategy")
+    if provenance.get("prefill_strategy_version") != prefill_strategy_version:
+        raise ValueError("Prefill result strategy version does not match the configured version")
+    prefix_identity = provenance.get("prefix_identity")
+    if prefill_strategy == QWEN_VL_PROMPT_KV_STRATEGY:
+        if (
+            not isinstance(prefix_identity, str)
+            or len(prefix_identity) != 64
+            or any(character not in string.hexdigits for character in prefix_identity)
+        ):
+            raise ValueError("Prompt-KV prefill requires a SHA-256 prefix_identity")
+    elif prefix_identity is not None:
+        raise ValueError("Full-prefill provenance must not define a prefix_identity")
+
+
+def _prefill_strategy_version(strategy: str) -> str:
+    try:
+        return PREFILL_STRATEGY_VERSIONS[strategy]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported prefill strategy: {strategy!r}") from exc
+
+
+def _validate_prefill_strategy(args: argparse.Namespace) -> None:
+    if args.prefill_strategy == QWEN_VL_PROMPT_KV_STRATEGY:
+        if args.family != "qwen_vl":
+            raise ValueError(
+                f"Prefill strategy {QWEN_VL_PROMPT_KV_STRATEGY!r} requires family "
+                f"'qwen_vl', got {args.family!r}"
+            )
+        if args.protocol != "vt":
+            raise ValueError(
+                f"Prefill strategy {QWEN_VL_PROMPT_KV_STRATEGY!r} requires protocol 'vt', "
+                f"got {args.protocol!r}"
+            )
 
 
 def _materialize_outputs(ledger: BatchLedger, root: Path, prompt_ids: Sequence[str]) -> None:

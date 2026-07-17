@@ -167,7 +167,152 @@ def test_plan_signature_records_family_and_prompt_identity(tmp_path) -> None:
     plan = build_batch_plan(args)
 
     assert plan.signature["family"] == "qwen_omni"
+    assert plan.signature["prefill_strategy"] == "full_prefill"
+    assert plan.signature["prefill_strategy_version"] == "v1"
     assert all(task.prompt_set_key == "va" for task in plan.tasks)
+
+
+def test_prompt_kv_strategy_requires_qwen_vl_vt(tmp_path) -> None:
+    args = _args(tmp_path, question="judge emotion")
+    args.prefill_strategy = "qwen_vl_prompt_kv"
+    with pytest.raises(ValueError, match="requires family 'qwen_vl'"):
+        build_batch_plan(args)
+
+    args.family = "qwen_vl"
+    args.model_key = "qwen3_vl_8b"
+    with pytest.raises(ValueError, match="requires protocol 'vt'"):
+        build_batch_plan(args)
+
+
+def test_prompt_kv_batch_groups_prompts_and_resume_checks_identity(tmp_path, capsys) -> None:
+    manifest, prompt_set = _write_inputs(tmp_path)
+    rows = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        row["protocol"] = "vt"
+    manifest.write_text(
+        "".join(json.dumps(row) + "\n" for row in rows),
+        encoding="utf-8",
+    )
+    prompt_set.write_text(
+        prompt_set.read_text(encoding="utf-8").replace("protocol: va", "protocol: vt"),
+        encoding="utf-8",
+    )
+    output_root = tmp_path / "kv-output"
+    argv = [
+        "--manifest",
+        str(manifest),
+        "--prompt-set",
+        str(prompt_set),
+        "--prompt-variable",
+        "question=judge emotion",
+        "--protocol",
+        "vt",
+        "--family",
+        "qwen_vl",
+        "--model-key",
+        "qwen3_vl_8b",
+        "--model-path",
+        str(tmp_path / "model"),
+        "--output-root",
+        str(output_root),
+        "--device",
+        "cpu",
+        "--prefill-strategy",
+        "qwen_vl_prompt_kv",
+    ]
+
+    class FakeWrapper:
+        family = "qwen_vl"
+
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def load(self):
+            return None
+
+        def close(self):
+            return None
+
+    class FakeExtractor:
+        calls = 0
+
+        def extract_condition_batch(self, **kwargs):
+            type(self).calls += 1
+            sample_row = kwargs["sample_row"]
+            results = []
+            for prompt_text, prompt_id in zip(
+                kwargs["prompt_texts"],
+                kwargs["prompt_ids"],
+                strict=True,
+            ):
+                request = kwargs["build_request_fn"](
+                    sample_id=str(sample_row["sample_id"]),
+                    model_key="qwen3_vl_8b",
+                    protocol="vt",
+                    condition=kwargs["condition"],
+                    dataset_key=str(sample_row["source_dataset"]),
+                    split=str(sample_row["split"]),
+                    media_paths=sample_row["media_paths"],
+                    transcript=str(sample_row["text_content"]),
+                    task_prompt=prompt_text,
+                    prompt_set_key=kwargs["prompt_set_key"],
+                    prompt_id=prompt_id,
+                    **kwargs["common_kwargs"],
+                )
+                results.append(
+                    PrefillResult(
+                        request=request,
+                        trajectory=np.ones((2, 3), dtype=np.float32),
+                        token_count=4,
+                        t0_token_index=3,
+                        provenance={
+                            "elapsed_seconds": 0.1,
+                            "prefill_strategy": "qwen_vl_prompt_kv",
+                            "prefill_strategy_version": "v1",
+                            "prefix_identity": "a" * 64,
+                        },
+                    )
+                )
+            return results
+
+    def extractor_factory(strategy, wrapper):
+        assert strategy == "qwen_vl_prompt_kv"
+        assert wrapper.family == "qwen_vl"
+        return FakeExtractor()
+
+    assert (
+        main(
+            argv,
+            wrapper_factory=FakeWrapper,
+            prompt_kv_extractor_factory=extractor_factory,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert FakeExtractor.calls == 6
+    sidecar = next(output_root.glob("prompts/*/shards/qwen3_vl_8b/vt/M1/*.json"))
+    payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    assert payload["provenance"]["prefill_strategy"] == "qwen_vl_prompt_kv"
+    assert payload["entry"]["metadata"]["prefill_strategy_version"] == "v1"
+    assert payload["entry"]["metadata"]["prefix_identity"] == "a" * 64
+
+    assert (
+        main(
+            argv,
+            wrapper_factory=FakeWrapper,
+            prompt_kv_extractor_factory=extractor_factory,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert FakeExtractor.calls == 6
+
+    full_argv = [
+        "full_prefill" if item == "qwen_vl_prompt_kv" else item
+        for item in argv
+    ]
+    with pytest.raises(ValueError, match="ledger signature does not match"):
+        main(full_argv, wrapper_factory=FakeWrapper)
 
 
 def test_batch_resume_uses_checksums_and_records_full_identity(tmp_path, capsys) -> None:

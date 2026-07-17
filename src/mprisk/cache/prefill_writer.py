@@ -223,6 +223,9 @@ def _manifest_entry(
             "hidden_state_index_offset": 1,
             "sidecar_path": relative_sidecar.as_posix(),
             "use_audio_in_video": result.request.use_audio_in_video,
+            "prefill_strategy": result.provenance.get("prefill_strategy"),
+            "prefill_strategy_version": result.provenance.get("prefill_strategy_version"),
+            "prefix_identity": result.provenance.get("prefix_identity"),
             "created_at": datetime.now(UTC).isoformat(),
         },
     }
