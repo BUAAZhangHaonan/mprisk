@@ -12,6 +12,7 @@ import yaml
 
 from mprisk.viz.bundle_figures import (
     UMAP_CONFIG,
+    _render_misread_bias,
     _render_representation_comparison,
     export_bundle_figures,
 )
@@ -232,6 +233,56 @@ def test_pending_outputs_keep_final_panel_layouts(tmp_path) -> None:
         )
         for phrase in phrases:
             assert phrase in completed.stdout
+
+
+def test_ready_fig7_renders_pending_misread_and_real_bias_panels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    models = ("qwen2_5_omni_7b", "qwen3_vl_8b", "internvl3_5_8b")
+    rows = [
+        {
+            "panel": "bias",
+            "model": model,
+            "sample_id": f"{model}-c1",
+            "sample_type": "Conflict",
+            "S": "0.1",
+            "D": "0.6",
+            "R": str(0.35 - index * 0.3),
+            "direction_emphasized": "true",
+            "status": "Ready",
+        }
+        for index, model in enumerate(models)
+    ]
+    provenance = {
+        "sample_masks": {
+            "misread": "Pending Misread annotations",
+            "bias": "representation_split=official_test and sample_type=Conflict and S<=kappa",
+            "direction_emphasis": "D>tau",
+        },
+        "thresholds_by_model": {
+            model: {"kappa": 0.5, "tau": 0.3} for model in models
+        },
+    }
+    monkeypatch.setattr(
+        "mprisk.viz.bundle_figures._validate_state_provenance",
+        lambda _rows, _provenance: None,
+    )
+    output = tmp_path / "fig07.pdf"
+
+    _render_misread_bias("Fig. 7", rows, provenance, output)
+
+    assert output.read_bytes().startswith(b"%PDF-")
+    extracted = subprocess.run(
+        ["pdftotext", str(output), "-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert extracted.count("Pending Misread annotations") == 3
+    assert "State Dispersion (S) vs Misread" in extracted
+    assert "Modality Split (D) vs Misread" in extracted
+    assert "State Pattern vs Misread" in extracted
+    assert extracted.count("stable Conflict D-signed R") == 3
 
 
 def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) -> None:

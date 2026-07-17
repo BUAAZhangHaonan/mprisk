@@ -924,9 +924,42 @@ def _render_misread_bias(
         ):
             raise ValueError("Fig. 7 row violates official-test stable Conflict bias mask")
     figure, axes = plt.subplots(2, 3, figsize=(11.0, 6.2), constrained_layout=True)
+    pending_specs = (
+        {
+            "heading": "State Dispersion (S) vs Misread",
+            "xlabel": "State-indicator quantile",
+            "xlim": (0.0, 1.0),
+            "xticks": (0.0, 0.25, 0.5, 0.75, 1.0),
+            "xticklabels": None,
+        },
+        {
+            "heading": "Modality Split (D) vs Misread",
+            "xlabel": "State-indicator quantile",
+            "xlim": (0.0, 1.0),
+            "xticks": (0.0, 0.25, 0.5, 0.75, 1.0),
+            "xticklabels": None,
+        },
+        {
+            "heading": "State Pattern vs Misread",
+            "xlabel": "State Pattern",
+            "xlim": (-0.5, 3.5),
+            "xticks": (0.0, 1.0, 2.0, 3.0),
+            "xticklabels": ("Confusion", "Consensus", "Balanced", "Dominant"),
+        },
+    )
     for column, (model_key, model_label) in enumerate(MODEL_SPECS):
+        pending = pending_specs[column]
         _pending_axis(
-            axes[0, column], f"{model_label} | Misread", "Pending Misread annotations"
+            axes[0, column],
+            pending["heading"],
+            "Pending Misread annotations",
+            xlabel=pending["xlabel"],
+            ylabel="Misread rate (%)",
+            xlim=pending["xlim"],
+            ylim=(0.0, 100.0),
+            xticks=pending["xticks"],
+            yticks=(0.0, 25.0, 50.0, 75.0, 100.0),
+            xticklabels=pending["xticklabels"],
         )
         bottom = [
             row
