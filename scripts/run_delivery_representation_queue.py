@@ -20,7 +20,13 @@ def main() -> int:
     parser.add_argument(
         "--method-key",
         action="append",
-        choices=("tme_pa_only_v1", "tme_pa_dtheta_v1", "tme_pa_dstrong_v2"),
+        choices=(
+            "tme_pa_only_v1",
+            "tme_pa_dtheta_v1",
+            "tme_pa_dstrong_v2",
+            "single_point_binary_v1",
+            "trajectory_mlp_binary_v1",
+        ),
         help="Run only these registered methods; omit to run every method in the plan.",
     )
     args = parser.parse_args()

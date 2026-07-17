@@ -31,7 +31,13 @@ CONDITIONS = ("M1", "M2", "M12")
 PA_ONLY_METHOD = "tme_pa_only_v1"
 DTHETA_METHOD = "tme_pa_dtheta_v1"
 DSTRONG_METHOD = "tme_pa_dstrong_v2"
+SINGLE_POINT_METHOD = "single_point_binary_v1"
+TRAJECTORY_MLP_METHOD = "trajectory_mlp_binary_v1"
 METHODS = (PA_ONLY_METHOD, DTHETA_METHOD, DSTRONG_METHOD)
+BASELINE_METHODS = (SINGLE_POINT_METHOD, TRAJECTORY_MLP_METHOD)
+REGISTERED_METHOD_GROUPS = (METHODS, BASELINE_METHODS)
+REGISTERED_METHODS = (*METHODS, *BASELINE_METHODS)
+BASELINE_COMPLETION_SCHEMA = "mprisk_downstream_run_complete_v1"
 SUPERVISED_METHODS = (DTHETA_METHOD, DSTRONG_METHOD)
 MODEL_PROTOCOLS = {
     "qwen3_vl_8b": "vt",
@@ -65,6 +71,7 @@ class DeliveryPlan:
     split_assignment: Path
     device: str
     max_gpu_memory_fraction: float
+    method_keys: tuple[str, ...]
     selected_model_keys: tuple[str, ...]
     pending_model_keys: tuple[str, ...]
     jobs: tuple[DeliveryJob, ...]
@@ -145,6 +152,7 @@ def load_delivery_plan(
         for sample_id in _require_list(row, "sample_ids")
     }
     jobs: list[DeliveryJob] = []
+    plan_methods: tuple[str, ...] | None = None
     for raw_job in payload["jobs"]:
         state_path = _validated_file(raw_job["state_manifest"], plan_path, root)
         state_rows = _read_jsonl(state_path)
@@ -166,6 +174,13 @@ def load_delivery_plan(
         prompt_path = _validated_file(raw_job["prompt_set"], plan_path, root)
         _validate_prompt_set(prompt_path, raw_job["prompt_set"])
         training_configs = _validate_training_configs(raw_job, plan_path, root)
+        job_methods = tuple(
+            method for method in REGISTERED_METHODS if method in training_configs
+        )
+        if plan_methods is None:
+            plan_methods = job_methods
+        elif job_methods != plan_methods:
+            raise DeliveryPlanError("delivery jobs must register the same method group")
         if str(raw_job["model_key"]) not in selected:
             continue
         union_spec = raw_job["cache_union"]
@@ -191,6 +206,7 @@ def load_delivery_plan(
         split_assignment=split_path,
         device=str(payload["resource_gate"]["device"]),
         max_gpu_memory_fraction=float(payload["resource_gate"]["max_gpu_memory_fraction"]),
+        method_keys=plan_methods or (),
         selected_model_keys=tuple(sorted(selected)),
         pending_model_keys=tuple(sorted(set(MODEL_PROTOCOLS) - selected)),
         jobs=tuple(jobs),
@@ -203,20 +219,27 @@ def run_delivery_plan(
     model_keys: set[str] | None = None,
     method_keys: set[str] | None = None,
 ) -> int:
-    """Run selected registered TME methods from an immutable cache union."""
+    """Run selected registered representation methods from an immutable cache union."""
     import fcntl
 
     import torch
 
+    from mprisk.evaluation.downstream_metrics import evaluate_official_representation
     from mprisk.experiments.downstream import (
         _export_tme_state_outputs,
         _train_until_converged,
     )
-    from mprisk.representation.training import load_training_config
+    from mprisk.representation.training import (
+        export_frozen_baseline_representations,
+        load_training_config,
+    )
     from mprisk.utils.io import write_json
 
     plan = load_delivery_plan(path, model_keys=model_keys)
-    selected_methods = _normalize_method_selection(method_keys)
+    selected_methods = _normalize_method_selection(
+        method_keys,
+        available_methods=plan.method_keys,
+    )
     if not plan.device.startswith("cuda:"):
         raise DeliveryPlanError("delivery representation training requires an explicit CUDA device")
     device_index = int(plan.device.split(":", 1)[1])
@@ -246,7 +269,8 @@ def run_delivery_plan(
                         method=method,
                         marker_path=done,
                     )
-                    method_outputs[method] = scores
+                    if method in METHODS:
+                        method_outputs[method] = scores
                     continue
                 config = load_training_config(job.training_configs[method])
                 result = _train_until_converged(
@@ -255,45 +279,98 @@ def run_delivery_plan(
                     output_dir=method_root / "training",
                     device=plan.device,
                 )
-                official_manifest = _export_tme_state_outputs(
-                    relation_path=relation_path,
-                    checkpoint=result.best_checkpoint_path,
-                    output_root=method_root,
-                )
-                scores = method_root / "official_test" / "sdr_scores.jsonl"
-                patterns = method_root / "official_test" / "state_patterns.jsonl"
-                geometry = _write_geometry_metrics(
-                    scores_path=scores,
-                    frozen_path=official_manifest,
-                    checkpoint_path=result.best_checkpoint_path,
-                    output_path=method_root / "official_test" / "geometry_metrics.json",
-                )
-                write_json(
-                    done,
-                    {
-                        "schema": "mprisk_delivery_tme_run_complete_v1",
-                        "delivery": "delivery_20260716",
-                        "seed": SEED,
-                        "model_key": job.model_key,
-                        "method": method,
-                        "training_config": str(job.training_configs[method]),
-                        "training_config_sha256": _sha256(job.training_configs[method]),
-                        "cache_union": str(job.cache_union),
-                        "cache_union_sha256": job.cache_union_sha256,
-                        "best_checkpoint": str(result.best_checkpoint_path),
-                        "best_checkpoint_sha256": _sha256(result.best_checkpoint_path),
-                        "official_frozen": str(official_manifest),
-                        "official_frozen_sha256": _sha256(official_manifest),
-                        "official_sdr_scores": str(scores),
-                        "official_sdr_sha256": _sha256(scores),
-                        "official_patterns": str(patterns),
-                        "official_patterns_sha256": _sha256(patterns),
-                        "geometry_metrics": str(geometry),
-                        "geometry_metrics_sha256": _sha256(geometry),
-                        "misread_labels_used": False,
-                    },
-                )
-                method_outputs[method] = scores
+                if method in METHODS:
+                    official_manifest = _export_tme_state_outputs(
+                        relation_path=relation_path,
+                        checkpoint=result.best_checkpoint_path,
+                        output_root=method_root,
+                    )
+                    scores = method_root / "official_test" / "sdr_scores.jsonl"
+                    patterns = method_root / "official_test" / "state_patterns.jsonl"
+                    geometry = _write_geometry_metrics(
+                        scores_path=scores,
+                        frozen_path=official_manifest,
+                        checkpoint_path=result.best_checkpoint_path,
+                        output_path=method_root / "official_test" / "geometry_metrics.json",
+                    )
+                    write_json(
+                        done,
+                        {
+                            "schema": "mprisk_delivery_tme_run_complete_v1",
+                            "delivery": "delivery_20260716",
+                            "seed": SEED,
+                            "model_key": job.model_key,
+                            "method": method,
+                            "training_config": str(job.training_configs[method]),
+                            "training_config_sha256": _sha256(job.training_configs[method]),
+                            "cache_union": str(job.cache_union),
+                            "cache_union_sha256": job.cache_union_sha256,
+                            "best_checkpoint": str(result.best_checkpoint_path),
+                            "best_checkpoint_sha256": _sha256(result.best_checkpoint_path),
+                            "official_frozen": str(official_manifest),
+                            "official_frozen_sha256": _sha256(official_manifest),
+                            "official_sdr_scores": str(scores),
+                            "official_sdr_sha256": _sha256(scores),
+                            "official_patterns": str(patterns),
+                            "official_patterns_sha256": _sha256(patterns),
+                            "geometry_metrics": str(geometry),
+                            "geometry_metrics_sha256": _sha256(geometry),
+                            "misread_labels_used": False,
+                        },
+                    )
+                    method_outputs[method] = scores
+                else:
+                    exported = export_frozen_baseline_representations(
+                        dataset_path=relation_path,
+                        checkpoint_path=result.best_checkpoint_path,
+                        output_dir=method_root / "official_test",
+                        representation_split="official_test",
+                    )
+                    evaluation = evaluate_official_representation(
+                        manifest_path=exported.manifest_path,
+                        checkpoint_path=result.best_checkpoint_path,
+                        output_dir=method_root / "official_test" / "ac_evaluation",
+                    )
+                    metrics_path = Path(str(evaluation["metrics_path"]))
+                    write_json(
+                        done,
+                        {
+                            "schema": BASELINE_COMPLETION_SCHEMA,
+                            "delivery": "delivery_20260716",
+                            "seed": SEED,
+                            "model_key": job.model_key,
+                            "method": method,
+                            "repr_key": method,
+                            "prompt_set_key": config.prompt_set_key,
+                            "prompt_set_artifact_sha256": (
+                                config.prompt_set_artifact_sha256
+                            ),
+                            "training_config": str(job.training_configs[method]),
+                            "training_config_sha256": _sha256(job.training_configs[method]),
+                            "cache_union": str(job.cache_union),
+                            "cache_union_sha256": job.cache_union_sha256,
+                            "relation_dataset": str(relation_path),
+                            "relation_dataset_sha256": _sha256(relation_path),
+                            "split_assignment": str(plan.split_assignment),
+                            "split_assignment_sha256": _sha256(plan.split_assignment),
+                            "classification_objective": (
+                                config.classification_objective
+                            ),
+                            "best_checkpoint": str(result.best_checkpoint_path),
+                            "best_checkpoint_sha256": _sha256(result.best_checkpoint_path),
+                            "training_metrics": str(result.metrics_path),
+                            "training_metrics_sha256": _sha256(result.metrics_path),
+                            "official_manifest": str(exported.manifest_path),
+                            "official_manifest_sha256": _sha256(exported.manifest_path),
+                            "official_frozen_summary": str(exported.summary_path),
+                            "official_frozen_summary_sha256": _sha256(exported.summary_path),
+                            "official_ac_metrics": str(metrics_path),
+                            "official_ac_metrics_sha256": _sha256(metrics_path),
+                            "misread_labels_used": False,
+                            "proxy_anchor_used": False,
+                            "state_indices_used": False,
+                        },
+                    )
             if PA_ONLY_METHOD in method_outputs and any(
                 method in method_outputs for method in SUPERVISED_METHODS
             ):
@@ -310,21 +387,40 @@ def _validate_completion_marker(
     method: str,
     marker_path: Path,
 ) -> Path:
+    schema = (
+        "mprisk_delivery_tme_run_complete_v1"
+        if method in METHODS
+        else BASELINE_COMPLETION_SCHEMA
+    )
     expected_identity = {
-        "schema": "mprisk_delivery_tme_run_complete_v1",
+        "schema": schema,
         "model_key": job.model_key,
         "method": method,
         "training_config_sha256": _sha256(job.training_configs[method]),
         "cache_union_sha256": job.cache_union_sha256,
     }
+    if method in BASELINE_METHODS:
+        expected_identity["repr_key"] = method
     if any(completion.get(key) != value for key, value in expected_identity.items()):
         raise DeliveryPlanError(f"completion marker identity drift: {marker_path}")
     artifact_fields = (
-        ("best_checkpoint", "best_checkpoint_sha256"),
-        ("official_frozen", "official_frozen_sha256"),
-        ("official_sdr_scores", "official_sdr_sha256"),
-        ("official_patterns", "official_patterns_sha256"),
-        ("geometry_metrics", "geometry_metrics_sha256"),
+        (
+            ("best_checkpoint", "best_checkpoint_sha256"),
+            ("official_frozen", "official_frozen_sha256"),
+            ("official_sdr_scores", "official_sdr_sha256"),
+            ("official_patterns", "official_patterns_sha256"),
+            ("geometry_metrics", "geometry_metrics_sha256"),
+        )
+        if method in METHODS
+        else (
+            ("best_checkpoint", "best_checkpoint_sha256"),
+            ("training_metrics", "training_metrics_sha256"),
+            ("relation_dataset", "relation_dataset_sha256"),
+            ("split_assignment", "split_assignment_sha256"),
+            ("official_manifest", "official_manifest_sha256"),
+            ("official_frozen_summary", "official_frozen_summary_sha256"),
+            ("official_ac_metrics", "official_ac_metrics_sha256"),
+        )
     )
     artifacts: dict[str, Path] = {}
     for path_field, sha_field in artifact_fields:
@@ -332,7 +428,19 @@ def _validate_completion_marker(
         if not artifact.is_file() or _sha256(artifact) != completion.get(sha_field):
             raise DeliveryPlanError(f"stale completion marker artifact: {marker_path}")
         artifacts[path_field] = artifact
-    return artifacts["official_sdr_scores"]
+    if method in BASELINE_METHODS and (
+        completion.get("proxy_anchor_used") is not False
+        or completion.get("state_indices_used") is not False
+        or completion.get("misread_labels_used") is not False
+        or completion.get("classification_objective")
+        != "inverse_frequency_cross_entropy"
+    ):
+        raise DeliveryPlanError(
+            f"baseline completion marker violates method contract: {marker_path}"
+        )
+    return artifacts[
+        "official_sdr_scores" if method in METHODS else "official_manifest"
+    ]
 
 
 def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
@@ -677,8 +785,17 @@ def _validate_static_plan(
     for job in jobs:
         if job.get("seed") != SEED:
             raise DeliveryPlanError("every delivery job must use seed 20260717")
-        if set(job.get("training_configs", {})) != set(METHODS):
-            raise DeliveryPlanError(f"training configs must be exactly {list(METHODS)}")
+        methods = tuple(
+            method
+            for method in REGISTERED_METHODS
+            if method in set(job.get("training_configs", {}))
+        )
+        if methods not in REGISTERED_METHOD_GROUPS or set(methods) != set(
+            job.get("training_configs", {})
+        ):
+            raise DeliveryPlanError(
+                "training configs must be exactly one registered method group"
+            )
         for field in ("source_manifest", "state_manifest", "prompt_set"):
             _validated_file(job.get(field), path, root)
         invalid = job.get("invalid_assets")
@@ -715,16 +832,20 @@ def _normalize_model_selection(
     return selected
 
 
-def _normalize_method_selection(method_keys: set[str] | None) -> tuple[str, ...]:
+def _normalize_method_selection(
+    method_keys: set[str] | None,
+    *,
+    available_methods: tuple[str, ...] = METHODS,
+) -> tuple[str, ...]:
     if method_keys is None:
-        return METHODS
+        return available_methods
     selected = {str(method_key) for method_key in method_keys}
     if not selected:
         raise DeliveryPlanError("method selection must not be empty")
-    unknown = selected - set(METHODS)
+    unknown = selected - set(available_methods)
     if unknown:
         raise DeliveryPlanError(f"unknown method keys: {sorted(unknown)}")
-    return tuple(method for method in METHODS if method in selected)
+    return tuple(method for method in available_methods if method in selected)
 
 
 def _selected_model_keys_for_load(
@@ -824,9 +945,21 @@ def _validate_training_configs(
             raise DeliveryPlanError(f"training config identity differs from job: {method}")
         expected_key = (
             f"delivery_20260716_{job['model_key']}_{method}_seed{SEED}"
+            if method in METHODS
+            else f"{job['model_key']}_{method}_seed{SEED}"
         )
         if raw_config.get("key") != expected_key:
             raise DeliveryPlanError(f"training config key differs from method: {method}")
+        if method in BASELINE_METHODS and (
+            config.repr_key != method
+            or raw_config.get("architecture_version") != method
+            or config.classification_objective != "inverse_frequency_cross_entropy"
+            or config.enable_state_supervision
+        ):
+            raise DeliveryPlanError(
+                "baseline config must use native CE architecture without state supervision: "
+                f"{method}"
+            )
         if method == PA_ONLY_METHOD and config.enable_state_supervision:
             raise DeliveryPlanError("PA-only config must disable state supervision")
         if method in SUPERVISED_METHODS and not config.enable_state_supervision:
@@ -846,13 +979,14 @@ def _validate_training_configs(
             )
         result[method] = config_path
         loaded[method] = config
-    if replace(
-        loaded[DSTRONG_METHOD],
-        d_supervision_weight=loaded[DTHETA_METHOD].d_supervision_weight,
-    ) != loaded[DTHETA_METHOD]:
-        raise DeliveryPlanError(
-            "D-strong v2 must differ from PA+D/theta v1 only in d_supervision_weight"
-        )
+    if set(loaded) == set(METHODS):
+        if replace(
+            loaded[DSTRONG_METHOD],
+            d_supervision_weight=loaded[DTHETA_METHOD].d_supervision_weight,
+        ) != loaded[DTHETA_METHOD]:
+            raise DeliveryPlanError(
+                "D-strong v2 must differ from PA+D/theta v1 only in d_supervision_weight"
+            )
     return result
 
 

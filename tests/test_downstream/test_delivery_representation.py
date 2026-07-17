@@ -13,12 +13,16 @@ import yaml
 import mprisk.experiments.delivery_representation as delivery_representation
 from mprisk.cache.cache_union import UNION_SCHEMA
 from mprisk.experiments.delivery_representation import (
+    BASELINE_COMPLETION_SCHEMA,
+    BASELINE_METHODS,
     DSTRONG_METHOD,
     DTHETA_METHOD,
     METHODS,
     PARTIALLY_RUNNABLE,
     PENDING_CACHE_UNION,
     RUNNABLE,
+    SINGLE_POINT_METHOD,
+    TRAJECTORY_MLP_METHOD,
     DeliveryJob,
     DeliveryPlanError,
     _normalize_method_selection,
@@ -63,6 +67,51 @@ def test_production_template_training_config_hashes_match_files() -> None:
                 job["model_key"],
                 method,
             )
+
+
+def test_production_baseline_template_is_native_ce_and_statically_valid() -> None:
+    root = Path(__file__).parents[2]
+    template_path = (
+        root
+        / "configs/downstream/delivery_20260716_seed20260717_baselines_template_v1.yaml"
+    )
+    template = yaml.safe_load(template_path.read_text(encoding="utf-8"))
+
+    delivery_representation._validate_static_plan(
+        template,
+        template_path,
+        expect_template=True,
+    )
+    assert template["resource_gate"] == {
+        "device": "cuda:1",
+        "max_gpu_memory_fraction": 0.75,
+    }
+    assert template["output_root"].endswith("/representation_baselines_v1")
+    for job in template["jobs"]:
+        assert tuple(job["training_configs"]) == BASELINE_METHODS
+        for method, spec in job["training_configs"].items():
+            config_path = root / spec["path"]
+            config = load_training_config(config_path)
+            assert hashlib.sha256(config_path.read_bytes()).hexdigest() == spec["sha256"]
+            assert config.repr_key == method
+            assert config.classification_objective == "inverse_frequency_cross_entropy"
+            assert config.enable_state_supervision is False
+
+
+def test_baseline_method_selection_cannot_cross_into_tme_group() -> None:
+    assert _normalize_method_selection(
+        {TRAJECTORY_MLP_METHOD, SINGLE_POINT_METHOD},
+        available_methods=BASELINE_METHODS,
+    ) == BASELINE_METHODS
+    assert _normalize_method_selection(
+        {SINGLE_POINT_METHOD},
+        available_methods=BASELINE_METHODS,
+    ) == (SINGLE_POINT_METHOD,)
+    with pytest.raises(DeliveryPlanError, match="unknown method"):
+        _normalize_method_selection(
+            {DSTRONG_METHOD},
+            available_methods=BASELINE_METHODS,
+        )
 
 
 def test_global_dstrong_v2_changes_only_d_supervision_weight() -> None:
@@ -155,6 +204,69 @@ def test_completion_marker_requires_bound_method_config_and_cache_identity(
             completion=completion,
             job=job,
             method=DSTRONG_METHOD,
+            marker_path=tmp_path / "RUN_COMPLETE.json",
+        )
+
+
+def test_baseline_completion_marker_binds_union_and_forbids_proxy_state(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "baseline.yaml"
+    config.write_text("repr_key: single_point_binary_v1\n", encoding="utf-8")
+    union = tmp_path / "union.json"
+    union.write_text("{}\n", encoding="utf-8")
+    artifact_fields = (
+        ("best_checkpoint", "best_checkpoint_sha256"),
+        ("training_metrics", "training_metrics_sha256"),
+        ("relation_dataset", "relation_dataset_sha256"),
+        ("split_assignment", "split_assignment_sha256"),
+        ("official_manifest", "official_manifest_sha256"),
+        ("official_frozen_summary", "official_frozen_summary_sha256"),
+        ("official_ac_metrics", "official_ac_metrics_sha256"),
+    )
+    completion = {
+        "schema": BASELINE_COMPLETION_SCHEMA,
+        "model_key": "qwen3_vl_8b",
+        "method": SINGLE_POINT_METHOD,
+        "repr_key": SINGLE_POINT_METHOD,
+        "training_config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        "cache_union_sha256": "c" * 64,
+        "classification_objective": "inverse_frequency_cross_entropy",
+        "proxy_anchor_used": False,
+        "state_indices_used": False,
+        "misread_labels_used": False,
+    }
+    artifacts = {}
+    for path_field, sha_field in artifact_fields:
+        artifact = tmp_path / f"{path_field}.json"
+        artifact.write_text(path_field + "\n", encoding="utf-8")
+        completion[path_field] = str(artifact)
+        completion[sha_field] = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        artifacts[path_field] = artifact
+    job = DeliveryJob(
+        model_key="qwen3_vl_8b",
+        protocol="vt",
+        seed=20260717,
+        run_id="run",
+        output_dir=tmp_path / "output",
+        state_manifest=tmp_path / "state.jsonl",
+        cache_union=union,
+        cache_union_sha256="c" * 64,
+        training_configs={SINGLE_POINT_METHOD: config},
+    )
+
+    assert _validate_completion_marker(
+        completion=completion,
+        job=job,
+        method=SINGLE_POINT_METHOD,
+        marker_path=tmp_path / "RUN_COMPLETE.json",
+    ) == artifacts["official_manifest"]
+    completion["proxy_anchor_used"] = True
+    with pytest.raises(DeliveryPlanError, match="violates method contract"):
+        _validate_completion_marker(
+            completion=completion,
+            job=job,
+            method=SINGLE_POINT_METHOD,
             marker_path=tmp_path / "RUN_COMPLETE.json",
         )
 

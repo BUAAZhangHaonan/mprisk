@@ -27,6 +27,7 @@ lr: 0.001
 weight_decay: 0.0001
 proxy_alpha: 32.0
 proxy_margin: 0.1
+enable_state_supervision: false
 d_supervision_weight: 0.0
 d_ranking_margin: 0.0
 angular_supervision_weight: 0.0
