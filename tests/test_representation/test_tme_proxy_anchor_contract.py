@@ -297,7 +297,7 @@ def test_delivery_tme_configs_separate_pa_only_from_state_supervision(tmp_path) 
     config_root = root / "configs/experiments/delivery_20260716/seed20260717"
     configs = {path.name: load_training_config(path) for path in config_root.glob("*.yaml")}
 
-    assert len(configs) == 6
+    assert len(configs) == 9
     for name, config in configs.items():
         if "pa_only" in name:
             assert config.enable_state_supervision is False
@@ -306,7 +306,8 @@ def test_delivery_tme_configs_separate_pa_only_from_state_supervision(tmp_path) 
             assert config.d_aux_samples_per_class == 0
         else:
             assert config.enable_state_supervision is True
-            assert config.d_supervision_weight > 0.0
+            expected_d_weight = 0.5 if "dstrong" in name else 0.2
+            assert config.d_supervision_weight == pytest.approx(expected_d_weight)
             assert config.angular_supervision_weight > 0.0
             assert config.d_aux_samples_per_class > 0
 

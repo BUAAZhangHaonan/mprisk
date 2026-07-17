@@ -235,17 +235,18 @@ def run_delivery_plan(
         for job in plan.jobs:
             relation_path = _materialize_relation_dataset(plan, job)
             method_outputs: dict[str, Path] = {}
-            for method in METHODS:
+            for method in selected_methods:
                 method_root = job.output_dir / method
                 done = method_root / "RUN_COMPLETE.json"
                 if done.is_file():
                     completion = json.loads(done.read_text(encoding="utf-8"))
-                    scores = Path(str(completion["official_sdr_scores"]))
-                    if not scores.is_file() or _sha256(scores) != completion["official_sdr_sha256"]:
-                        raise DeliveryPlanError(f"stale completion marker: {done}")
+                    scores = _validate_completion_marker(
+                        completion=completion,
+                        job=job,
+                        method=method,
+                        marker_path=done,
+                    )
                     method_outputs[method] = scores
-                    continue
-                if method not in selected_methods:
                     continue
                 config = load_training_config(job.training_configs[method])
                 result = _train_until_converged(
@@ -300,6 +301,38 @@ def run_delivery_plan(
         return 0
     finally:
         lock_handle.close()
+
+
+def _validate_completion_marker(
+    *,
+    completion: dict[str, Any],
+    job: DeliveryJob,
+    method: str,
+    marker_path: Path,
+) -> Path:
+    expected_identity = {
+        "schema": "mprisk_delivery_tme_run_complete_v1",
+        "model_key": job.model_key,
+        "method": method,
+        "training_config_sha256": _sha256(job.training_configs[method]),
+        "cache_union_sha256": job.cache_union_sha256,
+    }
+    if any(completion.get(key) != value for key, value in expected_identity.items()):
+        raise DeliveryPlanError(f"completion marker identity drift: {marker_path}")
+    artifact_fields = (
+        ("best_checkpoint", "best_checkpoint_sha256"),
+        ("official_frozen", "official_frozen_sha256"),
+        ("official_sdr_scores", "official_sdr_sha256"),
+        ("official_patterns", "official_patterns_sha256"),
+        ("geometry_metrics", "geometry_metrics_sha256"),
+    )
+    artifacts: dict[str, Path] = {}
+    for path_field, sha_field in artifact_fields:
+        artifact = Path(str(completion.get(path_field, "")))
+        if not artifact.is_file() or _sha256(artifact) != completion.get(sha_field):
+            raise DeliveryPlanError(f"stale completion marker artifact: {marker_path}")
+        artifacts[path_field] = artifact
+    return artifacts["official_sdr_scores"]
 
 
 def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
@@ -779,6 +812,7 @@ def _validate_training_configs(
     loaded: dict[str, Any] = {}
     for method, spec in job["training_configs"].items():
         config_path = _validated_file(spec, plan_path, root)
+        raw_config = _read_yaml(config_path)
         config = load_training_config(config_path)
         if (
             config.model_key != job["model_key"]
@@ -788,6 +822,11 @@ def _validate_training_configs(
             or list(config.expected_prompt_ids) != list(job["prompt_set"]["prompt_ids"])
         ):
             raise DeliveryPlanError(f"training config identity differs from job: {method}")
+        expected_key = (
+            f"delivery_20260716_{job['model_key']}_{method}_seed{SEED}"
+        )
+        if raw_config.get("key") != expected_key:
+            raise DeliveryPlanError(f"training config key differs from method: {method}")
         if method == PA_ONLY_METHOD and config.enable_state_supervision:
             raise DeliveryPlanError("PA-only config must disable state supervision")
         if method in SUPERVISED_METHODS and not config.enable_state_supervision:

@@ -19,10 +19,12 @@ from mprisk.experiments.delivery_representation import (
     PARTIALLY_RUNNABLE,
     PENDING_CACHE_UNION,
     RUNNABLE,
+    DeliveryJob,
     DeliveryPlanError,
     _normalize_method_selection,
     _selected_model_keys_for_load,
     _validate_cache_union,
+    _validate_completion_marker,
     _write_geometry_metrics,
     bind_delivery_plan,
     load_delivery_plan,
@@ -92,6 +94,69 @@ def test_dstrong_method_can_be_selected_without_running_infeasible_pilot() -> No
     assert _normalize_method_selection(None) == METHODS
     with pytest.raises(DeliveryPlanError, match="unknown method"):
         _normalize_method_selection({"unknown"})
+
+
+def test_completion_marker_requires_bound_method_config_and_cache_identity(
+    tmp_path: Path,
+) -> None:
+    config = tmp_path / "dstrong.yaml"
+    config.write_text("d_supervision_weight: 0.5\n", encoding="utf-8")
+    union = tmp_path / "union.json"
+    union.write_text("{}\n", encoding="utf-8")
+    artifacts = {}
+    for field in (
+        "best_checkpoint",
+        "official_frozen",
+        "official_sdr_scores",
+        "official_patterns",
+        "geometry_metrics",
+    ):
+        path = tmp_path / f"{field}.json"
+        path.write_text(f"{field}\n", encoding="utf-8")
+        artifacts[field] = path
+    job = DeliveryJob(
+        model_key="qwen2_5_omni_7b",
+        protocol="va",
+        seed=20260717,
+        run_id="run",
+        output_dir=tmp_path / "output",
+        state_manifest=tmp_path / "state.jsonl",
+        cache_union=union,
+        cache_union_sha256="c" * 64,
+        training_configs={DSTRONG_METHOD: config},
+    )
+    completion = {
+        "schema": "mprisk_delivery_tme_run_complete_v1",
+        "model_key": job.model_key,
+        "method": DSTRONG_METHOD,
+        "training_config_sha256": hashlib.sha256(config.read_bytes()).hexdigest(),
+        "cache_union_sha256": job.cache_union_sha256,
+    }
+    artifact_sha_fields = {
+        "best_checkpoint": "best_checkpoint_sha256",
+        "official_frozen": "official_frozen_sha256",
+        "official_sdr_scores": "official_sdr_sha256",
+        "official_patterns": "official_patterns_sha256",
+        "geometry_metrics": "geometry_metrics_sha256",
+    }
+    for field, path in artifacts.items():
+        completion[field] = str(path)
+        completion[artifact_sha_fields[field]] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+    assert _validate_completion_marker(
+        completion=completion,
+        job=job,
+        method=DSTRONG_METHOD,
+        marker_path=tmp_path / "RUN_COMPLETE.json",
+    ) == artifacts["official_sdr_scores"]
+    completion["training_config_sha256"] = "0" * 64
+    with pytest.raises(DeliveryPlanError, match="identity drift"):
+        _validate_completion_marker(
+            completion=completion,
+            job=job,
+            method=DSTRONG_METHOD,
+            marker_path=tmp_path / "RUN_COMPLETE.json",
+        )
 
 
 def test_partial_plan_requires_exact_explicit_model_selection() -> None:
