@@ -216,6 +216,8 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     model, config_sha, weight_sha = _make_model(tmp_path)
     code_repo = _make_code_repo(tmp_path)
     expected_signature = _signature(model, manifest="new-full")
+    expected_signature["prompt_ids"] = ("p1",)
+    expected_signature["conditions"] = ("M1", "M2", "M12")
     first_source_request = _request("sample-a", split="delivery_test")
     second_source_request = _request("sample-b", split="delivery_train")
     sources = [

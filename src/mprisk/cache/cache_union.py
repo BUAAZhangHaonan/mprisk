@@ -658,11 +658,15 @@ def _require_signature_compatible(
 
 
 def _normalized_signature(signature: dict[str, Any]) -> dict[str, Any]:
-    return {
+    filtered = {
         key: value
         for key, value in signature.items()
         if key not in SIGNATURE_IGNORED_FIELDS
     }
+    normalized = json.loads(_canonical_json(filtered))
+    if not isinstance(normalized, dict):
+        raise CacheUnionError("Normalized extraction signature must be an object")
+    return normalized
 
 
 def _require_completed_source_ledger(path: Path) -> None:
