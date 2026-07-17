@@ -25,6 +25,7 @@ TEMPLATE_SCHEMA = "mprisk_delivery_representation_queue_template_v1"
 RUNNABLE_SCHEMA = "mprisk_delivery_representation_queue_v1"
 PENDING_CACHE_UNION = "PENDING_CACHE_UNION"
 RUNNABLE = "RUNNABLE"
+PARTIALLY_RUNNABLE = "PARTIALLY_RUNNABLE"
 SEED = 20260717
 CONDITIONS = ("M1", "M2", "M12")
 METHODS = ("tme_pa_only_v1", "tme_pa_dtheta_v1")
@@ -60,6 +61,8 @@ class DeliveryPlan:
     split_assignment: Path
     device: str
     max_gpu_memory_fraction: float
+    selected_model_keys: tuple[str, ...]
+    pending_model_keys: tuple[str, ...]
     jobs: tuple[DeliveryJob, ...]
 
 
@@ -68,6 +71,7 @@ def bind_delivery_plan(
     *,
     cache_unions: dict[str, str | Path],
     output_path: str | Path,
+    model_keys: set[str] | None = None,
 ) -> DeliveryPlan:
     """Bind completed cache unions to a pending template and atomically make it runnable."""
     template = Path(template_path).expanduser().resolve()
@@ -78,18 +82,23 @@ def bind_delivery_plan(
         raise DeliveryPlanError(f"runnable plan already exists and is immutable: {output}")
     payload = _read_yaml(template)
     _validate_static_plan(payload, template, expect_template=True)
-    if set(cache_unions) != set(MODEL_PROTOCOLS):
-        raise DeliveryPlanError(
-            f"cache unions must be supplied for exactly {sorted(MODEL_PROTOCOLS)}"
-        )
+    selected = _normalize_model_selection(model_keys, default_to_all=True)
+    if set(cache_unions) != selected:
+        raise DeliveryPlanError(f"cache unions must be supplied for exactly {sorted(selected)}")
     root = _repo_root(template)
     bound = dict(payload)
     bound["schema"] = RUNNABLE_SCHEMA
-    bound["status"] = RUNNABLE
+    bound["status"] = RUNNABLE if selected == set(MODEL_PROTOCOLS) else PARTIALLY_RUNNABLE
+    bound["selected_model_keys"] = sorted(selected)
     jobs: list[dict[str, Any]] = []
     for raw_job in payload["jobs"]:
         job = dict(raw_job)
         model_key = str(job["model_key"])
+        if model_key not in selected:
+            if job.get("cache_union") != PENDING_CACHE_UNION:
+                raise DeliveryPlanError(f"unselected job is not pending: {model_key}")
+            jobs.append(job)
+            continue
         union = Path(cache_unions[model_key]).expanduser()
         if not union.is_absolute():
             union = (root / union).resolve()
@@ -102,19 +111,27 @@ def bind_delivery_plan(
     bound["jobs"] = jobs
     _atomic_yaml(output, bound)
     try:
-        return load_delivery_plan(output)
+        return load_delivery_plan(output, model_keys=selected)
     except Exception:
         output.unlink(missing_ok=True)
         raise
 
 
-def load_delivery_plan(path: str | Path) -> DeliveryPlan:
+def load_delivery_plan(
+    path: str | Path, *, model_keys: set[str] | None = None
+) -> DeliveryPlan:
     """Load only a fully bound plan; pending templates are deliberately non-runnable."""
     plan_path = Path(path).expanduser().resolve()
     payload = _read_yaml(plan_path)
     if payload.get("schema") == TEMPLATE_SCHEMA or payload.get("status") == PENDING_CACHE_UNION:
         raise DeliveryPlanError("cache unions are pending; bind the template before running")
-    _validate_static_plan(payload, plan_path, expect_template=False)
+    selected = _selected_model_keys_for_load(payload, requested=model_keys)
+    _validate_static_plan(
+        payload,
+        plan_path,
+        expect_template=False,
+        selected_model_keys=selected,
+    )
     root = _repo_root(plan_path)
     split_path = _validated_file(payload["split_assignment"], plan_path, root)
     split_rows = _read_jsonl(split_path)
@@ -145,6 +162,8 @@ def load_delivery_plan(path: str | Path) -> DeliveryPlan:
         prompt_path = _validated_file(raw_job["prompt_set"], plan_path, root)
         _validate_prompt_set(prompt_path, raw_job["prompt_set"])
         training_configs = _validate_training_configs(raw_job, plan_path, root)
+        if str(raw_job["model_key"]) not in selected:
+            continue
         union_spec = raw_job["cache_union"]
         union_path = _validated_file(union_spec, plan_path, root)
         _validate_cache_union(union_path, raw_job, plan_path)
@@ -168,11 +187,13 @@ def load_delivery_plan(path: str | Path) -> DeliveryPlan:
         split_assignment=split_path,
         device=str(payload["resource_gate"]["device"]),
         max_gpu_memory_fraction=float(payload["resource_gate"]["max_gpu_memory_fraction"]),
+        selected_model_keys=tuple(sorted(selected)),
+        pending_model_keys=tuple(sorted(set(MODEL_PROTOCOLS) - selected)),
         jobs=tuple(jobs),
     )
 
 
-def run_delivery_plan(path: str | Path) -> int:
+def run_delivery_plan(path: str | Path, *, model_keys: set[str] | None = None) -> int:
     """Run both registered TME methods end to end from an immutable cache union."""
     import fcntl
 
@@ -185,7 +206,7 @@ def run_delivery_plan(path: str | Path) -> int:
     from mprisk.representation.training import load_training_config
     from mprisk.utils.io import write_json
 
-    plan = load_delivery_plan(path)
+    plan = load_delivery_plan(path, model_keys=model_keys)
     if not plan.device.startswith("cuda:"):
         raise DeliveryPlanError("delivery representation training requires an explicit CUDA device")
     device_index = int(plan.device.split(":", 1)[1])
@@ -198,6 +219,7 @@ def run_delivery_plan(path: str | Path) -> int:
     try:
         fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as exc:
+        lock_handle.close()
         raise DeliveryPlanError("another delivery representation runner owns the lock") from exc
     try:
         for job in plan.jobs:
@@ -536,12 +558,27 @@ def _write_paired_geometry_comparison(
 
 
 def _validate_static_plan(
-    payload: dict[str, Any], path: Path, *, expect_template: bool
+    payload: dict[str, Any],
+    path: Path,
+    *,
+    expect_template: bool,
+    selected_model_keys: set[str] | None = None,
 ) -> None:
     schema = TEMPLATE_SCHEMA if expect_template else RUNNABLE_SCHEMA
-    status = PENDING_CACHE_UNION if expect_template else RUNNABLE
-    if payload.get("schema") != schema or payload.get("status") != status:
-        raise DeliveryPlanError(f"plan must use schema={schema} and status={status}")
+    if payload.get("schema") != schema:
+        raise DeliveryPlanError(f"plan must use schema={schema}")
+    if expect_template:
+        if payload.get("status") != PENDING_CACHE_UNION:
+            raise DeliveryPlanError(f"template status must be {PENDING_CACHE_UNION}")
+        if payload.get("selected_model_keys") is not None:
+            raise DeliveryPlanError("pending template must not declare selected_model_keys")
+        selected = set()
+    else:
+        if payload.get("status") not in {RUNNABLE, PARTIALLY_RUNNABLE}:
+            raise DeliveryPlanError("bound plan status is not runnable")
+        if selected_model_keys is None:
+            raise DeliveryPlanError("bound plan validation requires an explicit selection")
+        selected = set(selected_model_keys)
     if payload.get("delivery") != "delivery_20260716" or payload.get("seed") != SEED:
         raise DeliveryPlanError("plan must bind delivery_20260716 and seed 20260717")
     root = _repo_root(path)
@@ -586,8 +623,56 @@ def _validate_static_plan(
         if expect_template:
             if union != PENDING_CACHE_UNION:
                 raise DeliveryPlanError("template cache_union must be PENDING_CACHE_UNION")
-        elif not isinstance(union, dict):
-            raise DeliveryPlanError("runnable cache_union must bind path and sha256")
+        elif str(job["model_key"]) in selected:
+            if not isinstance(union, dict):
+                raise DeliveryPlanError("selected cache_union must bind path and sha256")
+        elif union != PENDING_CACHE_UNION:
+            raise DeliveryPlanError("unselected cache_union must remain PENDING_CACHE_UNION")
+
+
+def _normalize_model_selection(
+    model_keys: set[str] | None, *, default_to_all: bool
+) -> set[str]:
+    if model_keys is None:
+        if default_to_all:
+            return set(MODEL_PROTOCOLS)
+        raise DeliveryPlanError("an explicit model selection is required")
+    selected = {str(model_key) for model_key in model_keys}
+    if not selected:
+        raise DeliveryPlanError("model selection must not be empty")
+    unknown = selected - set(MODEL_PROTOCOLS)
+    if unknown:
+        raise DeliveryPlanError(f"unknown model keys: {sorted(unknown)}")
+    return selected
+
+
+def _selected_model_keys_for_load(
+    payload: dict[str, Any], *, requested: set[str] | None
+) -> set[str]:
+    raw_declared = payload.get("selected_model_keys")
+    if not isinstance(raw_declared, list) or not raw_declared:
+        raise DeliveryPlanError("bound plan must declare selected_model_keys")
+    if len(raw_declared) != len(set(map(str, raw_declared))):
+        raise DeliveryPlanError("selected_model_keys must be unique")
+    declared = _normalize_model_selection(set(map(str, raw_declared)), default_to_all=False)
+    status = payload.get("status")
+    all_models = set(MODEL_PROTOCOLS)
+    if status == RUNNABLE and declared != all_models:
+        raise DeliveryPlanError("RUNNABLE plan must bind all model jobs")
+    if status == PARTIALLY_RUNNABLE and not declared < all_models:
+        raise DeliveryPlanError("PARTIALLY_RUNNABLE plan must bind a proper model subset")
+    if status not in {RUNNABLE, PARTIALLY_RUNNABLE}:
+        raise DeliveryPlanError("bound plan status is not runnable")
+    if requested is None:
+        if status == PARTIALLY_RUNNABLE:
+            raise DeliveryPlanError("partial plan requires explicit --model-key selection")
+        return declared
+    normalized_requested = _normalize_model_selection(requested, default_to_all=False)
+    if normalized_requested != declared:
+        raise DeliveryPlanError(
+            "runner model selection must exactly match the plan selected_model_keys"
+        )
+    return declared
 
 
 def _validate_expected_counts(job: dict[str, Any]) -> None:

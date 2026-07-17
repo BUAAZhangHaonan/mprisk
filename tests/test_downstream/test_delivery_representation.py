@@ -6,11 +6,18 @@ from pathlib import Path
 
 import pytest
 import torch
+import yaml
 
+import mprisk.experiments.delivery_representation as delivery_representation
 from mprisk.experiments.delivery_representation import (
+    PARTIALLY_RUNNABLE,
+    PENDING_CACHE_UNION,
+    RUNNABLE,
     DeliveryPlanError,
+    _selected_model_keys_for_load,
     _validate_cache_union,
     _write_geometry_metrics,
+    bind_delivery_plan,
     load_delivery_plan,
 )
 
@@ -27,6 +34,68 @@ def test_pending_production_template_is_not_runnable() -> None:
     )
     with pytest.raises(DeliveryPlanError, match="pending"):
         load_delivery_plan(template)
+
+
+def test_partial_plan_requires_exact_explicit_model_selection() -> None:
+    selected = {"qwen3_vl_8b", "qwen2_5_omni_7b"}
+    payload = {
+        "status": PARTIALLY_RUNNABLE,
+        "selected_model_keys": sorted(selected),
+    }
+
+    with pytest.raises(DeliveryPlanError, match="requires explicit --model-key"):
+        _selected_model_keys_for_load(payload, requested=None)
+    with pytest.raises(DeliveryPlanError, match="exactly match"):
+        _selected_model_keys_for_load(payload, requested={"qwen3_vl_8b"})
+    assert _selected_model_keys_for_load(payload, requested=selected) == selected
+
+
+def test_full_plan_allows_implicit_all_but_not_selective_skipping() -> None:
+    all_models = {"qwen3_vl_8b", "internvl3_5_8b", "qwen2_5_omni_7b"}
+    payload = {"status": RUNNABLE, "selected_model_keys": sorted(all_models)}
+
+    assert _selected_model_keys_for_load(payload, requested=None) == all_models
+    with pytest.raises(DeliveryPlanError, match="exactly match"):
+        _selected_model_keys_for_load(payload, requested={"qwen2_5_omni_7b"})
+
+
+def test_selective_binder_keeps_unselected_jobs_pending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    template = tmp_path / "template.yaml"
+    output = tmp_path / "partial.yaml"
+    jobs = [
+        {"model_key": model_key, "cache_union": PENDING_CACHE_UNION}
+        for model_key in ("qwen3_vl_8b", "internvl3_5_8b", "qwen2_5_omni_7b")
+    ]
+    template.write_text(yaml.safe_dump({"jobs": jobs}), encoding="utf-8")
+    unions = {}
+    for model_key in ("qwen3_vl_8b", "qwen2_5_omni_7b"):
+        union = tmp_path / f"{model_key}.json"
+        union.write_text("{}\n", encoding="utf-8")
+        unions[model_key] = union
+    monkeypatch.setattr(delivery_representation, "_validate_static_plan", lambda *a, **k: None)
+    monkeypatch.setattr(delivery_representation, "_validate_cache_union", lambda *a, **k: None)
+    monkeypatch.setattr(delivery_representation, "_repo_root", lambda _path: tmp_path)
+    monkeypatch.setattr(
+        delivery_representation,
+        "load_delivery_plan",
+        lambda path, model_keys: yaml.safe_load(Path(path).read_text(encoding="utf-8")),
+    )
+
+    bound = bind_delivery_plan(
+        template,
+        cache_unions=unions,
+        output_path=output,
+        model_keys=set(unions),
+    )
+
+    assert bound["status"] == PARTIALLY_RUNNABLE
+    assert bound["selected_model_keys"] == sorted(unions)
+    by_model = {job["model_key"]: job for job in bound["jobs"]}
+    assert by_model["internvl3_5_8b"]["cache_union"] == PENDING_CACHE_UNION
+    assert isinstance(by_model["qwen3_vl_8b"]["cache_union"], dict)
+    assert isinstance(by_model["qwen2_5_omni_7b"]["cache_union"], dict)
 
 
 def test_geometry_metrics_report_d_angle_relation_clustering_and_proxy_angle(
