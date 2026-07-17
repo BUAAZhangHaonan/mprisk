@@ -123,7 +123,7 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
     config_path.write_text(
         yaml.safe_dump(
             {
-                "schema": "mprisk_representation_training_v3",
+                "schema": "mprisk_representation_training_v4",
                 "key": "qwen3_vl_8b_tme_proxy_anchor_v1",
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
@@ -144,6 +144,11 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
                 "weight_decay": 0.0,
                 "proxy_alpha": 8.0,
                 "proxy_margin": 0.1,
+                "d_supervision_weight": 0.2,
+                "d_ranking_margin": 0.25,
+                "angular_supervision_weight": 0.2,
+                "angular_ranking_margin_rad": 0.08726646259971647,
+                "d_aux_samples_per_class": 1,
                 "patience": 2,
                 "min_delta": 0.0,
                 "seed": 123,

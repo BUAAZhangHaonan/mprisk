@@ -16,6 +16,7 @@ from mprisk.representation.relation_models import TME_ARCHITECTURE_V1, TME_PROXY
 from mprisk.representation.training import (
     TrainingConfig,
     _aggregate_sample_outputs,
+    _class_balanced_full_prompt_batches,
     _load_trajectory_batch,
     _rows_to_sample_refs,
     _sample_level_predictions,
@@ -131,6 +132,11 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
         weight_decay=0.0,
         proxy_alpha=8.0,
         proxy_margin=0.1,
+        d_supervision_weight=0.2,
+        d_ranking_margin=0.25,
+        angular_supervision_weight=0.2,
+        angular_ranking_margin_rad=0.08726646259971647,
+        d_aux_samples_per_class=1,
         patience=2,
         min_delta=0.0,
         seed=7,
@@ -152,10 +158,23 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     assert checkpoint["selection_metric"] == "val_balanced_accuracy_ac"
     assert checkpoint["selection_unit"] == "sample_id"
     assert checkpoint["proxy_state_dict"]["proxies"].shape == (2, 3)
+    assert checkpoint["training_config"]["d_supervision_weight"] == pytest.approx(0.2)
+    assert checkpoint["best_validation_state_separation"] is not None
     logs = [json.loads(line) for line in result.log_path.read_text().splitlines()]
     assert 1 <= len(logs) <= 3
     assert all(
-        set(row) >= {"epoch", "train_loss", "val_loss", "val_balanced_accuracy_ac"} for row in logs
+        set(row)
+        >= {
+            "epoch",
+            "train_loss",
+            "train_proxy_anchor_loss",
+            "train_d_ranking_loss",
+            "train_angular_ranking_loss",
+            "val_loss",
+            "val_balanced_accuracy_ac",
+            "val_state_separation",
+        }
+        for row in logs
     )
 
     exported = export_frozen_representations(
@@ -190,6 +209,44 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     assert result.metrics["val_sample_count"] == 2
     assert result.metrics["selection_unit"] == "sample_id"
     assert result.metrics["split_assignment_sha256"] == "a" * 64
+
+
+def test_d_auxiliary_batches_are_deterministic_class_balanced_and_full_prompt(
+    tmp_path,
+) -> None:
+    dataset = _dataset(tmp_path)
+    rows = [json.loads(line) for line in dataset.read_text().splitlines()]
+    samples = [
+        sample
+        for sample in _rows_to_sample_refs(rows)
+        if sample.representation_split == "relation_train"
+    ]
+    first = _class_balanced_full_prompt_batches(
+        samples,
+        batch_count=3,
+        samples_per_class=1,
+        seed=7,
+        epoch=2,
+    )
+    second = _class_balanced_full_prompt_batches(
+        samples,
+        batch_count=3,
+        samples_per_class=1,
+        seed=7,
+        epoch=2,
+    )
+    assert [[row.row_id for row in batch] for batch in first] == [
+        [row.row_id for row in batch] for batch in second
+    ]
+    for batch in first:
+        grouped = {}
+        for row in batch:
+            grouped.setdefault(row.sample_id, []).append(row)
+        assert len(grouped) == 2
+        assert {rows[0].label_id for rows in grouped.values()} == {0, 1}
+        assert {tuple(sorted(row.prompt_id for row in rows)) for rows in grouped.values()} == {
+            ("p1", "p2")
+        }
 
 
 def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_path) -> None:

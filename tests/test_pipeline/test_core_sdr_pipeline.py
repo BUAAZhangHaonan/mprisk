@@ -282,6 +282,11 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
         condition_dim=4,
         relation_dim=3,
         dropout=0.0,
+        d_supervision_weight=0.2,
+        d_ranking_margin=0.25,
+        angular_supervision_weight=0.2,
+        angular_ranking_margin_rad=0.08726646259971647,
+        d_aux_samples_per_class=1,
     )
     torch.save(
         {

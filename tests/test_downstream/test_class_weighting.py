@@ -9,6 +9,7 @@ from mprisk.representation.training import TrainingConfig, _baseline_class_weigh
 
 
 def _config(repr_key: str, objective: str) -> TrainingConfig:
+    is_tme = repr_key == "tme_proxy_anchor_v1"
     return TrainingConfig(
         repr_key=repr_key,
         model_key="model",
@@ -18,6 +19,11 @@ def _config(repr_key: str, objective: str) -> TrainingConfig:
         prompt_set_artifact_sha256="a" * 64,
         expected_prompt_count=1,
         expected_prompt_ids=("p1",),
+        d_supervision_weight=0.2 if is_tme else 0.0,
+        d_ranking_margin=0.25 if is_tme else 0.0,
+        angular_supervision_weight=0.2 if is_tme else 0.0,
+        angular_ranking_margin_rad=0.08726646259971647 if is_tme else 0.0,
+        d_aux_samples_per_class=1 if is_tme else 0,
     )
 
 

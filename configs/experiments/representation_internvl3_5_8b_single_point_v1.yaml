@@ -1,4 +1,4 @@
-schema: mprisk_representation_training_v3
+schema: mprisk_representation_training_v4
 key: internvl3_5_8b_single_point_v1
 repr_key: single_point_binary_v1
 architecture_version: single_point_binary_v1
@@ -30,3 +30,8 @@ min_delta: 0.0001
 seed: 20260716
 protocol: vt
 classification_objective: inverse_frequency_cross_entropy
+d_supervision_weight: 0.0
+d_ranking_margin: 0.0
+angular_supervision_weight: 0.0
+angular_ranking_margin_rad: 0.0
+d_aux_samples_per_class: 0

@@ -1,4 +1,4 @@
-schema: mprisk_representation_training_v3
+schema: mprisk_representation_training_v4
 key: internvl3_5_8b_tme_proxy_anchor_v1_seed20260716
 architecture_version: layer_l2_gru_linear_relation_v1
 repr_key: tme_proxy_anchor_v1
@@ -27,6 +27,11 @@ lr: 0.001
 weight_decay: 0.0001
 proxy_alpha: 32.0
 proxy_margin: 0.1
+d_supervision_weight: 0.2
+d_ranking_margin: 0.25
+angular_supervision_weight: 0.2
+angular_ranking_margin_rad: 0.08726646259971647
+d_aux_samples_per_class: 2
 patience: 20
 min_delta: 0.0001
 seed: 20260716

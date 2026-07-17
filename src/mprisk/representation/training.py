@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import random
 from dataclasses import asdict, dataclass
@@ -18,7 +19,7 @@ from torch.nn import functional as F
 
 from mprisk.cache.prefill_extract import extract_t0_trajectory
 from mprisk.cache.prompt_conditioned_cache import prompt_conditioned_entry_from_row
-from mprisk.representation.losses import ProxyAnchorLoss
+from mprisk.representation.losses import ModalitySplitRankingLoss, ProxyAnchorLoss
 from mprisk.representation.relation_dataset import CONDITIONS, _reject_forbidden_fields
 from mprisk.representation.relation_models import (
     REPRESENTATION_KEYS,
@@ -31,7 +32,7 @@ from mprisk.representation.relation_models import (
 )
 from mprisk.utils.io import write_json
 
-TRAINING_CONFIG_SCHEMA = "mprisk_representation_training_v3"
+TRAINING_CONFIG_SCHEMA = "mprisk_representation_training_v4"
 REGISTERED_SPLITS = frozenset(
     {"relation_train", "relation_val", "aligned_calibration", "official_test"}
 )
@@ -57,6 +58,11 @@ class TrainingConfig:
     weight_decay: float = 1e-4
     proxy_alpha: float = 32.0
     proxy_margin: float = 0.1
+    d_supervision_weight: float = 0.0
+    d_ranking_margin: float = 0.0
+    angular_supervision_weight: float = 0.0
+    angular_ranking_margin_rad: float = 0.0
+    d_aux_samples_per_class: int = 0
     patience: int = 10
     min_delta: float = 1e-4
     seed: int = 0
@@ -181,6 +187,7 @@ def train_trajectory_encoder(
         dropout=config.dropout,
     ).to(torch_device)
     objective: ProxyAnchorLoss | None = None
+    d_objective: ModalitySplitRankingLoss | None = None
     parameters: list[nn.Parameter] = list(model.parameters())
     if config.repr_key == TME_PROXY_ANCHOR_V1:
         objective = ProxyAnchorLoss(
@@ -188,6 +195,10 @@ def train_trajectory_encoder(
             num_classes=2,
             alpha=config.proxy_alpha,
             margin=config.proxy_margin,
+        ).to(torch_device)
+        d_objective = ModalitySplitRankingLoss(
+            d_margin=config.d_ranking_margin,
+            angular_margin_rad=config.angular_ranking_margin_rad,
         ).to(torch_device)
         parameters.extend(objective.parameters())
     optimizer = torch.optim.AdamW(
@@ -213,6 +224,7 @@ def train_trajectory_encoder(
     best_score = -1.0
     best_epoch = 0
     stale_epochs = 0
+    best_validation_state_separation: dict[str, float] | None = None
     if resume_payload is not None:
         checkpoint = resume_payload
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -224,6 +236,9 @@ def train_trajectory_encoder(
         best_score = float(checkpoint["best_score"])
         best_epoch = int(checkpoint["best_epoch"])
         stale_epochs = int(checkpoint["stale_epochs"])
+        best_validation_state_separation = checkpoint.get(
+            "best_validation_state_separation"
+        )
     else:
         log_path.write_text("", encoding="utf-8")
 
@@ -232,18 +247,20 @@ def train_trajectory_encoder(
     final_epoch = start_epoch - 1
     for epoch in range(start_epoch, config.max_epochs + 1):
         final_epoch = epoch
-        train_loss = _train_epoch(
+        train_metrics = _train_epoch(
             model,
             objective,
+            d_objective,
             optimizer,
             train_samples,
             config=config,
             epoch=epoch,
             class_weights=class_weights,
         )
-        val_loss, val_score = _evaluate(
+        val_loss, val_score, val_state_separation = _evaluate(
             model,
             objective,
+            d_objective,
             val_samples,
             config=config,
             class_weights=class_weights,
@@ -252,14 +269,16 @@ def train_trajectory_encoder(
         if improved:
             best_score = val_score
             best_epoch = epoch
+            best_validation_state_separation = val_state_separation
             stale_epochs = 0
         else:
             stale_epochs += 1
         log_row = {
             "epoch": epoch,
-            "train_loss": train_loss,
+            **train_metrics,
             "val_loss": val_loss,
             "val_balanced_accuracy_ac": val_score,
+            "val_state_separation": val_state_separation,
             "val_sample_count": len({sample.sample_id for sample in val_samples}),
             "best_epoch": best_epoch,
             "best_val_balanced_accuracy_ac": best_score,
@@ -280,6 +299,7 @@ def train_trajectory_encoder(
             best_score=best_score,
             best_epoch=best_epoch,
             stale_epochs=stale_epochs,
+            best_validation_state_separation=best_validation_state_separation,
             class_weights=class_weights,
             train_label_counts=train_label_counts,
         )
@@ -292,13 +312,14 @@ def train_trajectory_encoder(
     if not best_path.is_file() and last_path.is_file():
         _atomic_torch_save(best_path, torch.load(last_path, map_location="cpu"))
     metrics = {
-        "schema": "mprisk_representation_training_metrics_v2",
+        "schema": "mprisk_representation_training_metrics_v3",
         "repr_key": config.repr_key,
         "model_key": config.model_key,
         "selection_metric": "val_balanced_accuracy_ac",
         "selection_unit": "sample_id",
         "best_epoch": best_epoch,
         "best_val_balanced_accuracy_ac": best_score,
+        "best_validation_state_separation": best_validation_state_separation,
         "final_epoch": final_epoch,
         "stop_reason": stop_reason,
         "train_rows": len(train_samples),
@@ -307,6 +328,20 @@ def train_trajectory_encoder(
         "val_sample_count": len({sample.sample_id for sample in val_samples}),
         "train_examples_per_epoch": len({sample.sample_id for sample in train_samples}),
         "prompt_augmentation": "one_deterministic_prompt_per_sample_per_epoch",
+        "state_supervision": (
+            {
+                "definition": "full_prompt_exact_D_detached_denominator_plus_raw_angle_ranking",
+                "prompt_count": config.expected_prompt_count,
+                "samples_per_class_per_step": config.d_aux_samples_per_class,
+                "d_weight": config.d_supervision_weight,
+                "d_margin": config.d_ranking_margin,
+                "angular_weight": config.angular_supervision_weight,
+                "angular_margin_rad": config.angular_ranking_margin_rad,
+                "angular_margin_deg": math.degrees(config.angular_ranking_margin_rad),
+            }
+            if config.repr_key == TME_PROXY_ANCHOR_V1
+            else None
+        ),
         "classification_objective": config.classification_objective,
         "train_sample_label_counts": train_label_counts,
         "baseline_class_weights": (
@@ -999,13 +1034,14 @@ def _group_checksum(samples: list[_Sample]) -> str:
 def _train_epoch(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
+    d_objective: ModalitySplitRankingLoss | None,
     optimizer: torch.optim.Optimizer,
     samples: list[_Sample],
     *,
     config: TrainingConfig,
     epoch: int,
     class_weights: torch.Tensor | None,
-) -> float:
+) -> dict[str, float]:
     model.train()
     if objective is not None:
         objective.train()
@@ -1015,16 +1051,78 @@ def _train_epoch(
         epoch=epoch,
     )
     random.Random(config.seed + epoch).shuffle(shuffled)
-    losses: list[float] = []
-    for batch in _batches(shuffled, config.batch_size):
+    proxy_batches = _batches(shuffled, config.batch_size)
+    d_batches = (
+        _class_balanced_full_prompt_batches(
+            samples,
+            batch_count=len(proxy_batches),
+            samples_per_class=config.d_aux_samples_per_class,
+            seed=config.seed,
+            epoch=epoch,
+        )
+        if d_objective is not None
+        else [None] * len(proxy_batches)
+    )
+    total_losses: list[float] = []
+    proxy_losses: list[float] = []
+    d_losses: list[float] = []
+    angular_losses: list[float] = []
+    d_values: list[torch.Tensor] = []
+    angle_values: list[torch.Tensor] = []
+    d_labels: list[torch.Tensor] = []
+    for batch, d_batch in zip(proxy_batches, d_batches, strict=True):
         optimizer.zero_grad(set_to_none=True)
-        loss, _outputs = _batch_loss_and_outputs(
+        proxy_loss, _outputs = _batch_loss_and_outputs(
             model, objective, batch, class_weights=class_weights
         )
-        loss.backward()
+        proxy_loss.backward()
+        total_loss_value = float(proxy_loss.detach())
+        proxy_losses.append(float(proxy_loss.detach()))
+        if d_objective is not None:
+            if d_batch is None:
+                raise AssertionError("TME D supervision batch was not constructed")
+            grouped_z, grouped_labels, grouped_sample_ids = _encode_prompt_groups(
+                model,
+                d_batch,
+            )
+            d_loss, angular_loss, diagnostics = d_objective(
+                grouped_z,
+                grouped_labels,
+                sample_ids=grouped_sample_ids,
+            )
+            auxiliary_loss = (
+                config.d_supervision_weight * d_loss
+                + config.angular_supervision_weight * angular_loss
+            )
+            auxiliary_loss.backward()
+            total_loss_value += float(auxiliary_loss.detach())
+            d_losses.append(float(d_loss.detach()))
+            angular_losses.append(float(angular_loss.detach()))
+            d_values.append(diagnostics["D"].detach())
+            angle_values.append(diagnostics["split_angle_rad"].detach())
+            d_labels.append(grouped_labels.detach())
         optimizer.step()
-        losses.append(float(loss.detach()))
-    return float(np.mean(losses))
+        total_losses.append(total_loss_value)
+    metrics = {
+        "train_loss": float(np.mean(total_losses)),
+        "train_proxy_anchor_loss": float(np.mean(proxy_losses)),
+    }
+    if d_objective is not None:
+        metrics.update(
+            {
+                "train_d_ranking_loss": float(np.mean(d_losses)),
+                "train_angular_ranking_loss": float(np.mean(angular_losses)),
+                **_state_separation_summary(
+                    torch.cat(d_values),
+                    torch.cat(angle_values),
+                    torch.cat(d_labels),
+                    d_margin=config.d_ranking_margin,
+                    angular_margin_rad=config.angular_ranking_margin_rad,
+                    prefix="train",
+                ),
+            }
+        )
+    return metrics
 
 
 def _sample_prompt_augmentations(
@@ -1055,25 +1153,172 @@ def _sample_prompt_augmentations(
     return selected
 
 
+def _class_balanced_full_prompt_batches(
+    samples: list[_Sample],
+    *,
+    batch_count: int,
+    samples_per_class: int,
+    seed: int,
+    epoch: int,
+) -> list[list[_Sample]]:
+    if batch_count <= 0 or samples_per_class <= 0:
+        raise ValueError("D supervision batch counts must be positive")
+    grouped: dict[str, list[_Sample]] = {}
+    for sample in samples:
+        grouped.setdefault(sample.sample_id, []).append(sample)
+    by_label: dict[int, list[str]] = {0: [], 1: []}
+    for sample_id, prompt_rows in grouped.items():
+        labels = {sample.label_id for sample in prompt_rows}
+        if len(labels) != 1:
+            raise ValueError(f"sample {sample_id} prompt rows disagree on the A/C label")
+        by_label[next(iter(labels))].append(sample_id)
+    if any(len(sample_ids) < samples_per_class for sample_ids in by_label.values()):
+        raise ValueError("D supervision requires enough samples in both A/C classes")
+    for label in (0, 1):
+        by_label[label].sort()
+        random.Random(seed + epoch * 104729 + label).shuffle(by_label[label])
+
+    batches: list[list[_Sample]] = []
+    offsets = {0: 0, 1: 0}
+    for _batch_index in range(batch_count):
+        selected_ids: list[str] = []
+        for label in (0, 1):
+            class_ids = by_label[label]
+            for _ in range(samples_per_class):
+                selected_ids.append(class_ids[offsets[label] % len(class_ids)])
+                offsets[label] += 1
+        batch_rows: list[_Sample] = []
+        for sample_id in selected_ids:
+            batch_rows.extend(sorted(grouped[sample_id], key=lambda row: row.prompt_id))
+        batches.append(batch_rows)
+    return batches
+
+
+def _encode_prompt_groups(
+    model: nn.Module,
+    samples: list[_Sample],
+) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    device = next(model.parameters()).device
+    trajectories, _row_labels = _load_trajectory_batch(samples, device=device)
+    row_sample_ids = [sample.sample_id for sample in samples]
+    condition_z, _relation_r = model(trajectories, sample_ids=row_sample_ids)
+    return _group_prompt_condition_z(samples, condition_z)
+
+
+def _group_prompt_condition_z(
+    samples: list[_Sample],
+    condition_z: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, list[str]]:
+    if condition_z.ndim != 3 or condition_z.shape[:2] != (len(samples), 3):
+        raise ValueError("condition_z rows must match [prompt_row, 3, condition_dim]")
+    grouped: dict[str, list[tuple[str, torch.Tensor]]] = {}
+    labels: dict[str, int] = {}
+    order: list[str] = []
+    for sample, row_z in zip(samples, condition_z, strict=True):
+        if sample.sample_id not in grouped:
+            grouped[sample.sample_id] = []
+            labels[sample.sample_id] = sample.label_id
+            order.append(sample.sample_id)
+        elif labels[sample.sample_id] != sample.label_id:
+            raise ValueError("prompt rows disagree on the A/C label")
+        grouped[sample.sample_id].append((sample.prompt_id, row_z))
+    prompt_counts = {len(rows) for rows in grouped.values()}
+    if len(prompt_counts) != 1 or next(iter(prompt_counts), 0) < 2:
+        raise ValueError("D supervision requires synchronized multi-prompt sample groups")
+    grouped_z = torch.stack(
+        [
+            torch.stack([row_z for _prompt_id, row_z in sorted(grouped[sample_id])])
+            for sample_id in order
+        ]
+    )
+    grouped_labels = torch.tensor(
+        [labels[sample_id] for sample_id in order],
+        dtype=torch.long,
+        device=condition_z.device,
+    )
+    return grouped_z, grouped_labels, order
+
+
+def _state_separation_summary(
+    d_values: torch.Tensor,
+    split_angles_rad: torch.Tensor,
+    labels: torch.Tensor,
+    *,
+    d_margin: float,
+    angular_margin_rad: float,
+    prefix: str,
+) -> dict[str, float]:
+    if d_values.ndim != 1 or split_angles_rad.shape != d_values.shape:
+        raise ValueError("state separation diagnostics require aligned one-dimensional values")
+    aligned = labels == 0
+    conflict = labels == 1
+    if not bool(aligned.any()) or not bool(conflict.any()):
+        raise ValueError("state separation diagnostics require both A/C classes")
+    d_aligned = d_values[aligned]
+    d_conflict = d_values[conflict]
+    angle_aligned = split_angles_rad[aligned]
+    angle_conflict = split_angles_rad[conflict]
+    d_gaps = d_conflict[:, None] - d_aligned[None, :]
+    angle_gaps = angle_conflict[:, None] - angle_aligned[None, :]
+    degrees = 180.0 / math.pi
+    return {
+        f"{prefix}_aligned_D_mean": float(d_aligned.mean()),
+        f"{prefix}_conflict_D_mean": float(d_conflict.mean()),
+        f"{prefix}_D_gap": float(d_conflict.mean() - d_aligned.mean()),
+        f"{prefix}_D_effect_size": _pooled_effect_size(d_aligned, d_conflict),
+        f"{prefix}_D_pair_margin_satisfaction": float((d_gaps >= d_margin).float().mean()),
+        f"{prefix}_aligned_split_angle_deg_mean": float(angle_aligned.mean() * degrees),
+        f"{prefix}_conflict_split_angle_deg_mean": float(angle_conflict.mean() * degrees),
+        f"{prefix}_split_angle_gap_deg": float(
+            (angle_conflict.mean() - angle_aligned.mean()) * degrees
+        ),
+        f"{prefix}_split_angle_effect_size": _pooled_effect_size(
+            angle_aligned, angle_conflict
+        ),
+        f"{prefix}_angular_pair_margin_satisfaction": float(
+            (angle_gaps >= angular_margin_rad).float().mean()
+        ),
+    }
+
+
+def _pooled_effect_size(aligned: torch.Tensor, conflict: torch.Tensor) -> float:
+    pooled_scale = torch.sqrt(
+        (aligned.var(unbiased=False) + conflict.var(unbiased=False)) / 2.0
+    )
+    if float(pooled_scale) <= 1e-12:
+        return 0.0
+    return float((conflict.mean() - aligned.mean()) / pooled_scale)
+
+
 def _evaluate(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
+    d_objective: ModalitySplitRankingLoss | None,
     samples: list[_Sample],
     *,
     config: TrainingConfig,
     class_weights: torch.Tensor | None,
-) -> tuple[float, float]:
+) -> tuple[float, float, dict[str, float] | None]:
     model.eval()
     if objective is not None:
         objective.eval()
     losses: list[float] = []
     metric_samples: list[_Sample] = []
     metric_outputs: list[torch.Tensor] = []
+    condition_outputs: list[torch.Tensor] = []
     with torch.no_grad():
         for batch in _batches(samples, config.batch_size):
-            loss, outputs = _batch_loss_and_outputs(
-                model, objective, batch, class_weights=class_weights
-            )
+            if objective is not None:
+                device = next(model.parameters()).device
+                trajectories, labels = _load_trajectory_batch(batch, device=device)
+                sample_ids = [sample.sample_id for sample in batch]
+                condition_z, outputs = model(trajectories, sample_ids=sample_ids)
+                loss = objective(outputs, labels, sample_ids=sample_ids)
+                condition_outputs.append(condition_z)
+            else:
+                loss, outputs = _batch_loss_and_outputs(
+                    model, objective, batch, class_weights=class_weights
+                )
             losses.append(float(loss))
             metric_samples.extend(batch)
             metric_outputs.append(outputs)
@@ -1084,7 +1329,30 @@ def _evaluate(
     )
     predictions = _sample_level_predictions(aggregate, objective=objective)
     prediction_values = [int(value) for value in predictions.detach().cpu().numpy()]
-    return float(np.mean(losses)), _balanced_accuracy(labels, prediction_values)
+    state_separation = None
+    if d_objective is not None:
+        grouped_z, grouped_labels, grouped_sample_ids = _group_prompt_condition_z(
+            metric_samples,
+            torch.cat(condition_outputs),
+        )
+        _d_loss, _angular_loss, diagnostics = d_objective(
+            grouped_z,
+            grouped_labels,
+            sample_ids=grouped_sample_ids,
+        )
+        state_separation = _state_separation_summary(
+            diagnostics["D"],
+            diagnostics["split_angle_rad"],
+            grouped_labels,
+            d_margin=config.d_ranking_margin,
+            angular_margin_rad=config.angular_ranking_margin_rad,
+            prefix="val",
+        )
+    return (
+        float(np.mean(losses)),
+        _balanced_accuracy(labels, prediction_values),
+        state_separation,
+    )
 
 
 def _batch_loss_and_outputs(
@@ -1218,11 +1486,12 @@ def _checkpoint_payload(
     best_score: float,
     best_epoch: int,
     stale_epochs: int,
+    best_validation_state_separation: dict[str, float] | None,
     class_weights: torch.Tensor | None,
     train_label_counts: dict[str, int],
 ) -> dict[str, Any]:
     return {
-        "schema": "mprisk_representation_checkpoint_v2",
+        "schema": "mprisk_representation_checkpoint_v3",
         "repr_key": config.repr_key,
         "architecture_version": (
             TME_ARCHITECTURE_V1 if config.repr_key == TME_PROXY_ANCHOR_V1 else config.repr_key
@@ -1240,6 +1509,7 @@ def _checkpoint_payload(
         "best_score": best_score,
         "best_epoch": best_epoch,
         "stale_epochs": stale_epochs,
+        "best_validation_state_separation": best_validation_state_separation,
         "classification_objective": config.classification_objective,
         "train_sample_label_counts": dict(train_label_counts),
         "baseline_class_weights": (
@@ -1317,6 +1587,26 @@ def _validate_config(config: TrainingConfig) -> None:
         raise ValueError("dropout is out of range")
     if config.lr <= 0.0 or config.weight_decay < 0.0 or config.min_delta < 0.0:
         raise ValueError("optimizer and stopping values are out of range")
+    if config.repr_key == TME_PROXY_ANCHOR_V1:
+        if config.d_supervision_weight <= 0.0 or config.angular_supervision_weight <= 0.0:
+            raise ValueError("TME requires positive D and angular supervision weights")
+        if config.d_ranking_margin < 0.0:
+            raise ValueError("TME d_ranking_margin must be non-negative")
+        if not 0.0 <= config.angular_ranking_margin_rad <= math.pi:
+            raise ValueError("TME angular_ranking_margin_rad must be in [0, pi]")
+        if config.d_aux_samples_per_class <= 0:
+            raise ValueError("TME d_aux_samples_per_class must be positive")
+    elif any(
+        value != 0
+        for value in (
+            config.d_supervision_weight,
+            config.d_ranking_margin,
+            config.angular_supervision_weight,
+            config.angular_ranking_margin_rad,
+            config.d_aux_samples_per_class,
+        )
+    ):
+        raise ValueError("D/angular supervision fields are TME-only")
 
 
 def _set_deterministic_seed(seed: int) -> None:

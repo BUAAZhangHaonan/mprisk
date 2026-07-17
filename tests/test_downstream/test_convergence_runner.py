@@ -16,6 +16,11 @@ def test_runner_extends_epoch_boundary_until_early_stopping(tmp_path, monkeypatc
         prompt_set_artifact_sha256="a" * 64,
         expected_prompt_count=1,
         expected_prompt_ids=("p1",),
+        d_supervision_weight=0.2,
+        d_ranking_margin=0.25,
+        angular_supervision_weight=0.2,
+        angular_ranking_margin_rad=0.08726646259971647,
+        d_aux_samples_per_class=1,
         max_epochs=5,
     )
     calls = []
