@@ -28,6 +28,9 @@ STATE_METHOD = "tme_pa_dstrong_v2"
 DEFAULT_DOWNSTREAM_ROOT = Path(
     "outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1"
 )
+DEFAULT_BASELINE_ROOT = Path(
+    "outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1"
+)
 MODELS = (
     ("qwen3_vl_8b", "VT", "Qwen3-VL-8B"),
     ("internvl3_5_8b", "VT", "InternVL3.5-8B"),
@@ -231,10 +234,12 @@ def _ready_fig08_sources(
     root: Path,
     state_artifacts: dict[str, DeliveryStateArtifacts],
     *,
+    baseline_root: Path | None = None,
     single_point_path: Path | None = None,
     trajectory_mlp_path: Path | None = None,
 ) -> tuple[FigureRepresentation, ...] | None:
     model_key = "qwen3_vl_8b"
+    baseline_root = baseline_root or root.parent / "representation_baselines_v1"
     overrides = {
         "single_point_binary_v1": single_point_path,
         "trajectory_mlp_binary_v1": trajectory_mlp_path,
@@ -242,7 +247,7 @@ def _ready_fig08_sources(
     sources: list[FigureRepresentation] = []
     for repr_key, label, feature_field in BASELINE_REPRESENTATIONS:
         default = (
-            root
+            baseline_root
             / model_key
             / repr_key
             / "official_test/frozen_baseline_representations.jsonl"
@@ -419,6 +424,11 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         default=DEFAULT_DOWNSTREAM_ROOT,
     )
+    parser.add_argument(
+        "--baseline-root",
+        type=Path,
+        default=DEFAULT_BASELINE_ROOT,
+    )
     parser.add_argument("--state-method", choices=(STATE_METHOD,), default=STATE_METHOD)
     parser.add_argument(
         "--fig08-single-point",
@@ -437,6 +447,11 @@ def main(argv: list[str] | None = None) -> int:
         args.downstream_root.resolve()
         if args.downstream_root.is_absolute()
         else (root / args.downstream_root).resolve()
+    )
+    baseline_root = (
+        args.baseline_root.resolve()
+        if args.baseline_root.is_absolute()
+        else (root / args.baseline_root).resolve()
     )
     config = args.config.resolve() if args.config.is_absolute() else root / args.config
     command = [sys.executable, str(Path(__file__).resolve()), *(argv or sys.argv[1:])]
@@ -461,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     fig08_sources = _ready_fig08_sources(
         downstream,
         state_artifacts,
+        baseline_root=baseline_root,
         single_point_path=args.fig08_single_point,
         trajectory_mlp_path=args.fig08_trajectory_mlp,
     )

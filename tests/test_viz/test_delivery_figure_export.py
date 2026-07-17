@@ -104,6 +104,9 @@ def test_default_export_targets_delivery_dstrong() -> None:
     )
     assert export.STATE_METHOD == "tme_pa_dstrong_v2"
     assert export.TME_REPRESENTATION[0] == export.STATE_METHOD
+    assert export.DEFAULT_BASELINE_ROOT == Path(
+        "outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1"
+    )
 
 
 def test_delivery_state_ready_requires_all_three_exact_dstrong_markers(tmp_path: Path) -> None:
@@ -150,7 +153,7 @@ def test_fig08_requires_real_baselines_and_exports_exact_ac_intersection(
             frozen_tme=tme_source,
         )
     }
-    assert export._ready_fig08_sources(tmp_path, state) is None
+    assert export._ready_fig08_sources(tmp_path, state, baseline_root=tmp_path) is None
 
     _baseline_run(
         tmp_path,
@@ -162,7 +165,7 @@ def test_fig08_requires_real_baselines_and_exports_exact_ac_intersection(
         "trajectory_mlp_binary_v1",
         _representation_rows("penultimate_feature"),
     )
-    sources = export._ready_fig08_sources(tmp_path, state)
+    sources = export._ready_fig08_sources(tmp_path, state, baseline_root=tmp_path)
     assert sources is not None
     assert [item.label for item in sources] == ["Single-Point", "Trajectory MLP", "TME"]
 
@@ -181,6 +184,42 @@ def test_fig08_requires_real_baselines_and_exports_exact_ac_intersection(
     assert provenance["status"] == "Ready"
     assert provenance["sample_masks"]["misread"] == "Pending Misread annotations"
     assert provenance["misread_status"] == "Pending"
+
+
+def test_fig08_default_discovers_delivery_baseline_sibling(tmp_path: Path) -> None:
+    tme_root = tmp_path / "tme_ablation_v1"
+    baseline_root = tmp_path / "representation_baselines_v1"
+    tme_source = _write(
+        tme_root
+        / "qwen3_vl_8b"
+        / export.STATE_METHOD
+        / "official_test/frozen_tme_representations.jsonl",
+        "".join(
+            json.dumps(row) + "\n"
+            for row in _representation_rows("sample_relation_feature")
+        ),
+    )
+    state = {
+        "qwen3_vl_8b": export.DeliveryStateArtifacts(
+            model_key="qwen3_vl_8b",
+            method_root=tme_source.parent.parent,
+            scores=tmp_path / "unused-scores",
+            patterns=tmp_path / "unused-patterns",
+            thresholds=tmp_path / "unused-thresholds",
+            frozen_tme=tme_source,
+        )
+    }
+    for repr_key in ("single_point_binary_v1", "trajectory_mlp_binary_v1"):
+        _baseline_run(
+            baseline_root,
+            repr_key,
+            _representation_rows("penultimate_feature"),
+        )
+
+    sources = export._ready_fig08_sources(tme_root, state)
+
+    assert sources is not None
+    assert all(source.source.is_file() for source in sources)
 
 
 def test_fig08_rejects_nonidentical_official_test_sets(
