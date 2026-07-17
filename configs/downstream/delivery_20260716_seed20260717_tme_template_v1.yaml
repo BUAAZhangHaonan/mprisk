@@ -53,6 +53,9 @@ jobs:
       tme_pa_dtheta_v1:
         path: configs/experiments/delivery_20260716/seed20260717/qwen3_vl_8b_tme_pa_dtheta_v1.yaml
         sha256: cd0df26baa0e4ea106305bd4d1c5998bf6fefd1dd5cb1ba521b0759eb2d44d61
+      tme_pa_dstrong_v2:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen3_vl_8b_tme_pa_dstrong_v2.yaml
+        sha256: d8c645716705f5b052085fe9d3636d78ebf500729e0249596d63a5515e43d53a
     cache_union: PENDING_CACHE_UNION
   - model_key: internvl3_5_8b
     protocol: vt
@@ -88,6 +91,9 @@ jobs:
       tme_pa_dtheta_v1:
         path: configs/experiments/delivery_20260716/seed20260717/internvl3_5_8b_tme_pa_dtheta_v1.yaml
         sha256: e9e03eed9195ba17678a7c2ddc9f96a296596bb3d30012ba6a59b1eb450ee327
+      tme_pa_dstrong_v2:
+        path: configs/experiments/delivery_20260716/seed20260717/internvl3_5_8b_tme_pa_dstrong_v2.yaml
+        sha256: 0fd8b3f6464894cf1f96252f3a42b81245afdf9fe233d8edb5f5d2da8beb1651
     cache_union: PENDING_CACHE_UNION
   - model_key: qwen2_5_omni_7b
     protocol: va
@@ -125,4 +131,7 @@ jobs:
       tme_pa_dtheta_v1:
         path: configs/experiments/delivery_20260716/seed20260717/qwen2_5_omni_7b_tme_pa_dtheta_v1.yaml
         sha256: a7dfe5be245b8276e2e4bc8ee2ecbb8d316fb7187a0629c6b408a9d8b73d01af
+      tme_pa_dstrong_v2:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen2_5_omni_7b_tme_pa_dstrong_v2.yaml
+        sha256: 28c852c47240798dec3f24c4654d5ece40bd5968629710377297ef4e456d3b2e
     cache_union: PENDING_CACHE_UNION

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -10,17 +11,23 @@ import torch
 import yaml
 
 import mprisk.experiments.delivery_representation as delivery_representation
+from mprisk.cache.cache_union import UNION_SCHEMA
 from mprisk.experiments.delivery_representation import (
+    DSTRONG_METHOD,
+    DTHETA_METHOD,
+    METHODS,
     PARTIALLY_RUNNABLE,
     PENDING_CACHE_UNION,
     RUNNABLE,
     DeliveryPlanError,
+    _normalize_method_selection,
     _selected_model_keys_for_load,
     _validate_cache_union,
     _write_geometry_metrics,
     bind_delivery_plan,
     load_delivery_plan,
 )
+from mprisk.representation.training import load_training_config
 
 
 def _unit(angle: float) -> list[float]:
@@ -54,6 +61,37 @@ def test_production_template_training_config_hashes_match_files() -> None:
                 job["model_key"],
                 method,
             )
+
+
+def test_global_dstrong_v2_changes_only_d_supervision_weight() -> None:
+    root = Path(__file__).parents[2]
+    template = yaml.safe_load(
+        (
+            root
+            / "configs/downstream/delivery_20260716_seed20260717_tme_template_v1.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    for job in template["jobs"]:
+        configs = job["training_configs"]
+        assert set(configs) == set(METHODS)
+        base_path = root / configs[DTHETA_METHOD]["path"]
+        strong_path = root / configs[DSTRONG_METHOD]["path"]
+        base = load_training_config(base_path)
+        strong = load_training_config(strong_path)
+        assert strong.d_supervision_weight == pytest.approx(0.5)
+        assert replace(strong, d_supervision_weight=base.d_supervision_weight) == base
+        assert strong_path.name.endswith("_tme_pa_dstrong_v2.yaml")
+        base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
+        strong_raw = yaml.safe_load(strong_path.read_text(encoding="utf-8"))
+        assert base_raw["key"] != strong_raw["key"]
+
+
+def test_dstrong_method_can_be_selected_without_running_infeasible_pilot() -> None:
+    assert _normalize_method_selection({DSTRONG_METHOD}) == (DSTRONG_METHOD,)
+    assert _normalize_method_selection(None) == METHODS
+    with pytest.raises(DeliveryPlanError, match="unknown method"):
+        _normalize_method_selection({"unknown"})
 
 
 def test_partial_plan_requires_exact_explicit_model_selection() -> None:
@@ -227,7 +265,7 @@ def test_cache_union_gate_requires_exact_full_prefill_grid(tmp_path: Path) -> No
         },
     }
     union_payload = {
-        "schema": "mprisk_prefill_cache_union_v1",
+        "schema": UNION_SCHEMA,
         "entries": entries,
         "blocked_tasks": [],
         "provenance": {

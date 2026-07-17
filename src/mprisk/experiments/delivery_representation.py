@@ -8,7 +8,7 @@ import math
 import os
 import tempfile
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +28,11 @@ RUNNABLE = "RUNNABLE"
 PARTIALLY_RUNNABLE = "PARTIALLY_RUNNABLE"
 SEED = 20260717
 CONDITIONS = ("M1", "M2", "M12")
-METHODS = ("tme_pa_only_v1", "tme_pa_dtheta_v1")
+PA_ONLY_METHOD = "tme_pa_only_v1"
+DTHETA_METHOD = "tme_pa_dtheta_v1"
+DSTRONG_METHOD = "tme_pa_dstrong_v2"
+METHODS = (PA_ONLY_METHOD, DTHETA_METHOD, DSTRONG_METHOD)
+SUPERVISED_METHODS = (DTHETA_METHOD, DSTRONG_METHOD)
 MODEL_PROTOCOLS = {
     "qwen3_vl_8b": "vt",
     "internvl3_5_8b": "vt",
@@ -193,8 +197,13 @@ def load_delivery_plan(
     )
 
 
-def run_delivery_plan(path: str | Path, *, model_keys: set[str] | None = None) -> int:
-    """Run both registered TME methods end to end from an immutable cache union."""
+def run_delivery_plan(
+    path: str | Path,
+    *,
+    model_keys: set[str] | None = None,
+    method_keys: set[str] | None = None,
+) -> int:
+    """Run selected registered TME methods from an immutable cache union."""
     import fcntl
 
     import torch
@@ -207,6 +216,7 @@ def run_delivery_plan(path: str | Path, *, model_keys: set[str] | None = None) -
     from mprisk.utils.io import write_json
 
     plan = load_delivery_plan(path, model_keys=model_keys)
+    selected_methods = _normalize_method_selection(method_keys)
     if not plan.device.startswith("cuda:"):
         raise DeliveryPlanError("delivery representation training requires an explicit CUDA device")
     device_index = int(plan.device.split(":", 1)[1])
@@ -234,6 +244,8 @@ def run_delivery_plan(path: str | Path, *, model_keys: set[str] | None = None) -
                     if not scores.is_file() or _sha256(scores) != completion["official_sdr_sha256"]:
                         raise DeliveryPlanError(f"stale completion marker: {done}")
                     method_outputs[method] = scores
+                    continue
+                if method not in selected_methods:
                     continue
                 config = load_training_config(job.training_configs[method])
                 result = _train_until_converged(
@@ -281,7 +293,10 @@ def run_delivery_plan(path: str | Path, *, model_keys: set[str] | None = None) -
                     },
                 )
                 method_outputs[method] = scores
-            _write_paired_geometry_comparison(job, method_outputs)
+            if PA_ONLY_METHOD in method_outputs and any(
+                method in method_outputs for method in SUPERVISED_METHODS
+            ):
+                _write_paired_geometry_comparison(job, method_outputs)
         return 0
     finally:
         lock_handle.close()
@@ -314,7 +329,7 @@ def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
         (str(row["sample_id"]), str(row["prompt_id"]), str(row["condition"]).upper()): row
         for row in entries
     }
-    config = load_training_config(job.training_configs["tme_pa_dtheta_v1"])
+    config = load_training_config(job.training_configs[PA_ONLY_METHOD])
     source_rows = [
         row
         for row in read_final_manifest(job.state_manifest, protocol=job.protocol)
@@ -496,61 +511,82 @@ def _write_paired_geometry_comparison(
         method: {str(row["sample_id"]): row for row in _read_jsonl(path)}
         for method, path in method_outputs.items()
     }
-    if set(rows[METHODS[0]]) != set(rows[METHODS[1]]):
+    supervised = [method for method in SUPERVISED_METHODS if method in rows]
+    if not supervised:
+        raise DeliveryPlanError("paired geometry requires one supervised TME method")
+    baseline_ids = set(rows[PA_ONLY_METHOD])
+    if any(set(rows[method]) != baseline_ids for method in supervised):
         raise DeliveryPlanError("paired geometry methods have different official sample sets")
+    metric_prefix = {
+        DTHETA_METHOD: "pa_dtheta",
+        DSTRONG_METHOD: "pa_dstrong",
+    }
     comparison: dict[str, Any] = {}
     for sample_type in ("Aligned", "Conflict"):
         sample_ids = sorted(
             sample_id
-            for sample_id, row in rows[METHODS[0]].items()
+            for sample_id, row in rows[PA_ONLY_METHOD].items()
             if row["sample_type"] == sample_type
         )
-        pa = np.asarray([float(rows[METHODS[0]][sample_id]["D"]) for sample_id in sample_ids])
-        final = np.asarray([float(rows[METHODS[1]][sample_id]["D"]) for sample_id in sample_ids])
-        test = ttest_rel(final, pa)
-        comparison[sample_type] = {
+        pa = np.asarray(
+            [float(rows[PA_ONLY_METHOD][sample_id]["D"]) for sample_id in sample_ids]
+        )
+        state_comparison: dict[str, Any] = {
             "count": len(sample_ids),
             "pa_only_D_mean": float(pa.mean()),
-            "pa_dtheta_D_mean": float(final.mean()),
-            "paired_D_delta_mean": float((final - pa).mean()),
-            "paired_t_two_sided_p": float(test.pvalue),
         }
+        for method in supervised:
+            prefix = metric_prefix[method]
+            values = np.asarray(
+                [float(rows[method][sample_id]["D"]) for sample_id in sample_ids]
+            )
+            test = ttest_rel(values, pa)
+            state_comparison[f"{prefix}_D_mean"] = float(values.mean())
+            state_comparison[f"{prefix}_paired_D_delta_mean"] = float(
+                (values - pa).mean()
+            )
+            state_comparison[f"{prefix}_paired_t_two_sided_p"] = float(test.pvalue)
+        comparison[sample_type] = state_comparison
     comparison["class_gap"] = {
-        "pa_only": (
-            comparison["Conflict"]["pa_only_D_mean"]
-            - comparison["Aligned"]["pa_only_D_mean"]
-        ),
-        "pa_dtheta": (
-            comparison["Conflict"]["pa_dtheta_D_mean"]
-            - comparison["Aligned"]["pa_dtheta_D_mean"]
-        ),
+        "pa_only": comparison["Conflict"]["pa_only_D_mean"]
+        - comparison["Aligned"]["pa_only_D_mean"]
     }
-    comparison["class_gap"]["pa_dtheta_minus_pa_only"] = (
-        comparison["class_gap"]["pa_dtheta"] - comparison["class_gap"]["pa_only"]
-    )
+    for method in supervised:
+        prefix = metric_prefix[method]
+        comparison["class_gap"][prefix] = (
+            comparison["Conflict"][f"{prefix}_D_mean"]
+            - comparison["Aligned"][f"{prefix}_D_mean"]
+        )
+        comparison["class_gap"][f"{prefix}_minus_pa_only"] = (
+            comparison["class_gap"][prefix] - comparison["class_gap"]["pa_only"]
+        )
+    available_methods = [PA_ONLY_METHOD, *supervised]
     clustering = {
         method: json.loads(
             (job.output_dir / method / "official_test" / "geometry_metrics.json").read_text(
                 encoding="utf-8"
             )
         )["relation_r_clustering"]
-        for method in METHODS
+        for method in available_methods
     }
     comparison["relation_r_clustering"] = {
         "by_method": clustering,
-        "pa_dtheta_minus_pa_only": {
-            metric: clustering[METHODS[1]][metric] - clustering[METHODS[0]][metric]
-            for metric in ("cosine_silhouette", "five_nn_label_purity")
+        "delta_from_pa_only": {
+            method: {
+                metric: clustering[method][metric] - clustering[PA_ONLY_METHOD][metric]
+                for metric in ("cosine_silhouette", "five_nn_label_purity")
+            }
+            for method in supervised
         },
     }
     return write_json(
-        job.output_dir / "paired_geometry_comparison.json",
+        job.output_dir / "paired_geometry_comparison_v2.json",
         {
-            "schema": "mprisk_tme_paired_geometry_comparison_v1",
+            "schema": "mprisk_tme_paired_geometry_comparison_v2",
             "delivery": "delivery_20260716",
             "seed": SEED,
             "model_key": job.model_key,
-            "methods": list(METHODS),
+            "methods": available_methods,
             "misread_labels_used": False,
             "comparison": comparison,
         },
@@ -646,6 +682,18 @@ def _normalize_model_selection(
     return selected
 
 
+def _normalize_method_selection(method_keys: set[str] | None) -> tuple[str, ...]:
+    if method_keys is None:
+        return METHODS
+    selected = {str(method_key) for method_key in method_keys}
+    if not selected:
+        raise DeliveryPlanError("method selection must not be empty")
+    unknown = selected - set(METHODS)
+    if unknown:
+        raise DeliveryPlanError(f"unknown method keys: {sorted(unknown)}")
+    return tuple(method for method in METHODS if method in selected)
+
+
 def _selected_model_keys_for_load(
     payload: dict[str, Any], *, requested: set[str] | None
 ) -> set[str]:
@@ -728,6 +776,7 @@ def _validate_training_configs(
     job: dict[str, Any], plan_path: Path, root: Path
 ) -> dict[str, Path]:
     result: dict[str, Path] = {}
+    loaded: dict[str, Any] = {}
     for method, spec in job["training_configs"].items():
         config_path = _validated_file(spec, plan_path, root)
         config = load_training_config(config_path)
@@ -739,11 +788,32 @@ def _validate_training_configs(
             or list(config.expected_prompt_ids) != list(job["prompt_set"]["prompt_ids"])
         ):
             raise DeliveryPlanError(f"training config identity differs from job: {method}")
-        if method == "tme_pa_only_v1" and config.enable_state_supervision:
+        if method == PA_ONLY_METHOD and config.enable_state_supervision:
             raise DeliveryPlanError("PA-only config must disable state supervision")
-        if method == "tme_pa_dtheta_v1" and not config.enable_state_supervision:
+        if method in SUPERVISED_METHODS and not config.enable_state_supervision:
             raise DeliveryPlanError("PA+D/theta config must enable state supervision")
+        expected_d_weight = {
+            DTHETA_METHOD: 0.2,
+            DSTRONG_METHOD: 0.5,
+        }.get(method)
+        if expected_d_weight is not None and not math.isclose(
+            config.d_supervision_weight,
+            expected_d_weight,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        ):
+            raise DeliveryPlanError(
+                f"{method} d_supervision_weight must equal {expected_d_weight}"
+            )
         result[method] = config_path
+        loaded[method] = config
+    if replace(
+        loaded[DSTRONG_METHOD],
+        d_supervision_weight=loaded[DTHETA_METHOD].d_supervision_weight,
+    ) != loaded[DTHETA_METHOD]:
+        raise DeliveryPlanError(
+            "D-strong v2 must differ from PA+D/theta v1 only in d_supervision_weight"
+        )
     return result
 
 
