@@ -25,6 +25,7 @@ from mprisk.experiments.delivery_representation import (
     TRAJECTORY_MLP_METHOD,
     DeliveryJob,
     DeliveryPlanError,
+    _load_job_identity_config,
     _normalize_method_selection,
     _selected_model_keys_for_load,
     _validate_cache_union,
@@ -112,6 +113,36 @@ def test_baseline_method_selection_cannot_cross_into_tme_group() -> None:
             {DSTRONG_METHOD},
             available_methods=BASELINE_METHODS,
         )
+
+
+def test_baseline_job_uses_registered_native_config_for_relation_identity() -> None:
+    root = Path(__file__).parents[2]
+    config = (
+        root
+        / "configs/experiments/seed_runs/seed20260717/"
+        "qwen3_vl_8b_single_point_binary_v1.yaml"
+    )
+    job = DeliveryJob(
+        model_key="qwen3_vl_8b",
+        protocol="vt",
+        seed=20260717,
+        run_id="baseline",
+        output_dir=root / "unused",
+        state_manifest=root / "unused.jsonl",
+        cache_union=root / "unused-union.json",
+        cache_union_sha256="c" * 64,
+        training_configs={
+            SINGLE_POINT_METHOD: config,
+            TRAJECTORY_MLP_METHOD: config.with_name(
+                "qwen3_vl_8b_trajectory_mlp_binary_v1.yaml"
+            ),
+        },
+    )
+
+    identity = _load_job_identity_config(job)
+    assert identity.repr_key == SINGLE_POINT_METHOD
+    assert identity.model_key == job.model_key
+    assert identity.protocol == job.protocol
 
 
 def test_global_dstrong_v2_changes_only_d_supervision_weight() -> None:

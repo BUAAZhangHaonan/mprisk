@@ -447,7 +447,6 @@ def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
     from mprisk.data.manifests import read_final_manifest
     from mprisk.data.representation_splits import load_representation_split_assignment
     from mprisk.representation.relation_dataset import LABEL_TO_ID
-    from mprisk.representation.training import load_training_config
     from mprisk.utils.io import write_json, write_jsonl
 
     output_root = job.output_dir / "relation"
@@ -470,7 +469,7 @@ def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
         (str(row["sample_id"]), str(row["prompt_id"]), str(row["condition"]).upper()): row
         for row in entries
     }
-    config = load_training_config(job.training_configs[PA_ONLY_METHOD])
+    config = _load_job_identity_config(job)
     source_rows = [
         row
         for row in read_final_manifest(job.state_manifest, protocol=job.protocol)
@@ -544,6 +543,15 @@ def _materialize_relation_dataset(plan: DeliveryPlan, job: DeliveryJob) -> Path:
         },
     )
     return dataset_path
+
+
+def _load_job_identity_config(job: DeliveryJob) -> Any:
+    methods = tuple(
+        method for method in REGISTERED_METHODS if method in job.training_configs
+    )
+    if methods not in REGISTERED_METHOD_GROUPS:
+        raise DeliveryPlanError("job training configs do not form a registered method group")
+    return load_training_config(job.training_configs[methods[0]])
 
 
 def _write_geometry_metrics(
