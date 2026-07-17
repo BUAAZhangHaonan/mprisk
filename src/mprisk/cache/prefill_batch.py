@@ -499,6 +499,62 @@ def _materialize_outputs(ledger: BatchLedger, root: Path, prompt_ids: Sequence[s
     _atomic_json(root / "batch_summary.json", ledger.summary())
 
 
+def rematerialize_completed_batch(output_root: str | Path) -> dict[str, Any]:
+    """Rebuild all derived batch manifests from a completed SQLite ledger.
+
+    This operation never constructs a model wrapper or reads model weights. The
+    ledger remains the source of truth, and every derived output is replaced
+    atomically by :func:`_materialize_outputs`.
+    """
+    root = Path(output_root).expanduser().resolve()
+    ledger_path = root / "batch_state.sqlite3"
+    if not ledger_path.is_file():
+        raise FileNotFoundError(f"Missing prefill batch ledger: {ledger_path}")
+
+    ledger = BatchLedger(ledger_path)
+    try:
+        summary = ledger.summary()
+        total = int(summary["total"])
+        if total == 0:
+            raise ValueError("Cannot rematerialize an empty prefill batch ledger")
+        incomplete = {
+            key: int(summary[key]) for key in ("pending", "running", "failed") if summary[key]
+        }
+        if incomplete or int(summary["completed"]) != total:
+            raise ValueError(f"Prefill batch ledger is not complete: {summary}")
+
+        missing_entries = int(
+            ledger.connection.execute(
+                "SELECT COUNT(*) FROM tasks WHERE status='completed' AND entry_json IS NULL"
+            ).fetchone()[0]
+        )
+        if missing_entries:
+            raise ValueError(
+                f"Completed prefill batch tasks missing entry_json: {missing_entries}"
+            )
+
+        prompt_ids = tuple(
+            str(row[0])
+            for row in ledger.connection.execute(
+                "SELECT prompt_id FROM tasks GROUP BY prompt_id ORDER BY MIN(rowid)"
+            ).fetchall()
+        )
+        if not prompt_ids:
+            raise ValueError("Completed prefill batch ledger contains no prompt IDs")
+
+        _materialize_outputs(ledger, root, prompt_ids)
+        return {
+            "schema": "mprisk_prefill_batch_rematerialization_v1",
+            "status": "complete",
+            "output_root": str(root),
+            "prompt_ids": list(prompt_ids),
+            "manifest_rows": total,
+            "summary": summary,
+        }
+    finally:
+        ledger.close()
+
+
 def _materialize_failures(ledger: BatchLedger, root: Path) -> None:
     lines = "".join(_canonical_json(row) + "\n" for row in ledger.failures())
     _atomic_text(root / "failures.jsonl", lines)

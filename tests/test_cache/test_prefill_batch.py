@@ -6,7 +6,13 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from mprisk.cache.prefill_batch import BatchLedger, build_batch_plan, build_parser, main
+from mprisk.cache.prefill_batch import (
+    BatchLedger,
+    build_batch_plan,
+    build_parser,
+    main,
+    rematerialize_completed_batch,
+)
 from mprisk.cache.prefill_writer import write_full_cache_manifest, write_prefill_result
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
 
@@ -264,6 +270,96 @@ def test_batch_resume_uses_checksums_and_records_full_identity(tmp_path, capsys)
     shard.write_bytes(b"corrupt")
     with pytest.raises(ValueError, match="checksum mismatch"):
         main(argv, wrapper_factory=FakeWrapper)
+
+
+def test_rematerialize_completed_batch_repairs_stale_manifest_without_model_load(
+    tmp_path, capsys
+) -> None:
+    class FakeWrapper:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def load(self):
+            return None
+
+        def extract_prefill(self, request):
+            return PrefillResult(
+                request=request,
+                trajectory=np.ones((2, 3), dtype=np.float32),
+                token_count=4,
+                t0_token_index=3,
+                provenance={"elapsed_seconds": 0.1, "peak_gpu_memory_bytes": 1234},
+            )
+
+        def close(self):
+            return None
+
+    args = _args(tmp_path, question="judge emotion")
+    argv = [
+        "--manifest",
+        str(args.manifest),
+        "--prompt-set",
+        str(args.prompt_set),
+        "--prompt-variable",
+        "question=judge emotion",
+        "--model-path",
+        str(args.model_path),
+        "--output-root",
+        str(args.output_root),
+        "--device",
+        "cpu",
+    ]
+    assert main(argv, wrapper_factory=FakeWrapper) == 0
+    capsys.readouterr()
+
+    expected = [
+        json.loads(line)
+        for line in (args.output_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    expected_identities = {
+        (
+            row["sample_id"],
+            row["model_key"],
+            row["protocol"],
+            row["prompt_set_key"],
+            row["prompt_id"],
+            row["condition"],
+        )
+        for row in expected
+    }
+    expected_checksums = {row["checksum"] for row in expected}
+    (args.output_root / "manifest.jsonl").write_text(
+        "".join(json.dumps(row) + "\n" for row in expected[:-2]), encoding="utf-8"
+    )
+
+    report = rematerialize_completed_batch(args.output_root)
+
+    repaired = [
+        json.loads(line)
+        for line in (args.output_root / "manifest.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    repaired_identities = {
+        (
+            row["sample_id"],
+            row["model_key"],
+            row["protocol"],
+            row["prompt_set_key"],
+            row["prompt_id"],
+            row["condition"],
+        )
+        for row in repaired
+    }
+    assert report["manifest_rows"] == 12
+    assert report["summary"] == {
+        "total": 12,
+        "pending": 0,
+        "running": 0,
+        "completed": 12,
+        "failed": 0,
+    }
+    assert repaired_identities == expected_identities
+    assert {row["checksum"] for row in repaired} == expected_checksums
+    assert repaired == expected
 
 
 def test_ledger_rejects_signature_changes(tmp_path) -> None:
