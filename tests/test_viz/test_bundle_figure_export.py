@@ -12,6 +12,7 @@ import yaml
 
 from mprisk.viz.bundle_figures import (
     UMAP_CONFIG,
+    _read_csv,
     _render_misread_bias,
     _render_representation_comparison,
     export_bundle_figures,
@@ -283,6 +284,19 @@ def test_ready_fig7_renders_pending_misread_and_real_bias_panels(
     assert "Modality Split (D) vs Misread" in extracted
     assert "State Pattern vs Misread" in extracted
     assert extracted.count("stable Conflict D-signed R") == 3
+
+
+def test_figure_csv_reader_preserves_large_representation_fields(tmp_path: Path) -> None:
+    feature = "[" + ",".join("0.125" for _ in range(30_000)) + "]"
+    input_path = tmp_path / "representations.csv"
+    with input_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=("sample_id", "feature"))
+        writer.writeheader()
+        writer.writerow({"sample_id": "sample-1", "feature": feature})
+
+    rows = _read_csv(input_path)
+
+    assert rows == [{"sample_id": "sample-1", "feature": feature}]
 
 
 def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) -> None:

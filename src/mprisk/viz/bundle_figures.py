@@ -7,6 +7,7 @@ import hashlib
 import importlib.metadata
 import json
 import subprocess
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -1146,6 +1147,7 @@ def _render_stacked_rows(
 
 
 def _read_csv(path: Path) -> list[dict[str, Any]]:
+    csv.field_size_limit(sys.maxsize)
     with path.open("r", encoding="utf-8", newline="") as handle:
         return [dict(row) for row in csv.DictReader(handle)]
 
