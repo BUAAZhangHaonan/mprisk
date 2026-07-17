@@ -53,6 +53,15 @@ SIGNATURE_IGNORED_FIELDS = frozenset(
         "prefill_strategy_version",
     }
 )
+COMPATIBILITY_SIGNATURE_IGNORED_FIELDS = SIGNATURE_IGNORED_FIELDS | frozenset(
+    {
+        # This is the hash of the complete multi-model registry. A source remains
+        # compatible when an unrelated model is added to that registry: the
+        # selected model path, exact model assets, compiled requests, and runtime
+        # provenance are all validated independently below.
+        "asset_config_sha256",
+    }
+)
 RUNTIME_PROVENANCE_FIELDS = (
     "schema",
     "model_path",
@@ -334,13 +343,16 @@ def build_cache_union(
         raise CacheUnionError("Cache sources have different prefill strategy identities")
     prefill_strategy, prefill_strategy_version = next(iter(strategy_identities))
     fingerprints = {
-        str(record["extractor_semantic_fingerprint"]) for record in evidence_records
+        _extractor_compatibility_fingerprint(record) for record in evidence_records
     }
     if len(fingerprints) != 1:
         raise CacheUnionError(
             "Cache sources have different extractor semantic fingerprints; exact reuse denied"
         )
     fingerprint = next(iter(fingerprints))
+    evidence_by_source = {
+        str(record["source_id"]): record for record in evidence_records
+    }
     model_asset_fingerprints = {
         str(record["model_asset_fingerprint"]) for record in evidence_records
     }
@@ -398,6 +410,10 @@ def build_cache_union(
             "expected_signature": expected_signature,
             "expected_signature_sha256": _fingerprint(expected_signature),
             "extractor_semantic_fingerprint": fingerprint,
+            "source_extractor_semantic_fingerprints": {
+                source_id: str(evidence_by_source[source_id]["extractor_semantic_fingerprint"])
+                for source_id in sorted(evidence_by_source)
+            },
             "model_asset_fingerprint": model_asset_fingerprint,
             "runtime_provenance_fingerprints_by_condition": (
                 runtime_fingerprints_by_condition
@@ -409,6 +425,9 @@ def build_cache_union(
                     "ledger_path": str(source.ledger_path),
                     "evidence_path": str(source.evidence_path),
                     "evidence_sha256": _sha256_file(source.evidence_path),
+                    "asset_config_sha256": evidence_by_source[source.source_id][
+                        "extraction_signature"
+                    ].get("asset_config_sha256"),
                     "resolved_tasks": source_counts.get(source.source_id, 0),
                 }
                 for source in sources
@@ -728,9 +747,36 @@ def _require_signature_compatible(
     expected_signature: dict[str, Any],
     source_signature: dict[str, Any],
 ) -> None:
-    normalized_expected = _normalized_signature(expected_signature)
-    if normalized_expected != source_signature:
+    normalized_expected = _compatibility_signature(expected_signature)
+    normalized_source = _compatibility_signature(source_signature)
+    if normalized_expected != normalized_source:
         raise CacheUnionError("Source extraction signature differs from the expected plan")
+
+
+def _extractor_compatibility_fingerprint(evidence: dict[str, Any]) -> str:
+    return _fingerprint(
+        {
+            "strategy": evidence.get("prefill_strategy"),
+            "strategy_version": evidence.get("prefill_strategy_version"),
+            "code_files_sha256": evidence.get("code_files_sha256"),
+            "extraction_signature": _compatibility_signature(
+                dict(evidence["extraction_signature"])
+            ),
+            "model_asset_fingerprint": evidence.get("model_asset_fingerprint"),
+        }
+    )
+
+
+def _compatibility_signature(signature: dict[str, Any]) -> dict[str, Any]:
+    filtered = {
+        key: value
+        for key, value in signature.items()
+        if key not in COMPATIBILITY_SIGNATURE_IGNORED_FIELDS
+    }
+    normalized = json.loads(_canonical_json(filtered))
+    if not isinstance(normalized, dict):
+        raise CacheUnionError("Normalized compatibility signature must be an object")
+    return normalized
 
 
 def _normalized_signature(signature: dict[str, Any]) -> dict[str, Any]:

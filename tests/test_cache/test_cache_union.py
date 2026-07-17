@@ -335,6 +335,88 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     assert all(Path(entry["shard_path"]).is_absolute() for entry in payload["entries"])
 
 
+def test_union_uses_selected_model_semantics_not_whole_registry_hash(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    expected_signature = _signature(model, manifest="expected")
+    expected_signature["asset_config_sha256"] = "e" * 64
+    first_signature = _signature(model, manifest="first")
+    first_signature["asset_config_sha256"] = "a" * 64
+    second_signature = _signature(model, manifest="second")
+    second_signature["asset_config_sha256"] = "b" * 64
+    first_request = _request("first", split="train")
+    second_request = _request("second", split="train")
+    first = _source(
+        tmp_path,
+        source_id="first",
+        request=first_request,
+        signature=first_signature,
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    second = _source(
+        tmp_path,
+        source_id="second",
+        request=second_request,
+        signature=second_signature,
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+
+    result = build_cache_union(
+        expected_tasks=[_expected(first_request), _expected(second_request)],
+        expected_signature=expected_signature,
+        sources=[first, second],
+        output_path=tmp_path / "union.json",
+        expected_resolved_tasks=2,
+        expected_raw_tasks=2,
+        checksum_workers=1,
+    )
+
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    source_records = {
+        record["source_id"]: record for record in payload["provenance"]["sources"]
+    }
+    assert source_records["first"]["asset_config_sha256"] == "a" * 64
+    assert source_records["second"]["asset_config_sha256"] == "b" * 64
+    source_fingerprints = payload["provenance"][
+        "source_extractor_semantic_fingerprints"
+    ]
+    assert source_fingerprints["first"] != source_fingerprints["second"]
+    assert (
+        payload["provenance"]["extractor_semantic_fingerprint"]
+        == result.extractor_semantic_fingerprint
+    )
+
+    incompatible_signature = _signature(model, manifest="incompatible")
+    incompatible_signature["asset_config_sha256"] = "c" * 64
+    incompatible_signature["video_fps"] = 2.0
+    incompatible_request = _request("incompatible", split="train")
+    incompatible = _source(
+        tmp_path,
+        source_id="incompatible",
+        request=incompatible_request,
+        signature=incompatible_signature,
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    with pytest.raises(CacheUnionError, match="Source extraction signature differs"):
+        build_cache_union(
+            expected_tasks=[_expected(first_request), _expected(incompatible_request)],
+            expected_signature=expected_signature,
+            sources=[first, incompatible],
+            output_path=tmp_path / "incompatible.json",
+            expected_resolved_tasks=2,
+            expected_raw_tasks=2,
+            checksum_workers=1,
+        )
+
+
 def test_union_fails_on_missing_duplicate_or_failed_expected_task(tmp_path: Path) -> None:
     model, config_sha, weight_sha = _make_model(tmp_path)
     code_repo = _make_code_repo(tmp_path)
