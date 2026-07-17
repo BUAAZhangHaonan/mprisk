@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -34,6 +35,25 @@ def test_pending_production_template_is_not_runnable() -> None:
     )
     with pytest.raises(DeliveryPlanError, match="pending"):
         load_delivery_plan(template)
+
+
+def test_production_template_training_config_hashes_match_files() -> None:
+    root = Path(__file__).parents[2]
+    template = yaml.safe_load(
+        (
+            root
+            / "configs/downstream/delivery_20260716_seed20260717_tme_template_v1.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    for job in template["jobs"]:
+        for method, spec in job["training_configs"].items():
+            config_path = root / spec["path"]
+            assert config_path.is_file(), (job["model_key"], method, config_path)
+            assert hashlib.sha256(config_path.read_bytes()).hexdigest() == spec["sha256"], (
+                job["model_key"],
+                method,
+            )
 
 
 def test_partial_plan_requires_exact_explicit_model_selection() -> None:
