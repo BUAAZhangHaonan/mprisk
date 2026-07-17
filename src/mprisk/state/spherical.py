@@ -14,6 +14,7 @@ import numpy as np
 CONDITIONS = ("M1", "M2", "M12")
 UNIT_TOLERANCE = 1e-5
 BOOTSTRAP_REPLICATES = 2000
+BOOTSTRAP_BATCH_SIZE = 256
 DELTA_METHOD = "synchronous_prompt_bootstrap_1.96se_v1"
 SDR_SCHEMA = "mprisk_spherical_sdr_v2"
 DISTANCE_METRIC = "geodesic_acos_v1"
@@ -145,25 +146,53 @@ def _synchronous_prompt_bootstrap_se(
     ).encode()
     seed = int.from_bytes(hashlib.sha256(signature).digest()[:8], "big")
     random = np.random.default_rng(seed)
+    indexes = random.integers(
+        0,
+        len(prompt_ids),
+        size=(BOOTSTRAP_REPLICATES, len(prompt_ids)),
+    )
+    prompt_vectors = {
+        condition: np.asarray(
+            [embeddings[condition][prompt_id] for prompt_id in prompt_ids],
+            dtype=np.float64,
+        )
+        for condition in CONDITIONS
+    }
     estimates = np.empty(BOOTSTRAP_REPLICATES, dtype=np.float64)
-    for replicate in range(BOOTSTRAP_REPLICATES):
-        indexes = random.integers(0, len(prompt_ids), size=len(prompt_ids))
-        sampled_ids = [prompt_ids[index] for index in indexes]
-        centers = {
-            condition: spherical_center(
-                [embeddings[condition][prompt_id] for prompt_id in sampled_ids]
-            )
-            for condition in CONDITIONS
-        }
-        distance_to_v = spherical_distance(centers["M12"], centers["M1"])
-        distance_to_ta = spherical_distance(centers["M12"], centers["M2"])
-        modality_distance = spherical_distance(centers["M1"], centers["M2"])
-        estimates[replicate] = _signed_r(
-            distance_to_v,
-            distance_to_ta,
-            modality_distance,
+    for start in range(0, BOOTSTRAP_REPLICATES, BOOTSTRAP_BATCH_SIZE):
+        stop = min(start + BOOTSTRAP_BATCH_SIZE, BOOTSTRAP_REPLICATES)
+        estimates[start:stop] = _bootstrap_r_batch(
+            prompt_vectors,
+            indexes[start:stop],
         )
     return float(estimates.std(ddof=1))
+
+
+def _bootstrap_r_batch(
+    prompt_vectors: Mapping[str, np.ndarray],
+    indexes: np.ndarray,
+) -> np.ndarray:
+    centers = {
+        condition: _spherical_centers_from_indexes(prompt_vectors[condition], indexes)
+        for condition in CONDITIONS
+    }
+    distance_to_v = _rowwise_spherical_distance(centers["M12"], centers["M1"])
+    distance_to_ta = _rowwise_spherical_distance(centers["M12"], centers["M2"])
+    modality_distance = _rowwise_spherical_distance(centers["M1"], centers["M2"])
+    return (distance_to_ta - distance_to_v) / (modality_distance + EPSILON)
+
+
+def _spherical_centers_from_indexes(vectors: np.ndarray, indexes: np.ndarray) -> np.ndarray:
+    means = vectors[indexes].mean(axis=1)
+    norms = np.linalg.norm(means, axis=1)
+    if np.any(norms <= 1e-12):
+        raise ValueError("spherical center is undefined for antipodal embeddings")
+    return means / norms[:, np.newaxis]
+
+
+def _rowwise_spherical_distance(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+    dots = np.einsum("ij,ij->i", left, right)
+    return np.arccos(np.clip(dots, -1.0, 1.0))
 
 
 def _unit_vector(value: Sequence[float]) -> np.ndarray:

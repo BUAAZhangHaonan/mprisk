@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+import numpy as np
 import pytest
 
 from mprisk.state.spherical import compute_spherical_state, spherical_distance
@@ -75,11 +76,13 @@ def test_synchronous_bootstrap_recomputes_exact_r_from_shared_prompt_draws(
 
     class FixedRng:
         def __init__(self) -> None:
-            self._draws = iter(([0, 0], [1, 1], [0, 1]))
+            self._draws = np.asarray(([0, 0], [1, 1], [0, 1]), dtype=np.int64)
 
-        def integers(self, low: int, high: int, size: int) -> list[int]:
-            assert (low, high, size) == (0, 2, 2)
-            return list(next(self._draws))
+        def integers(
+            self, low: int, high: int, size: tuple[int, int]
+        ) -> np.ndarray:
+            assert (low, high, size) == (0, 2, (3, 2))
+            return self._draws.copy()
 
     monkeypatch.setattr(spherical, "BOOTSTRAP_REPLICATES", 3)
     monkeypatch.setattr(spherical.np.random, "default_rng", lambda seed: FixedRng())
