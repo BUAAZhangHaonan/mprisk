@@ -1,0 +1,128 @@
+schema: mprisk_delivery_representation_queue_template_v1
+status: PENDING_CACHE_UNION
+delivery: delivery_20260716
+seed: 20260717
+output_root: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1
+lock_path: outputs/downstream/runtime_locks/delivery_20260716_seed20260717_tme_ablation_v1.lock
+split_assignment:
+  path: outputs/datasets/delivery_20260716/splits/representation_split_assignment_v1.jsonl
+  sha256: e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41
+resource_gate:
+  device: cuda:0
+  max_gpu_memory_fraction: 0.85
+jobs:
+  - model_key: qwen3_vl_8b
+    protocol: vt
+    seed: 20260717
+    run_id: delivery_20260716_seed20260717_qwen3_vl_8b_tme_ablation_v1
+    output_dir: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b
+    source_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/vt_primary.jsonl
+      sha256: f40cd027e5c58fce819b36bca8f84f8cc8d75834761700741e6a3932cb8c40cc
+    state_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/vt_primary.jsonl
+      sha256: f40cd027e5c58fce819b36bca8f84f8cc8d75834761700741e6a3932cb8c40cc
+    invalid_assets: null
+    prompt_set:
+      path: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
+      sha256: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
+      key: vt_main_p8_seed20260717
+      protocol: vt
+      count: 8
+      prompt_ids: &prompt_ids
+        - pregen_risk_v1_p001
+        - pregen_risk_v1_p008
+        - pregen_risk_v1_p012
+        - pregen_risk_v1_p018
+        - pregen_risk_v1_p022
+        - pregen_risk_v1_p054
+        - pregen_risk_v1_p056
+        - pregen_risk_v1_p067
+    expected_counts:
+      source_samples: 1876
+      state_samples: 1876
+      sample_types: {Aligned: 1144, Conflict: 732}
+      prompt_count: 8
+      resolved_tasks: 45024
+      blocked_tasks: 0
+      raw_tasks: 45024
+    training_configs:
+      tme_pa_only_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen3_vl_8b_tme_pa_only_v1.yaml
+        sha256: 9a6cef91db4bd91955c3e8bc93d644725ca286cd5a6e344301ea04ca14d5ab8a
+      tme_pa_dtheta_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen3_vl_8b_tme_pa_dtheta_v1.yaml
+        sha256: c956c7fc3a6701c771061b362d5dbf22cf173d6be570e3e3493400fada1a6159
+    cache_union: PENDING_CACHE_UNION
+  - model_key: internvl3_5_8b
+    protocol: vt
+    seed: 20260717
+    run_id: delivery_20260716_seed20260717_internvl3_5_8b_tme_ablation_v1
+    output_dir: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/internvl3_5_8b
+    source_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/vt_primary.jsonl
+      sha256: f40cd027e5c58fce819b36bca8f84f8cc8d75834761700741e6a3932cb8c40cc
+    state_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/vt_primary.jsonl
+      sha256: f40cd027e5c58fce819b36bca8f84f8cc8d75834761700741e6a3932cb8c40cc
+    invalid_assets: null
+    prompt_set:
+      path: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
+      sha256: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
+      key: vt_main_p8_seed20260717
+      protocol: vt
+      count: 8
+      prompt_ids: *prompt_ids
+    expected_counts:
+      source_samples: 1876
+      state_samples: 1876
+      sample_types: {Aligned: 1144, Conflict: 732}
+      prompt_count: 8
+      resolved_tasks: 45024
+      blocked_tasks: 0
+      raw_tasks: 45024
+    training_configs:
+      tme_pa_only_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/internvl3_5_8b_tme_pa_only_v1.yaml
+        sha256: 619cdf0e4c2ac38af62f54fb746908be8c9f2af6f9477eb7d70a77e660701679
+      tme_pa_dtheta_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/internvl3_5_8b_tme_pa_dtheta_v1.yaml
+        sha256: 7d53f319509670576128b6bc8a252fc372b8922c01a977fc52a35c8b06e57a9b
+    cache_union: PENDING_CACHE_UNION
+  - model_key: qwen2_5_omni_7b
+    protocol: va
+    seed: 20260717
+    run_id: delivery_20260716_seed20260717_qwen2_5_omni_7b_tme_ablation_v1
+    output_dir: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen2_5_omni_7b
+    source_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/va_aux.jsonl
+      sha256: 1957e68025fd7018bfa8400dd15fbd0f5dea0bc1cc602c7ce248a9daed35a91a
+    state_manifest:
+      path: outputs/datasets/delivery_20260716/manifests/va_state_valid.jsonl
+      sha256: 67a975c956240e770e4e738b5958849d8c2907f59c59b854aa3b02611868bef3
+    invalid_assets:
+      path: outputs/datasets/delivery_20260716/manifests/invalid_assets.jsonl
+      sha256: 98bb527f553bec4f490320f61b40495d011b8ec095051f69fc5af37ed2c5e8de
+    prompt_set:
+      path: configs/prompts/equiv_sets/va_main_p8_seed20260717.yaml
+      sha256: 23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c
+      key: va_main_p8_seed20260717
+      protocol: va
+      count: 8
+      prompt_ids: *prompt_ids
+    expected_counts:
+      source_samples: 1939
+      state_samples: 1934
+      sample_types: {Aligned: 1093, Conflict: 841}
+      prompt_count: 8
+      resolved_tasks: 46416
+      blocked_tasks: 120
+      raw_tasks: 46536
+    training_configs:
+      tme_pa_only_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen2_5_omni_7b_tme_pa_only_v1.yaml
+        sha256: 60e0f7c58078748ab0ff6867021355ef8be9d1bcd3be70da7d096482b2e02c97
+      tme_pa_dtheta_v1:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen2_5_omni_7b_tme_pa_dtheta_v1.yaml
+        sha256: 69e20f544a994738016ed57fefb5a5fc8d5915d7175f1c9102675f38ee1bb7fc
+    cache_union: PENDING_CACHE_UNION

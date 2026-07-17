@@ -58,6 +58,7 @@ class TrainingConfig:
     weight_decay: float = 1e-4
     proxy_alpha: float = 32.0
     proxy_margin: float = 0.1
+    enable_state_supervision: bool = True
     d_supervision_weight: float = 0.0
     d_ranking_margin: float = 0.0
     angular_supervision_weight: float = 0.0
@@ -196,10 +197,11 @@ def train_trajectory_encoder(
             alpha=config.proxy_alpha,
             margin=config.proxy_margin,
         ).to(torch_device)
-        d_objective = ModalitySplitRankingLoss(
-            d_margin=config.d_ranking_margin,
-            angular_margin_rad=config.angular_ranking_margin_rad,
-        ).to(torch_device)
+        if config.enable_state_supervision:
+            d_objective = ModalitySplitRankingLoss(
+                d_margin=config.d_ranking_margin,
+                angular_margin_rad=config.angular_ranking_margin_rad,
+            ).to(torch_device)
         parameters.extend(objective.parameters())
     optimizer = torch.optim.AdamW(
         parameters,
@@ -339,7 +341,7 @@ def train_trajectory_encoder(
                 "angular_margin_rad": config.angular_ranking_margin_rad,
                 "angular_margin_deg": math.degrees(config.angular_ranking_margin_rad),
             }
-            if config.repr_key == TME_PROXY_ANCHOR_V1
+            if config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
             else None
         ),
         "classification_objective": config.classification_objective,
@@ -1588,14 +1590,24 @@ def _validate_config(config: TrainingConfig) -> None:
     if config.lr <= 0.0 or config.weight_decay < 0.0 or config.min_delta < 0.0:
         raise ValueError("optimizer and stopping values are out of range")
     if config.repr_key == TME_PROXY_ANCHOR_V1:
-        if config.d_supervision_weight <= 0.0 or config.angular_supervision_weight <= 0.0:
-            raise ValueError("TME requires positive D and angular supervision weights")
-        if config.d_ranking_margin < 0.0:
-            raise ValueError("TME d_ranking_margin must be non-negative")
-        if not 0.0 <= config.angular_ranking_margin_rad <= math.pi:
-            raise ValueError("TME angular_ranking_margin_rad must be in [0, pi]")
-        if config.d_aux_samples_per_class <= 0:
-            raise ValueError("TME d_aux_samples_per_class must be positive")
+        state_fields = (
+            config.d_supervision_weight,
+            config.d_ranking_margin,
+            config.angular_supervision_weight,
+            config.angular_ranking_margin_rad,
+            config.d_aux_samples_per_class,
+        )
+        if config.enable_state_supervision:
+            if config.d_supervision_weight <= 0.0 or config.angular_supervision_weight <= 0.0:
+                raise ValueError("state-supervised TME requires positive D and angular weights")
+            if config.d_ranking_margin < 0.0:
+                raise ValueError("TME d_ranking_margin must be non-negative")
+            if not 0.0 <= config.angular_ranking_margin_rad <= math.pi:
+                raise ValueError("TME angular_ranking_margin_rad must be in [0, pi]")
+            if config.d_aux_samples_per_class <= 0:
+                raise ValueError("state-supervised TME requires positive aux samples per class")
+        elif any(value != 0 for value in state_fields):
+            raise ValueError("PA-only TME requires all D/angular supervision fields to be zero")
     elif any(
         value != 0
         for value in (

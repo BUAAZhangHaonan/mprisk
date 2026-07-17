@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 import torch
@@ -289,3 +290,30 @@ def test_tme_training_config_rejects_architecture_version_drift(tmp_path) -> Non
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     with pytest.raises(ValueError, match="architecture_version"):
         load_training_config(path)
+
+
+def test_delivery_tme_configs_separate_pa_only_from_state_supervision(tmp_path) -> None:
+    root = Path(__file__).parents[2]
+    config_root = root / "configs/experiments/delivery_20260716/seed20260717"
+    configs = {path.name: load_training_config(path) for path in config_root.glob("*.yaml")}
+
+    assert len(configs) == 6
+    for name, config in configs.items():
+        if "pa_only" in name:
+            assert config.enable_state_supervision is False
+            assert config.d_supervision_weight == 0.0
+            assert config.angular_supervision_weight == 0.0
+            assert config.d_aux_samples_per_class == 0
+        else:
+            assert config.enable_state_supervision is True
+            assert config.d_supervision_weight > 0.0
+            assert config.angular_supervision_weight > 0.0
+            assert config.d_aux_samples_per_class > 0
+
+    source = config_root / "qwen3_vl_8b_tme_pa_only_v1.yaml"
+    payload = yaml.safe_load(source.read_text(encoding="utf-8"))
+    payload["d_supervision_weight"] = 0.1
+    invalid = tmp_path / "invalid.yaml"
+    invalid.write_text(yaml.safe_dump(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="PA-only TME requires"):
+        load_training_config(invalid)

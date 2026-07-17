@@ -1,0 +1,38 @@
+schema: mprisk_representation_training_v4
+key: delivery_20260716_internvl3_5_8b_tme_pa_only_v1_seed20260717
+architecture_version: layer_l2_gru_linear_relation_v1
+repr_key: tme_proxy_anchor_v1
+model_key: internvl3_5_8b
+protocol: vt
+classification_objective: proxy_anchor_only
+prompt_set_key: vt_main_p8_seed20260717
+prompt_set_artifact_sha256: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
+expected_prompt_count: 8
+expected_prompt_ids:
+  - pregen_risk_v1_p001
+  - pregen_risk_v1_p008
+  - pregen_risk_v1_p012
+  - pregen_risk_v1_p018
+  - pregen_risk_v1_p022
+  - pregen_risk_v1_p054
+  - pregen_risk_v1_p056
+  - pregen_risk_v1_p067
+hidden_dim: 128
+condition_dim: 64
+relation_dim: 32
+dropout: 0.1
+max_epochs: 200
+batch_size: 32
+lr: 0.001
+weight_decay: 0.0001
+proxy_alpha: 32.0
+proxy_margin: 0.1
+enable_state_supervision: false
+d_supervision_weight: 0.0
+d_ranking_margin: 0.0
+angular_supervision_weight: 0.0
+angular_ranking_margin_rad: 0.0
+d_aux_samples_per_class: 0
+patience: 20
+min_delta: 0.0001
+seed: 20260717

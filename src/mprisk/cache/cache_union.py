@@ -381,6 +381,8 @@ def build_cache_union(
         "blocked_tasks": blocked_payload,
         "provenance": {
             "created_at": datetime.now(UTC).isoformat(),
+            "prefill_strategy": FULL_PREFILL_STRATEGY,
+            "prefill_strategy_version": FULL_PREFILL_STRATEGY_VERSION,
             "selection": "exact delivery task identities; no shard copying",
             "source_roots_immutable": True,
             "new_split_attached_only_in_union": True,
