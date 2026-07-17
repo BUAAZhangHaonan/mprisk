@@ -212,6 +212,23 @@ def _expected(request: PrefillRequest) -> ExpectedCacheTask:
     )
 
 
+def _set_evidence_strategy(source: CacheSource, *, strategy: str, version: str) -> None:
+    payload = json.loads(source.evidence_path.read_text(encoding="utf-8"))
+    payload["prefill_strategy"] = strategy
+    payload["prefill_strategy_version"] = version
+    fingerprint_input = {
+        "strategy": strategy,
+        "strategy_version": version,
+        "code_files_sha256": payload["code_files_sha256"],
+        "extraction_signature": payload["extraction_signature"],
+        "model_asset_fingerprint": payload["model_asset_fingerprint"],
+    }
+    payload["extractor_semantic_fingerprint"] = hashlib.sha256(
+        _canonical(fingerprint_input).encode()
+    ).hexdigest()
+    source.evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
 def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: Path) -> None:
     model, config_sha, weight_sha = _make_model(tmp_path)
     code_repo = _make_code_repo(tmp_path)
@@ -256,7 +273,10 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     )
 
     payload = json.loads(result.output_path.read_text(encoding="utf-8"))
-    assert payload["schema"] == "mprisk_prefill_cache_union_v1"
+    assert payload["schema"] == "mprisk_prefill_cache_union_v2"
+    assert payload["version"] == "v2"
+    assert payload["prefill_strategy"] == "full_prefill"
+    assert payload["prefill_strategy_version"] == "v1"
     assert {entry["split"] for entry in payload["entries"]} == {
         "relation_train",
         "official_test",
@@ -371,6 +391,60 @@ def test_union_rejects_different_extractor_semantic_fingerprints(tmp_path: Path)
             expected_raw_tasks=2,
             checksum_workers=1,
         )
+
+
+def test_union_rejects_missing_or_disagreeing_prefill_strategy_identity(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    signature = _signature(model, manifest="expected")
+    first_request = _request("first", split="train")
+    second_request = _request("second", split="train")
+    first = _source(
+        tmp_path,
+        source_id="first",
+        request=first_request,
+        signature=_signature(model, manifest="first"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    second = _source(
+        tmp_path,
+        source_id="second",
+        request=second_request,
+        signature=_signature(model, manifest="second"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    kwargs = {
+        "expected_tasks": [_expected(first_request), _expected(second_request)],
+        "expected_signature": signature,
+        "sources": [first, second],
+        "output_path": tmp_path / "union.json",
+        "expected_resolved_tasks": 2,
+        "expected_raw_tasks": 2,
+        "checksum_workers": 1,
+    }
+
+    missing = json.loads(first.evidence_path.read_text(encoding="utf-8"))
+    del missing["prefill_strategy"]
+    first.evidence_path.write_text(json.dumps(missing), encoding="utf-8")
+    with pytest.raises(CacheUnionError, match="Prefill strategy is missing"):
+        build_cache_union(**kwargs)
+
+    write_extractor_evidence(
+        source_id=first.source_id,
+        ledger_path=first.ledger_path,
+        cache_root=first.cache_root,
+        code_root=code_repo,
+        output_path=first.evidence_path,
+    )
+    _set_evidence_strategy(second, strategy="prompt_kv", version="v2")
+    with pytest.raises(CacheUnionError, match="different prefill strategy identities"):
+        build_cache_union(**kwargs)
 
 
 def test_union_rejects_semantic_request_or_checksum_mismatch(tmp_path: Path) -> None:

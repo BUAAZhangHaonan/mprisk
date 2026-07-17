@@ -23,7 +23,8 @@ from mprisk.models.base_wrapper import PrefillRequest
 
 EVIDENCE_SCHEMA = "mprisk_prefill_extractor_evidence_v1"
 SOURCE_SCHEMA = "mprisk_prefill_cache_source_v1"
-UNION_SCHEMA = "mprisk_prefill_cache_union_v1"
+UNION_SCHEMA = "mprisk_prefill_cache_union_v2"
+UNION_VERSION = "v2"
 SIDECAR_SCHEMA = "mprisk_prefill_cache_sidecar_v1"
 FULL_PREFILL_STRATEGY = "full_prefill"
 FULL_PREFILL_STRATEGY_VERSION = "v1"
@@ -325,6 +326,13 @@ def build_cache_union(
         evidence_records.append(evidence)
         for row in _read_source_tasks(source, evidence):
             source_rows[row.task_id].append(row)
+    strategy_identities = {
+        _source_prefill_identity(record, context="cache source evidence")
+        for record in evidence_records
+    }
+    if len(strategy_identities) != 1:
+        raise CacheUnionError("Cache sources have different prefill strategy identities")
+    prefill_strategy, prefill_strategy_version = next(iter(strategy_identities))
     fingerprints = {
         str(record["extractor_semantic_fingerprint"]) for record in evidence_records
     }
@@ -377,12 +385,15 @@ def build_cache_union(
         raise CacheUnionError("Cache entries have incompatible stable runtime provenance")
     payload = {
         "schema": UNION_SCHEMA,
+        "version": UNION_VERSION,
+        "prefill_strategy": prefill_strategy,
+        "prefill_strategy_version": prefill_strategy_version,
         "entries": entries,
         "blocked_tasks": blocked_payload,
         "provenance": {
             "created_at": datetime.now(UTC).isoformat(),
-            "prefill_strategy": FULL_PREFILL_STRATEGY,
-            "prefill_strategy_version": FULL_PREFILL_STRATEGY_VERSION,
+            "prefill_strategy": prefill_strategy,
+            "prefill_strategy_version": prefill_strategy_version,
             "selection": "exact delivery task identities; no shard copying",
             "source_roots_immutable": True,
             "new_split_attached_only_in_union": True,
@@ -428,6 +439,7 @@ def _validate_source_evidence(source: CacheSource) -> dict[str, Any]:
     evidence = _read_json(source.evidence_path)
     if evidence.get("schema") != EVIDENCE_SCHEMA:
         raise CacheUnionError(f"Unsupported extractor evidence: {source.evidence_path}")
+    _source_prefill_identity(evidence, context=str(source.evidence_path))
     for field, expected in (
         ("source_id", source.source_id),
         ("cache_root", str(source.cache_root)),
@@ -448,10 +460,6 @@ def _validate_source_evidence(source: CacheSource) -> dict[str, Any]:
     }
     if evidence.get("extractor_semantic_fingerprint") != _fingerprint(fingerprint_input):
         raise CacheUnionError(f"Extractor evidence fingerprint mismatch: {source.evidence_path}")
-    if evidence.get("prefill_strategy") != FULL_PREFILL_STRATEGY:
-        raise CacheUnionError("Only full-prefill cache sources may enter this union")
-    if evidence.get("prefill_strategy_version") != FULL_PREFILL_STRATEGY_VERSION:
-        raise CacheUnionError("Unsupported full-prefill strategy version")
     if evidence.get("extraction_signature") != _normalized_signature(signature):
         raise CacheUnionError(f"Extractor evidence config mismatch: {source.evidence_path}")
     model_asset_inventory = evidence.get("model_asset_inventory")
@@ -467,6 +475,20 @@ def _validate_source_evidence(source: CacheSource) -> dict[str, Any]:
         raise CacheUnionError(f"Model assets changed after evidence: {source.evidence_path}")
     _validate_evidence_code(evidence, source.evidence_path)
     return evidence
+
+
+def _source_prefill_identity(
+    evidence: dict[str, Any],
+    *,
+    context: str,
+) -> tuple[str, str]:
+    strategy = evidence.get("prefill_strategy")
+    version = evidence.get("prefill_strategy_version")
+    if not isinstance(strategy, str) or not strategy.strip():
+        raise CacheUnionError(f"Prefill strategy is missing from {context}")
+    if not isinstance(version, str) or not version.strip():
+        raise CacheUnionError(f"Prefill strategy version is missing from {context}")
+    return strategy, version
 
 
 def _read_source_tasks(
