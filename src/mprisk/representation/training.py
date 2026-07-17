@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import torch
 import yaml
+from scipy.stats import mannwhitneyu
 from torch import nn
 from torch.nn import functional as F
 
@@ -64,6 +65,10 @@ class TrainingConfig:
     angular_supervision_weight: float = 0.0
     angular_ranking_margin_rad: float = 0.0
     d_aux_samples_per_class: int = 0
+    state_selection_min_d_gap: float = 1e-6
+    state_selection_min_raw_theta_gap_rad: float = 0.08726646259971647
+    state_selection_max_d_mannwhitney_p: float = 0.05
+    state_selection_min_d_effect_size: float = 0.20
     patience: int = 10
     min_delta: float = 1e-4
     seed: int = 0
@@ -72,6 +77,7 @@ class TrainingConfig:
 @dataclass(frozen=True)
 class TrainingResult:
     best_checkpoint_path: Path
+    unconstrained_best_checkpoint_path: Path | None
     last_checkpoint_path: Path
     config_path: Path
     metrics_path: Path
@@ -218,6 +224,7 @@ def train_trajectory_encoder(
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     best_path = output_root / "best_checkpoint.pt"
+    unconstrained_best_path = output_root / "unconstrained_best_checkpoint.pt"
     last_path = output_root / "last_checkpoint.pt"
     config_path = output_root / "train_config.yaml"
     metrics_path = output_root / "train_metrics.json"
@@ -227,6 +234,12 @@ def train_trajectory_encoder(
     best_epoch = 0
     stale_epochs = 0
     best_validation_state_separation: dict[str, float] | None = None
+    unconstrained_best_score = -1.0
+    unconstrained_best_epoch = 0
+    unconstrained_best_validation_state_separation: dict[str, float] | None = None
+    state_constrained_selection = (
+        config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
+    )
     if resume_payload is not None:
         checkpoint = resume_payload
         model.load_state_dict(checkpoint["model_state_dict"])
@@ -241,8 +254,20 @@ def train_trajectory_encoder(
         best_validation_state_separation = checkpoint.get(
             "best_validation_state_separation"
         )
+        unconstrained_best_score = float(
+            checkpoint.get("unconstrained_best_score", best_score)
+        )
+        unconstrained_best_epoch = int(
+            checkpoint.get("unconstrained_best_epoch", best_epoch)
+        )
+        unconstrained_best_validation_state_separation = checkpoint.get(
+            "unconstrained_best_validation_state_separation",
+            best_validation_state_separation,
+        )
     else:
         log_path.write_text("", encoding="utf-8")
+        best_path.unlink(missing_ok=True)
+        unconstrained_best_path.unlink(missing_ok=True)
 
     config_path.write_text(yaml.safe_dump(asdict(config), sort_keys=True), encoding="utf-8")
     stop_reason = "max_epochs"
@@ -267,25 +292,48 @@ def train_trajectory_encoder(
             config=config,
             class_weights=class_weights,
         )
+        checkpoint_feasibility = _state_checkpoint_feasibility(
+            val_score=val_score,
+            val_state_separation=val_state_separation,
+            config=config,
+        )
+        unconstrained_improved = (
+            math.isfinite(val_score)
+            and val_score > unconstrained_best_score + config.min_delta
+        )
+        if unconstrained_improved:
+            unconstrained_best_score = val_score
+            unconstrained_best_epoch = epoch
+            unconstrained_best_validation_state_separation = val_state_separation
         improved = val_score > best_score + config.min_delta
+        if state_constrained_selection:
+            improved = bool(checkpoint_feasibility["feasible"]) and improved
         if improved:
             best_score = val_score
             best_epoch = epoch
             best_validation_state_separation = val_state_separation
             stale_epochs = 0
-        else:
+        elif not state_constrained_selection or best_epoch > 0:
             stale_epochs += 1
+        else:
+            stale_epochs = 0
+        converged = stale_epochs >= config.patience and (
+            not state_constrained_selection or best_epoch > 0
+        )
         log_row = {
             "epoch": epoch,
             **train_metrics,
             "val_loss": val_loss,
             "val_balanced_accuracy_ac": val_score,
             "val_state_separation": val_state_separation,
+            "checkpoint_feasibility": checkpoint_feasibility,
             "val_sample_count": len({sample.sample_id for sample in val_samples}),
             "best_epoch": best_epoch,
             "best_val_balanced_accuracy_ac": best_score,
+            "unconstrained_best_epoch": unconstrained_best_epoch,
+            "unconstrained_best_val_balanced_accuracy_ac": unconstrained_best_score,
             "stale_epochs": stale_epochs,
-            "converged": stale_epochs >= config.patience,
+            "converged": converged,
         }
         with log_path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(log_row, sort_keys=True) + "\n")
@@ -302,26 +350,73 @@ def train_trajectory_encoder(
             best_epoch=best_epoch,
             stale_epochs=stale_epochs,
             best_validation_state_separation=best_validation_state_separation,
+            unconstrained_best_score=unconstrained_best_score,
+            unconstrained_best_epoch=unconstrained_best_epoch,
+            unconstrained_best_validation_state_separation=(
+                unconstrained_best_validation_state_separation
+            ),
+            checkpoint_feasibility=checkpoint_feasibility,
             class_weights=class_weights,
             train_label_counts=train_label_counts,
         )
         _atomic_torch_save(last_path, checkpoint)
         if improved:
-            _atomic_torch_save(best_path, checkpoint)
-        if stale_epochs >= config.patience:
+            _atomic_torch_save(
+                best_path,
+                {**checkpoint, "checkpoint_role": "final_selected"},
+            )
+        if state_constrained_selection and unconstrained_improved:
+            _atomic_torch_save(
+                unconstrained_best_path,
+                {**checkpoint, "checkpoint_role": "unconstrained_diagnostic"},
+            )
+        if converged:
             stop_reason = "early_stopping"
             break
-    if not best_path.is_file() and last_path.is_file():
-        _atomic_torch_save(best_path, torch.load(last_path, map_location="cpu"))
+    if state_constrained_selection and best_epoch == 0:
+        best_path.unlink(missing_ok=True)
+        raise RuntimeError(
+            "state-supervised TME reached max_epochs without a feasible checkpoint: "
+            f"requires val_D_gap >= {config.state_selection_min_d_gap} and "
+            "val_raw_theta_gap_rad >= "
+            f"{config.state_selection_min_raw_theta_gap_rad}, val_D_mannwhitney_p <= "
+            f"{config.state_selection_max_d_mannwhitney_p}, and val_D_effect_size >= "
+            f"{config.state_selection_min_d_effect_size} with finite selection metrics"
+        )
+    if state_constrained_selection:
+        final_payload = torch.load(best_path, map_location="cpu")
+        final_payload.update(
+            {
+                "unconstrained_best_score": unconstrained_best_score,
+                "unconstrained_best_epoch": unconstrained_best_epoch,
+                "unconstrained_best_validation_state_separation": (
+                    unconstrained_best_validation_state_separation
+                ),
+                "unconstrained_best_checkpoint": str(unconstrained_best_path),
+            }
+        )
+        _atomic_torch_save(best_path, final_payload)
+    if not state_constrained_selection and not best_path.is_file() and last_path.is_file():
+        final_payload = torch.load(last_path, map_location="cpu")
+        final_payload["checkpoint_role"] = "final_selected"
+        _atomic_torch_save(best_path, final_payload)
     metrics = {
         "schema": "mprisk_representation_training_metrics_v3",
         "repr_key": config.repr_key,
         "model_key": config.model_key,
-        "selection_metric": "val_balanced_accuracy_ac",
+        "selection_metric": _selection_metric_name(config),
         "selection_unit": "sample_id",
         "best_epoch": best_epoch,
         "best_val_balanced_accuracy_ac": best_score,
         "best_validation_state_separation": best_validation_state_separation,
+        "unconstrained_best_epoch": unconstrained_best_epoch,
+        "unconstrained_best_val_balanced_accuracy_ac": unconstrained_best_score,
+        "unconstrained_best_validation_state_separation": (
+            unconstrained_best_validation_state_separation
+        ),
+        "unconstrained_best_checkpoint": (
+            str(unconstrained_best_path) if state_constrained_selection else None
+        ),
         "final_epoch": final_epoch,
         "stop_reason": stop_reason,
         "train_rows": len(train_samples),
@@ -340,6 +435,18 @@ def train_trajectory_encoder(
                 "angular_weight": config.angular_supervision_weight,
                 "angular_margin_rad": config.angular_ranking_margin_rad,
                 "angular_margin_deg": math.degrees(config.angular_ranking_margin_rad),
+                "checkpoint_selection": {
+                    "min_D_gap": config.state_selection_min_d_gap,
+                    "min_raw_theta_gap_rad": config.state_selection_min_raw_theta_gap_rad,
+                    "min_raw_theta_gap_deg": math.degrees(
+                        config.state_selection_min_raw_theta_gap_rad
+                    ),
+                    "max_D_mannwhitney_p": (
+                        config.state_selection_max_d_mannwhitney_p
+                    ),
+                    "min_D_effect_size": config.state_selection_min_d_effect_size,
+                    "rule": "highest_finite_val_balanced_accuracy_among_feasible_epochs",
+                },
             }
             if config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
             else None
@@ -368,6 +475,9 @@ def train_trajectory_encoder(
     write_json(metrics_path, metrics)
     return TrainingResult(
         best_checkpoint_path=best_path,
+        unconstrained_best_checkpoint_path=(
+            unconstrained_best_path if state_constrained_selection else None
+        ),
         last_checkpoint_path=last_path,
         config_path=config_path,
         metrics_path=metrics_path,
@@ -386,6 +496,20 @@ def export_frozen_representations(
     checkpoint_file = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
     _validate_checkpoint_architecture(checkpoint)
+    if checkpoint.get("checkpoint_role") == "unconstrained_diagnostic":
+        raise ValueError("unconstrained diagnostic checkpoint cannot be exported")
+    training_config = checkpoint.get("training_config")
+    if (
+        isinstance(training_config, dict)
+        and training_config.get("enable_state_supervision") is True
+        and (
+            checkpoint.get("checkpoint_role") != "final_selected"
+            or not checkpoint.get("checkpoint_feasibility", {}).get("feasible", False)
+        )
+    ):
+        raise ValueError(
+            "state-supervised TME export requires the final feasible checkpoint"
+        )
     if checkpoint.get("repr_key") != TME_PROXY_ANCHOR_V1:
         raise ValueError(
             "condition z and relation r export requires a tme_proxy_anchor_v1 checkpoint"
@@ -1249,6 +1373,7 @@ def _state_separation_summary(
     d_margin: float,
     angular_margin_rad: float,
     prefix: str,
+    include_significance: bool = False,
 ) -> dict[str, float]:
     if d_values.ndim != 1 or split_angles_rad.shape != d_values.shape:
         raise ValueError("state separation diagnostics require aligned one-dimensional values")
@@ -1263,7 +1388,8 @@ def _state_separation_summary(
     d_gaps = d_conflict[:, None] - d_aligned[None, :]
     angle_gaps = angle_conflict[:, None] - angle_aligned[None, :]
     degrees = 180.0 / math.pi
-    return {
+    raw_theta_gap_rad = angle_conflict.mean() - angle_aligned.mean()
+    summary = {
         f"{prefix}_aligned_D_mean": float(d_aligned.mean()),
         f"{prefix}_conflict_D_mean": float(d_conflict.mean()),
         f"{prefix}_D_gap": float(d_conflict.mean() - d_aligned.mean()),
@@ -1272,14 +1398,94 @@ def _state_separation_summary(
         f"{prefix}_aligned_split_angle_deg_mean": float(angle_aligned.mean() * degrees),
         f"{prefix}_conflict_split_angle_deg_mean": float(angle_conflict.mean() * degrees),
         f"{prefix}_split_angle_gap_deg": float(
-            (angle_conflict.mean() - angle_aligned.mean()) * degrees
+            raw_theta_gap_rad * degrees
         ),
+        f"{prefix}_raw_theta_gap_rad": float(raw_theta_gap_rad),
+        f"{prefix}_raw_theta_gap_deg": float(raw_theta_gap_rad * degrees),
         f"{prefix}_split_angle_effect_size": _pooled_effect_size(
             angle_aligned, angle_conflict
         ),
         f"{prefix}_angular_pair_margin_satisfaction": float(
             (angle_gaps >= angular_margin_rad).float().mean()
         ),
+    }
+    if include_significance:
+        d_test = mannwhitneyu(
+            d_conflict.detach().cpu().numpy(),
+            d_aligned.detach().cpu().numpy(),
+            alternative="two-sided",
+            method="auto",
+        )
+        summary[f"{prefix}_D_mannwhitney_p"] = float(d_test.pvalue)
+    return summary
+
+
+def _state_checkpoint_feasibility(
+    *,
+    val_score: float,
+    val_state_separation: dict[str, float] | None,
+    config: TrainingConfig,
+) -> dict[str, Any]:
+    enabled = config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
+    if not enabled:
+        return {"enabled": False, "feasible": True}
+    d_gap = (
+        float(val_state_separation["val_D_gap"])
+        if val_state_separation is not None and "val_D_gap" in val_state_separation
+        else float("nan")
+    )
+    raw_theta_gap_rad = (
+        float(val_state_separation["val_raw_theta_gap_rad"])
+        if val_state_separation is not None
+        and "val_raw_theta_gap_rad" in val_state_separation
+        else float("nan")
+    )
+    d_mannwhitney_p = (
+        float(val_state_separation["val_D_mannwhitney_p"])
+        if val_state_separation is not None
+        and "val_D_mannwhitney_p" in val_state_separation
+        else float("nan")
+    )
+    d_effect_size = (
+        float(val_state_separation["val_D_effect_size"])
+        if val_state_separation is not None
+        and "val_D_effect_size" in val_state_separation
+        else float("nan")
+    )
+    required_metrics_finite = all(
+        math.isfinite(value)
+        for value in (
+            val_score,
+            d_gap,
+            raw_theta_gap_rad,
+            d_mannwhitney_p,
+            d_effect_size,
+        )
+    )
+    feasible = (
+        required_metrics_finite
+        and d_gap >= config.state_selection_min_d_gap
+        and raw_theta_gap_rad >= config.state_selection_min_raw_theta_gap_rad
+        and d_mannwhitney_p <= config.state_selection_max_d_mannwhitney_p
+        and d_effect_size >= config.state_selection_min_d_effect_size
+    )
+    return {
+        "enabled": True,
+        "feasible": feasible,
+        "required_metrics_finite": required_metrics_finite,
+        "observed_val_balanced_accuracy_ac": val_score,
+        "observed_val_D_gap": d_gap,
+        "observed_val_raw_theta_gap_rad": raw_theta_gap_rad,
+        "observed_val_raw_theta_gap_deg": math.degrees(raw_theta_gap_rad),
+        "observed_val_D_mannwhitney_p": d_mannwhitney_p,
+        "observed_val_D_effect_size": d_effect_size,
+        "minimum_val_D_gap": config.state_selection_min_d_gap,
+        "minimum_val_raw_theta_gap_rad": config.state_selection_min_raw_theta_gap_rad,
+        "minimum_val_raw_theta_gap_deg": math.degrees(
+            config.state_selection_min_raw_theta_gap_rad
+        ),
+        "maximum_val_D_mannwhitney_p": config.state_selection_max_d_mannwhitney_p,
+        "minimum_val_D_effect_size": config.state_selection_min_d_effect_size,
     }
 
 
@@ -1349,6 +1555,7 @@ def _evaluate(
             d_margin=config.d_ranking_margin,
             angular_margin_rad=config.angular_ranking_margin_rad,
             prefix="val",
+            include_significance=True,
         )
     return (
         float(np.mean(losses)),
@@ -1489,18 +1696,23 @@ def _checkpoint_payload(
     best_epoch: int,
     stale_epochs: int,
     best_validation_state_separation: dict[str, float] | None,
+    unconstrained_best_score: float,
+    unconstrained_best_epoch: int,
+    unconstrained_best_validation_state_separation: dict[str, float] | None,
+    checkpoint_feasibility: dict[str, Any],
     class_weights: torch.Tensor | None,
     train_label_counts: dict[str, int],
 ) -> dict[str, Any]:
     return {
-        "schema": "mprisk_representation_checkpoint_v3",
+        "schema": "mprisk_representation_checkpoint_v4",
         "repr_key": config.repr_key,
         "architecture_version": (
             TME_ARCHITECTURE_V1 if config.repr_key == TME_PROXY_ANCHOR_V1 else config.repr_key
         ),
         "model_key": config.model_key,
-        "selection_metric": "val_balanced_accuracy_ac",
+        "selection_metric": _selection_metric_name(config),
         "selection_unit": "sample_id",
+        "checkpoint_role": "training_state",
         "model_config": {"input_dim": input_dim, "layer_count": layer_count},
         "training_config": asdict(config),
         "training_signature": signature,
@@ -1512,6 +1724,12 @@ def _checkpoint_payload(
         "best_epoch": best_epoch,
         "stale_epochs": stale_epochs,
         "best_validation_state_separation": best_validation_state_separation,
+        "unconstrained_best_score": unconstrained_best_score,
+        "unconstrained_best_epoch": unconstrained_best_epoch,
+        "unconstrained_best_validation_state_separation": (
+            unconstrained_best_validation_state_separation
+        ),
+        "checkpoint_feasibility": checkpoint_feasibility,
         "classification_objective": config.classification_objective,
         "train_sample_label_counts": dict(train_label_counts),
         "baseline_class_weights": (
@@ -1520,6 +1738,12 @@ def _checkpoint_payload(
             else None
         ),
     }
+
+
+def _selection_metric_name(config: TrainingConfig) -> str:
+    if config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision:
+        return "val_balanced_accuracy_ac_subject_to_state_feasibility"
+    return "val_balanced_accuracy_ac"
 
 
 def _trajectory_shape(samples: list[_Sample]) -> tuple[int, int]:
@@ -1534,6 +1758,13 @@ def _batches(samples: list[_Sample], batch_size: int) -> list[list[_Sample]]:
 def _training_signature(dataset_path: str | Path, config: TrainingConfig) -> str:
     config_payload = asdict(config)
     config_payload.pop("max_epochs")
+    if not (
+        config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
+    ):
+        config_payload.pop("state_selection_min_d_gap")
+        config_payload.pop("state_selection_min_raw_theta_gap_rad")
+        config_payload.pop("state_selection_max_d_mannwhitney_p")
+        config_payload.pop("state_selection_min_d_effect_size")
     payload = {
         "dataset_sha256": _sha256(Path(dataset_path)),
         "config": config_payload,
@@ -1606,6 +1837,37 @@ def _validate_config(config: TrainingConfig) -> None:
                 raise ValueError("TME angular_ranking_margin_rad must be in [0, pi]")
             if config.d_aux_samples_per_class <= 0:
                 raise ValueError("state-supervised TME requires positive aux samples per class")
+            if (
+                not math.isfinite(config.state_selection_min_d_gap)
+                or config.state_selection_min_d_gap <= 0.0
+            ):
+                raise ValueError(
+                    "state-supervised TME state_selection_min_d_gap must be finite and positive"
+                )
+            if (
+                not math.isfinite(config.state_selection_min_raw_theta_gap_rad)
+                or not 0.0
+                < config.state_selection_min_raw_theta_gap_rad
+                <= math.pi
+            ):
+                raise ValueError(
+                    "state-supervised TME state_selection_min_raw_theta_gap_rad must be in (0, pi]"
+                )
+            if (
+                not math.isfinite(config.state_selection_max_d_mannwhitney_p)
+                or not 0.0 < config.state_selection_max_d_mannwhitney_p <= 1.0
+            ):
+                raise ValueError(
+                    "state-supervised TME state_selection_max_d_mannwhitney_p must be in (0, 1]"
+                )
+            if (
+                not math.isfinite(config.state_selection_min_d_effect_size)
+                or config.state_selection_min_d_effect_size <= 0.0
+            ):
+                raise ValueError(
+                    "state-supervised TME state_selection_min_d_effect_size "
+                    "must be finite and positive"
+                )
         elif any(value != 0 for value in state_fields):
             raise ValueError("PA-only TME requires all D/angular supervision fields to be zero")
     elif any(

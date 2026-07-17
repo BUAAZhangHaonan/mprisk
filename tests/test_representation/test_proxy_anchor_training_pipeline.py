@@ -143,11 +143,23 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
     )
 
 
-def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> None:
+def _pa_only_config(max_epochs: int = 3) -> TrainingConfig:
+    return replace(
+        _config(max_epochs=max_epochs),
+        enable_state_supervision=False,
+        d_supervision_weight=0.0,
+        d_ranking_margin=0.0,
+        angular_supervision_weight=0.0,
+        angular_ranking_margin_rad=0.0,
+        d_aux_samples_per_class=0,
+    )
+
+
+def test_tme_pa_only_training_selects_on_val_ac_and_exports_unit_z_r(tmp_path) -> None:
     dataset = _dataset(tmp_path)
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_config(),
+        config=_pa_only_config(),
         output_dir=tmp_path / "run",
     )
 
@@ -155,22 +167,22 @@ def test_tme_training_selects_only_on_val_ac_and_exports_unit_z_r(tmp_path) -> N
     assert checkpoint["repr_key"] == TME_PROXY_ANCHOR_V1
     assert checkpoint["architecture_version"] == TME_ARCHITECTURE_V1
     assert checkpoint["model_key"] == "qwen3_vl_8b"
-    assert checkpoint["selection_metric"] == "val_balanced_accuracy_ac"
+    assert (
+        checkpoint["selection_metric"] == "val_balanced_accuracy_ac"
+    )
     assert checkpoint["selection_unit"] == "sample_id"
     assert checkpoint["proxy_state_dict"]["proxies"].shape == (2, 3)
-    assert checkpoint["training_config"]["d_supervision_weight"] == pytest.approx(0.2)
-    assert checkpoint["best_validation_state_separation"] is not None
+    assert checkpoint["training_config"]["d_supervision_weight"] == pytest.approx(0.0)
+    assert checkpoint["best_validation_state_separation"] is None
     logs = [json.loads(line) for line in result.log_path.read_text().splitlines()]
     assert 1 <= len(logs) <= 3
     assert all(
         set(row)
         >= {
-            "epoch",
-            "train_loss",
-            "train_proxy_anchor_loss",
-            "train_d_ranking_loss",
-            "train_angular_ranking_loss",
-            "val_loss",
+                "epoch",
+                "train_loss",
+                "train_proxy_anchor_loss",
+                "val_loss",
             "val_balanced_accuracy_ac",
             "val_state_separation",
         }
@@ -253,12 +265,12 @@ def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_pa
     dataset = _dataset(tmp_path)
     first = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_config(max_epochs=1),
+        config=_pa_only_config(max_epochs=1),
         output_dir=tmp_path / "run",
     )
     resumed = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_config(max_epochs=3),
+        config=_pa_only_config(max_epochs=3),
         output_dir=tmp_path / "run",
         resume_checkpoint=first.last_checkpoint_path,
     )
@@ -271,10 +283,175 @@ def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_pa
     with pytest.raises(ValueError, match="resume signature mismatch"):
         train_trajectory_encoder(
             dataset_path=bad,
-            config=_config(max_epochs=3),
+            config=_pa_only_config(max_epochs=3),
             output_dir=tmp_path / "bad-run",
             resume_checkpoint=first.last_checkpoint_path,
         )
+
+
+def _selection_state(
+    d_gap: float,
+    raw_theta_gap_rad: float,
+    d_mannwhitney_p: float,
+    d_effect_size: float,
+) -> dict[str, float]:
+    return {
+        "val_D_gap": d_gap,
+        "val_raw_theta_gap_rad": raw_theta_gap_rad,
+        "val_D_mannwhitney_p": d_mannwhitney_p,
+        "val_D_effect_size": d_effect_size,
+    }
+
+
+def _patch_selection_epochs(monkeypatch, epochs) -> None:
+    values = iter(epochs)
+
+    def fake_train_epoch(*_args, **_kwargs):
+        return {
+            "train_loss": 1.0,
+            "train_proxy_anchor_loss": 1.0,
+            "train_d_ranking_loss": 0.0,
+            "train_angular_ranking_loss": 0.0,
+        }
+
+    def fake_evaluate(*_args, **_kwargs):
+        score, d_gap, raw_theta_gap_rad, d_mannwhitney_p, d_effect_size = next(values)
+        return 1.0, score, _selection_state(
+            d_gap, raw_theta_gap_rad, d_mannwhitney_p, d_effect_size
+        )
+
+    monkeypatch.setattr(training_impl, "_train_epoch", fake_train_epoch)
+    monkeypatch.setattr(training_impl, "_evaluate", fake_evaluate)
+
+
+def test_state_supervised_selection_uses_highest_ba_only_among_feasible_epochs(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path)
+    config = replace(
+        _config(max_epochs=4),
+        state_selection_min_d_gap=0.1,
+        state_selection_min_raw_theta_gap_rad=0.08,
+        patience=10,
+    )
+    _patch_selection_epochs(
+        monkeypatch,
+        [
+            (0.90, 0.20, 0.10, 0.20, 0.50),
+            (0.70, 0.20, 0.10, 0.01, 0.50),
+            (0.80, 0.25, 0.12, 0.01, 0.60),
+            (0.95, 0.20, 0.10, 0.01, 0.10),
+        ],
+    )
+
+    result = train_trajectory_encoder(
+        dataset_path=dataset,
+        config=config,
+        output_dir=tmp_path / "constrained",
+    )
+
+    selected = torch.load(result.best_checkpoint_path, map_location="cpu")
+    unconstrained = torch.load(
+        result.unconstrained_best_checkpoint_path, map_location="cpu"
+    )
+    assert selected["epoch"] == 3
+    assert selected["best_score"] == pytest.approx(0.80)
+    assert selected["checkpoint_role"] == "final_selected"
+    assert selected["checkpoint_feasibility"]["feasible"] is True
+    assert unconstrained["epoch"] == 4
+    assert unconstrained["unconstrained_best_score"] == pytest.approx(0.95)
+    assert unconstrained["checkpoint_role"] == "unconstrained_diagnostic"
+    assert result.metrics["unconstrained_best_epoch"] == 4
+    logs = [json.loads(line) for line in result.log_path.read_text().splitlines()]
+    assert logs[0]["checkpoint_feasibility"]["feasible"] is False
+    assert logs[0]["stale_epochs"] == 0
+    assert logs[1]["checkpoint_feasibility"]["feasible"] is True
+    assert logs[3]["checkpoint_feasibility"]["observed_val_D_effect_size"] == pytest.approx(
+        0.10
+    )
+    with pytest.raises(ValueError, match="unconstrained diagnostic"):
+        export_frozen_representations(
+            dataset_path=dataset,
+            checkpoint_path=result.unconstrained_best_checkpoint_path,
+            output_dir=tmp_path / "forbidden-export",
+        )
+
+
+def test_state_supervised_selection_resume_preserves_feasible_and_unconstrained_bests(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path)
+    base = replace(
+        _config(max_epochs=2),
+        state_selection_min_d_gap=0.1,
+        state_selection_min_raw_theta_gap_rad=0.08,
+        patience=10,
+    )
+    _patch_selection_epochs(
+        monkeypatch,
+        [(0.90, 0.20, 0.10, 0.20, 0.50), (0.70, 0.20, 0.10, 0.01, 0.50)],
+    )
+    first = train_trajectory_encoder(
+        dataset_path=dataset,
+        config=base,
+        output_dir=tmp_path / "resume-constrained",
+    )
+
+    _patch_selection_epochs(
+        monkeypatch,
+        [(0.75, 0.20, 0.10, 0.01, 0.50), (0.95, 0.20, 0.10, 0.01, 0.10)],
+    )
+    resumed = train_trajectory_encoder(
+        dataset_path=dataset,
+        config=replace(base, max_epochs=4),
+        output_dir=tmp_path / "resume-constrained",
+        resume_checkpoint=first.last_checkpoint_path,
+    )
+
+    selected = torch.load(resumed.best_checkpoint_path, map_location="cpu")
+    unconstrained = torch.load(
+        resumed.unconstrained_best_checkpoint_path, map_location="cpu"
+    )
+    assert selected["epoch"] == 3
+    assert selected["best_score"] == pytest.approx(0.75)
+    assert unconstrained["epoch"] == 4
+    assert unconstrained["unconstrained_best_score"] == pytest.approx(0.95)
+    assert resumed.metrics["best_epoch"] == 3
+    assert resumed.metrics["unconstrained_best_epoch"] == 4
+
+
+def test_state_supervised_selection_fails_if_no_epoch_is_feasible(
+    tmp_path, monkeypatch
+) -> None:
+    dataset = _dataset(tmp_path)
+    config = replace(
+        _config(max_epochs=2),
+        state_selection_min_d_gap=0.1,
+        state_selection_min_raw_theta_gap_rad=0.08,
+        patience=1,
+    )
+    _patch_selection_epochs(
+        monkeypatch,
+        [
+            (0.90, 0.05, 0.10, 0.01, 0.50),
+            (0.95, 0.20, float("nan"), 0.01, 0.50),
+        ],
+    )
+
+    output_dir = tmp_path / "no-feasible"
+    with pytest.raises(RuntimeError, match="without a feasible checkpoint"):
+        train_trajectory_encoder(
+            dataset_path=dataset,
+            config=config,
+            output_dir=output_dir,
+        )
+
+    assert not (output_dir / "best_checkpoint.pt").exists()
+    assert (output_dir / "unconstrained_best_checkpoint.pt").is_file()
+    last = torch.load(output_dir / "last_checkpoint.pt", map_location="cpu")
+    assert last["best_epoch"] == 0
+    assert last["stale_epochs"] == 0
+    assert last["checkpoint_feasibility"]["required_metrics_finite"] is False
 
 
 def test_training_rejects_misread_field_before_loading_cache(tmp_path) -> None:
@@ -294,7 +471,7 @@ def test_relation_training_reads_direct_float32_layer_hidden_cache(tmp_path) -> 
     dataset = _dataset(tmp_path, direct_2d=True)
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_config(max_epochs=1),
+        config=_pa_only_config(max_epochs=1),
         output_dir=tmp_path / "run-2d",
     )
     checkpoint = torch.load(result.best_checkpoint_path, map_location="cpu")
@@ -483,7 +660,7 @@ def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> No
 
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_config(max_epochs=1),
+        config=_pa_only_config(max_epochs=1),
         output_dir=tmp_path / "run-excluded",
     )
 
