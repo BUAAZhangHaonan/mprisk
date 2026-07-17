@@ -297,17 +297,22 @@ def train_trajectory_encoder(
             val_state_separation=val_state_separation,
             config=config,
         )
-        unconstrained_improved = (
-            math.isfinite(val_score)
-            and val_score > unconstrained_best_score + config.min_delta
+        unconstrained_improved = math.isfinite(val_score) and val_score > (
+            unconstrained_best_score
+            if state_constrained_selection
+            else unconstrained_best_score + config.min_delta
         )
         if unconstrained_improved:
             unconstrained_best_score = val_score
             unconstrained_best_epoch = epoch
             unconstrained_best_validation_state_separation = val_state_separation
-        improved = val_score > best_score + config.min_delta
         if state_constrained_selection:
-            improved = bool(checkpoint_feasibility["feasible"]) and improved
+            improved = (
+                bool(checkpoint_feasibility["feasible"])
+                and val_score > best_score
+            )
+        else:
+            improved = val_score > best_score + config.min_delta
         if improved:
             best_score = val_score
             best_epoch = epoch

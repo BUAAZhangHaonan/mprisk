@@ -333,6 +333,7 @@ def test_state_supervised_selection_uses_highest_ba_only_among_feasible_epochs(
         state_selection_min_d_gap=0.1,
         state_selection_min_raw_theta_gap_rad=0.08,
         patience=10,
+        min_delta=0.20,
     )
     _patch_selection_epochs(
         monkeypatch,
