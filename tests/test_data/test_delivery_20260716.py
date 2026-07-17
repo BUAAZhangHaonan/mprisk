@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import yaml
 
 import mprisk.data.delivery_20260716 as delivery
 from mprisk.data.manifests import read_jsonl
@@ -57,6 +59,7 @@ def _write_delivery(root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[dict[s
         ),
     )
     specs = []
+    invalid_asset: tuple[str, str, Path] | None = None
     for filename, protocol, sample_type, source_ids in file_roles:
         rows = []
         for index, source_id in enumerate(source_ids):
@@ -81,10 +84,34 @@ def _write_delivery(root: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[dict[s
                     "source_is_generated": True,
                 }
             )
+            if filename == "va_a_manifest.jsonl" and index == 0:
+                invalid_asset = (rows[-1]["sample_id"], source_id, media_path)
         path = root / filename
         path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         specs.append(delivery.SourceSpec(filename, protocol, sample_type, len(rows), _sha256(path)))
     monkeypatch.setattr(delivery, "SOURCE_SPECS", tuple(specs))
+    assert invalid_asset is not None
+    invalid_sample_id, invalid_source_id, invalid_media_path = invalid_asset
+    monkeypatch.setattr(
+        delivery,
+        "EXPECTED_INVALID_VA_ASSETS",
+        (
+            delivery.InvalidVaAssetSpec(
+                invalid_sample_id,
+                invalid_source_id,
+                _sha256(invalid_media_path),
+            ),
+        ),
+    )
+
+    def fake_ffprobe(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        media_path = Path(command[-1])
+        streams = [{"index": 0, "codec_type": "video", "codec_name": "h264"}]
+        if media_path != invalid_media_path:
+            streams.append({"index": 1, "codec_type": "audio", "codec_name": "aac"})
+        return SimpleNamespace(stdout=json.dumps({"streams": streams}))
+
+    monkeypatch.setattr(delivery.subprocess, "run", fake_ffprobe)
     return {spec.filename: spec.sha256 for spec in specs}, media
 
 
@@ -104,10 +131,20 @@ def test_ingestion_is_read_only_and_builds_deterministic_manifests_and_splits(
     assert {row["protocol"] for row in unified} == {"VT", "VA"}
     assert all(row["split"] == assign_split(row["split_group_id"]) for row in unified)
     assert all(row["use_in_main"] is True and row["annotation_count"] == 1 for row in unified)
-    assert len(read_jsonl(output / "splits/representation_split_assignment_v1.jsonl")) == 10
+    assert len(read_jsonl(output / "manifests/va_aux.jsonl")) == 5
+    assert len(read_jsonl(output / "manifests/va_state_valid.jsonl")) == 4
+    invalid_assets = read_jsonl(output / "manifests/invalid_assets.jsonl")
+    assert len(invalid_assets) == 1
+    assert invalid_assets[0]["reason"] == "missing_audio_stream"
+    assert len(read_jsonl(output / "splits/representation_split_assignment_v1.jsonl")) == 9
     provenance = json.loads((output / "provenance.json").read_text(encoding="utf-8"))
     assert provenance["source_read_only"] is True
     assert provenance["counts"]["total"] == 10
+    assert provenance["counts"]["va_state_valid"] == 4
+    assert provenance["counts"]["invalid_assets"] == 1
+    cache_plan = yaml.safe_load((output / "state_cache_plan_v1.yaml").read_text())
+    assert cache_plan["manifests"]["VA"] == "manifests/va_state_valid.jsonl"
+    assert cache_plan["expected_tasks"]["VA_per_model"] == 4 * 8 * 3
 
 
 def test_ingestion_fails_closed_on_file_role_label_mismatch(
@@ -145,5 +182,17 @@ def test_ingestion_rejects_source_sha_mismatch_before_writing(
     path.write_bytes(path.read_bytes() + b"\n")
 
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        delivery.ingest_delivery_20260716(source_root=source, output_root=tmp_path / "derived")
+    assert not (tmp_path / "derived").exists()
+
+
+def test_ingestion_fails_closed_when_invalid_va_asset_set_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    _write_delivery(source, monkeypatch)
+    monkeypatch.setattr(delivery, "EXPECTED_INVALID_VA_ASSETS", ())
+
+    with pytest.raises(ValueError, match="VA invalid-asset set changed"):
         delivery.ingest_delivery_20260716(source_root=source, output_root=tmp_path / "derived")
     assert not (tmp_path / "derived").exists()

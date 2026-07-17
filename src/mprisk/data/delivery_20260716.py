@@ -5,7 +5,9 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,6 +24,7 @@ from mprisk.data.splits import assign_split
 DEFAULT_SOURCE_ROOT = Path("/home/team/lvshuyang/prompt-make/delivery_20260716")
 DEFAULT_OUTPUT_ROOT = Path("outputs/datasets/delivery_20260716")
 SOURCE_DATASET = "delivery_20260716"
+DEFAULT_FFPROBE_PATH = Path("ffprobe")
 EXPECTED_FIELDS = frozenset(
     {
         "sample_id",
@@ -82,18 +85,59 @@ SOURCE_SPECS = (
 
 
 @dataclass(frozen=True)
+class InvalidVaAssetSpec:
+    sample_id: str
+    source_id: str
+    sha256: str
+    reason: str = "missing_audio_stream"
+
+
+EXPECTED_INVALID_VA_ASSETS = (
+    InvalidVaAssetSpec(
+        "gen:accept_a_va:S0544",
+        "v6_A2_tears_of_joy_SVT_F_13001",
+        "fef8fddc51cfd7ad32ad496a06196cf4a811b6ea1b3df1377127a4109c113ae3",
+    ),
+    InvalidVaAssetSpec(
+        "gen:accept_a_va:S0545",
+        "v6_A3_suppressed_anger_SVT_M_13002",
+        "b3ccc970867d084ca8e4c0157a201d24af91fb43f83a653eb4c0cf1346f84af4",
+    ),
+    InvalidVaAssetSpec(
+        "gen:accept_a_va:S0546",
+        "v6_A4_composure_shock_SVT_F_13001",
+        "7c7367dadd1237cec76c54e959f18ec8deec77bad06074633401e14c4029d5b5",
+    ),
+    InvalidVaAssetSpec(
+        "gen:accept_a_va:S0547",
+        "v6_A5_composure_fear_SVT_M_13001",
+        "d91407f588f55a86db777fff315942e9bab9f7881033daa38b6f8ea4088a6b44",
+    ),
+    InvalidVaAssetSpec(
+        "gen:accept_a_va:S0548",
+        "v6_A5_composure_fear_SVT_F_13001",
+        "a13855a28ed856797fe0146816e0581abbd6a0164c53f14e7f354ad1ed08a8f7",
+    ),
+)
+
+
+@dataclass(frozen=True)
 class DeliveryIngestionResult:
     output_root: Path
     provenance_path: Path
     representation_split_path: Path
     total_rows: int
     unique_split_groups: int
+    state_valid_rows: int
+    invalid_asset_rows: int
 
 
 def ingest_delivery_20260716(
     *,
     source_root: str | Path = DEFAULT_SOURCE_ROOT,
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
+    ffprobe_path: str | Path = DEFAULT_FFPROBE_PATH,
+    ffprobe_workers: int = 16,
 ) -> DeliveryIngestionResult:
     source = Path(source_root).expanduser().resolve()
     output = Path(output_root).expanduser().resolve()
@@ -156,6 +200,14 @@ def ingest_delivery_20260716(
         raise AssertionError("Normalized row count changed unexpectedly")
     _validate_group_splits(normalized)
 
+    va_state_valid, invalid_assets = _audit_va_assets(
+        [row for row in normalized if row["protocol"] == "VA"],
+        ffprobe_path=Path(ffprobe_path),
+        workers=ffprobe_workers,
+    )
+    vt_state_valid = [row for row in normalized if row["protocol"] == "VT"]
+    state_valid = vt_state_valid + va_state_valid
+
     manifests = output / "manifests"
     manifest_rows = {
         "unified_sample_manifest.jsonl": normalized,
@@ -163,6 +215,8 @@ def ingest_delivery_20260716(
         "aligned_manifest.jsonl": [r for r in normalized if r["sample_type"] == "Aligned"],
         "vt_primary.jsonl": [r for r in normalized if r["protocol"] == "VT"],
         "va_aux.jsonl": [r for r in normalized if r["protocol"] == "VA"],
+        "va_state_valid.jsonl": va_state_valid,
+        "invalid_assets.jsonl": invalid_assets,
     }
     for filename, rows in manifest_rows.items():
         _atomic_jsonl(manifests / filename, rows)
@@ -180,7 +234,7 @@ def ingest_delivery_20260716(
         output_dir=split_root,
     )
     assignments = load_representation_split_assignment(split_result.manifest_path)
-    expected_groups = {str(row["split_group_id"]) for row in normalized}
+    expected_groups = {str(row["split_group_id"]) for row in state_valid}
     if set(assignments) != expected_groups:
         raise ValueError("Representation split groups do not match normalized delivery groups")
     assigned_samples = {
@@ -188,8 +242,22 @@ def ingest_delivery_20260716(
         for assignment in assignments.values()
         for sample_id in assignment["sample_ids"]
     }
-    if assigned_samples != set(sample_ids):
-        raise ValueError("Representation split sample IDs do not match the delivery")
+    state_valid_sample_ids = {str(row["sample_id"]) for row in state_valid}
+    if assigned_samples != state_valid_sample_ids:
+        raise ValueError("Representation split sample IDs do not match state-valid delivery rows")
+
+    cache_plan_path = output / "state_cache_plan_v1.yaml"
+    _atomic_text(
+        cache_plan_path,
+        yaml.safe_dump(
+            _state_cache_plan(
+                invalid_assets_sha256=_sha256(manifests / "invalid_assets.jsonl"),
+                vt_rows=len(vt_state_valid),
+                va_rows=len(va_state_valid),
+            ),
+            sort_keys=False,
+        ),
+    )
 
     source_hashes_after = {
         spec.filename: _sha256(source / spec.filename) for spec in SOURCE_SPECS
@@ -206,7 +274,7 @@ def ingest_delivery_20260716(
     _atomic_json(
         provenance_path,
         {
-            "schema": "mprisk_delivery_20260716_ingestion_v1",
+            "schema": "mprisk_delivery_20260716_ingestion_v2",
             "source_root": str(source),
             "source_read_only": True,
             "source_artifacts": source_artifacts,
@@ -231,8 +299,21 @@ def ingest_delivery_20260716(
                 "unique_media_paths": len(
                     {path for row in normalized for path in row["media_paths"].values()}
                 ),
+                "state_valid": len(state_valid),
+                "va_state_valid": len(va_state_valid),
+                "invalid_assets": len(invalid_assets),
             },
-            "expected_prefill_tasks_p8_m1_m2_m12": {"VT_per_model": 45024, "VA_per_model": 46536},
+            "asset_qa": {
+                "ffprobe_path": str(ffprobe_path),
+                "policy": "VA requires at least one video and one audio stream",
+                "fail_closed_expected_invalid_set": True,
+                "invalid_asset_sample_ids": [row["sample_id"] for row in invalid_assets],
+                "invalid_assets_manifest": "manifests/invalid_assets.jsonl",
+                "invalid_assets_sha256": _sha256(manifests / "invalid_assets.jsonl"),
+                "state_valid_manifest": "manifests/va_state_valid.jsonl",
+                "state_valid_manifest_sha256": _sha256(manifests / "va_state_valid.jsonl"),
+            },
+            "expected_prefill_tasks_p8_m1_m2_m12": {"VT_per_model": 45024, "VA_per_model": 46416},
             "derived_artifacts": {
                 str(path.relative_to(output)): {
                     "bytes": path.stat().st_size,
@@ -248,6 +329,8 @@ def ingest_delivery_20260716(
         representation_split_path=split_result.manifest_path,
         total_rows=len(normalized),
         unique_split_groups=len(expected_groups),
+        state_valid_rows=len(state_valid),
+        invalid_asset_rows=len(invalid_assets),
     )
 
 
@@ -345,12 +428,115 @@ def _validate_group_splits(rows: list[dict[str, Any]]) -> None:
         raise ValueError(f"split_group_id leakage across master splits: {leaked[:10]}")
 
 
+def _audit_va_assets(
+    rows: list[dict[str, Any]], *, ffprobe_path: Path, workers: int
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if workers <= 0:
+        raise ValueError("ffprobe_workers must be positive")
+    media_paths = sorted({str(row["media_paths"]["audio"]) for row in rows})
+
+    def probe(media_path: str) -> tuple[str, list[dict[str, Any]]]:
+        completed = subprocess.run(
+            [
+                str(ffprobe_path),
+                "-v",
+                "error",
+                "-show_entries",
+                "stream=index,codec_type,codec_name,channels,sample_rate",
+                "-of",
+                "json",
+                media_path,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        payload = json.loads(completed.stdout)
+        streams = payload.get("streams")
+        if not isinstance(streams, list) or not all(isinstance(item, dict) for item in streams):
+            raise ValueError(f"ffprobe returned an invalid stream list for {media_path}")
+        return media_path, streams
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        probes = dict(pool.map(probe, media_paths))
+
+    valid_rows: list[dict[str, Any]] = []
+    invalid_rows: list[dict[str, Any]] = []
+    for row in rows:
+        media_path = str(row["media_paths"]["audio"])
+        streams = probes[media_path]
+        stream_types = [str(item.get("codec_type")) for item in streams]
+        if "video" not in stream_types:
+            raise ValueError(f"VA asset has no video stream: {row['sample_id']} {media_path}")
+        if "audio" in stream_types:
+            valid_rows.append(row)
+            continue
+        asset = Path(media_path)
+        invalid_rows.append(
+            {
+                "sample_id": str(row["sample_id"]),
+                "source_id": str(row["source_id"]),
+                "protocol": "VA",
+                "sample_type": str(row["sample_type"]),
+                "media_path": media_path,
+                "bytes": asset.stat().st_size,
+                "sha256": _sha256(asset),
+                "reason": "missing_audio_stream",
+                "stream_types": stream_types,
+                "state_eligible": False,
+            }
+        )
+
+    observed = {
+        (row["sample_id"], row["source_id"], row["sha256"], row["reason"])
+        for row in invalid_rows
+    }
+    expected = {
+        (spec.sample_id, spec.source_id, spec.sha256, spec.reason)
+        for spec in EXPECTED_INVALID_VA_ASSETS
+    }
+    if observed != expected:
+        missing = sorted(expected - observed)
+        unexpected = sorted(observed - expected)
+        raise ValueError(
+            "VA invalid-asset set changed; explicit review is required before state/cache use: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+    invalid_rows.sort(key=lambda row: row["sample_id"])
+    return valid_rows, invalid_rows
+
+
+def _state_cache_plan(
+    *, invalid_assets_sha256: str, vt_rows: int, va_rows: int
+) -> dict[str, Any]:
+    return {
+        "schema": "mprisk_delivery_state_cache_plan_v1",
+        "source_dataset": SOURCE_DATASET,
+        "prompt_count": 8,
+        "conditions": ["M1", "M2", "M12"],
+        "manifests": {
+            "VT": "manifests/vt_primary.jsonl",
+            "VA": "manifests/va_state_valid.jsonl",
+        },
+        "rows": {"VT": vt_rows, "VA": va_rows},
+        "expected_tasks": {"VT_per_model": vt_rows * 8 * 3, "VA_per_model": va_rows * 8 * 3},
+        "asset_qa": {
+            "invalid_assets_manifest": "manifests/invalid_assets.jsonl",
+            "invalid_assets_sha256": invalid_assets_sha256,
+            "fail_closed_on_invalid_set_change": True,
+        },
+    }
+
+
 def _split_config() -> dict[str, Any]:
     return {
         "schema": "mprisk_representation_split_config_v1",
         "key": "delivery_20260716_representation_split_v1",
         "scope": "all_valid_conflict_aligned",
-        "source_manifests": ["../manifests/vt_primary.jsonl", "../manifests/va_aux.jsonl"],
+        "source_manifests": [
+            "../manifests/vt_primary.jsonl",
+            "../manifests/va_state_valid.jsonl",
+        ],
         "seed": 20260716,
         "calibration_fraction": 0.5,
         "calibration_rounding": "floor",
