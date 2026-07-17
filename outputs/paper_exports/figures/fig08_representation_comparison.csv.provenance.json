@@ -1,21 +1,53 @@
 {
   "schema": "mprisk_figure_input_provenance_v1",
   "figure_key": "fig08_representation_comparison",
-  "status": "Pending",
+  "status": "Ready",
   "generated_command": [
     "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
-    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/build_figure_inputs.py",
-    "--mode",
-    "pending",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/export_ready_paper_figures.py",
+    "--repo-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk",
+    "--downstream-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1",
+    "--baseline-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1",
     "--config",
-    "configs/paper/figure_map.yaml",
-    "--run-records",
-    "outputs/paper_exports/runtime/figure_commands.jsonl"
+    "/home/team/zhanghaonan/TAFFC/mprisk/configs/paper/figure_map.yaml"
   ],
-  "sources": [],
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1/qwen3_vl_8b/single_point_binary_v1/official_test/frozen_baseline_representations.jsonl",
+      "sha256": "1b1f8e1c28ec261aa86a0dd144a29389cab22d474bc02022bad156f0b7aa877b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1/qwen3_vl_8b/trajectory_mlp_binary_v1/official_test/frozen_baseline_representations.jsonl",
+      "sha256": "cef12ea457efdae83766f82f2b82096ba3e31e81fe723d9467d9bed176a48c97"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b/tme_pa_dstrong_v2/official_test/frozen_tme_representations.jsonl",
+      "sha256": "95fd955d231c29b82a36a05d7a82e286fc1e4ae53281a8a23d38ce307c08ae55"
+    }
+  ],
   "sample_masks": {
-    "status": "no_source_artifact"
+    "ac": "qwen3_vl_8b/VT/seed20260717/representation_split=official_test",
+    "misread": "Pending Misread annotations",
+    "conflict_retention": "Pending Conflict-retention sensitivity artifacts"
   },
-  "source_sample_count": 0,
-  "included_sample_count": 0
+  "source_sample_count": 912,
+  "included_sample_count": 912,
+  "representation_split": "official_test",
+  "representative_backbone": {
+    "model": "qwen3_vl_8b",
+    "protocol": "VT",
+    "seed": "20260717"
+  },
+  "misread_status": "Pending",
+  "umap": {
+    "package": "umap-learn",
+    "version": "0.5.12",
+    "random_state": 20260716,
+    "n_neighbors": 15,
+    "min_dist": 0.1,
+    "metric": "cosine"
+  }
 }

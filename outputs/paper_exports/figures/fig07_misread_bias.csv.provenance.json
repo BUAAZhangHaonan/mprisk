@@ -1,21 +1,124 @@
 {
   "schema": "mprisk_figure_input_provenance_v1",
   "figure_key": "fig07_misread_bias",
-  "status": "Pending",
+  "status": "Ready",
   "generated_command": [
     "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
-    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/build_figure_inputs.py",
-    "--mode",
-    "pending",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/export_ready_paper_figures.py",
+    "--repo-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk",
+    "--downstream-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1",
+    "--baseline-root",
+    "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1",
     "--config",
-    "configs/paper/figure_map.yaml",
-    "--run-records",
-    "outputs/paper_exports/runtime/figure_commands.jsonl"
+    "/home/team/zhanghaonan/TAFFC/mprisk/configs/paper/figure_map.yaml"
   ],
-  "sources": [],
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b/tme_pa_dstrong_v2/official_test/sdr_scores.jsonl",
+      "sha256": "fa34fbc6a197f3b0a3644533da6794ab929e5317ec5b61b5bc547867819eecc9"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/internvl3_5_8b/tme_pa_dstrong_v2/official_test/sdr_scores.jsonl",
+      "sha256": "3c9706b2cebf650b8c22b32757b5af939c4fea5dc27cf052c37b04f849afd548"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen2_5_omni_7b/tme_pa_dstrong_v2/official_test/sdr_scores.jsonl",
+      "sha256": "5c205a775af479a1d91fa6a91bcb0254600f062c1689129baed47637b84868b6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b/tme_pa_dstrong_v2/calibration/thresholds.json",
+      "sha256": "250e6b7fd4f04db42f0c21d05f300d171931ba22036b51ee5ae9fa1fdf14b156"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/internvl3_5_8b/tme_pa_dstrong_v2/calibration/thresholds.json",
+      "sha256": "30e9df045bac824a19e6a8128a9d3f4cf0f896155a993e1b93ceaea346d4e3ac"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen2_5_omni_7b/tme_pa_dstrong_v2/calibration/thresholds.json",
+      "sha256": "7b0f45f0755de547e6d41d9313a457304f3efea11dbd1244236e75f30f5c5c2e"
+    }
+  ],
   "sample_masks": {
-    "status": "no_source_artifact"
+    "misread": "Pending Misread annotations",
+    "bias": "representation_split=official_test and sample_type=Conflict and S<=kappa",
+    "direction_emphasis": "D>tau"
   },
-  "source_sample_count": 0,
-  "included_sample_count": 0
+  "source_sample_count": 913,
+  "included_sample_count": 254,
+  "sdr_schema": "mprisk_spherical_sdr_v2",
+  "distance_metric": "geodesic_acos_v1",
+  "representation_split": "official_test",
+  "source_representation_split_counts": {
+    "official_test": 913
+  },
+  "official_test_sample_count": 913,
+  "excluded_non_official_test_count": 0,
+  "split_identities": [
+    {
+      "model": "qwen3_vl_8b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "model": "internvl3_5_8b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "model": "qwen2_5_omni_7b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    }
+  ],
+  "calibration_identities": [
+    {
+      "model": "qwen3_vl_8b",
+      "model_key": "qwen3_vl_8b",
+      "protocol": "vt",
+      "prompt_set_key": "vt_main_p8_seed20260717",
+      "prompt_set_artifact_sha256": "12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90",
+      "repr_key": "tme_proxy_anchor_v1",
+      "encoder_checkpoint_sha256": "a26ced8664779f70a13a3952005f0a31fd7ddc11fb1f0c8b4a8cd83fea90ff23",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41",
+      "embedding_manifest_sha256": "0d2f32e1b2e6f490a0c276b40cc3ec29a4a04b21d01a45737e3ec2b78b8e394f"
+    },
+    {
+      "model": "internvl3_5_8b",
+      "model_key": "internvl3_5_8b",
+      "protocol": "vt",
+      "prompt_set_key": "vt_main_p8_seed20260717",
+      "prompt_set_artifact_sha256": "12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90",
+      "repr_key": "tme_proxy_anchor_v1",
+      "encoder_checkpoint_sha256": "10ff68d5dd38ad26b12a693193511f1f7d0571bb49419f444975ef38894d79c1",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41",
+      "embedding_manifest_sha256": "b135962f38907545e3f878f565de0fe78ebd5015641821a6c3400045618433cf"
+    },
+    {
+      "model": "qwen2_5_omni_7b",
+      "model_key": "qwen2_5_omni_7b",
+      "protocol": "va",
+      "prompt_set_key": "va_main_p8_seed20260717",
+      "prompt_set_artifact_sha256": "23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c",
+      "repr_key": "tme_proxy_anchor_v1",
+      "encoder_checkpoint_sha256": "6cbd0aec21881759f589d57095eac6af6112ed1c7754e4a67efa2deb192c50e2",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41",
+      "embedding_manifest_sha256": "1a3b7252d6f23d78c93f57e3013208bed8e91ee96f4e40ff86e49442c4442ffc"
+    }
+  ],
+  "thresholds_by_model": {
+    "qwen3_vl_8b": {
+      "kappa": 0.008338628497713866,
+      "tau": 11.981084282901232
+    },
+    "internvl3_5_8b": {
+      "kappa": 0.010745967223884054,
+      "tau": 12.505181205415058
+    },
+    "qwen2_5_omni_7b": {
+      "kappa": 0.023071403132377325,
+      "tau": 5.863486592026688
+    }
+  }
 }
