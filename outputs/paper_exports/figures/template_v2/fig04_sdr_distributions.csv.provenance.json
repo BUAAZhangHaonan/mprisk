@@ -1,0 +1,108 @@
+{
+  "calibration_identities": [
+    {
+      "embedding_manifest_sha256": "0d2f32e1b2e6f490a0c276b40cc3ec29a4a04b21d01a45737e3ec2b78b8e394f",
+      "encoder_checkpoint_sha256": "a26ced8664779f70a13a3952005f0a31fd7ddc11fb1f0c8b4a8cd83fea90ff23",
+      "model": "qwen3_vl_8b",
+      "model_key": "qwen3_vl_8b",
+      "prompt_set_artifact_sha256": "12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90",
+      "prompt_set_key": "vt_main_p8_seed20260717",
+      "protocol": "vt",
+      "repr_key": "tme_proxy_anchor_v1",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "embedding_manifest_sha256": "b135962f38907545e3f878f565de0fe78ebd5015641821a6c3400045618433cf",
+      "encoder_checkpoint_sha256": "10ff68d5dd38ad26b12a693193511f1f7d0571bb49419f444975ef38894d79c1",
+      "model": "internvl3_5_8b",
+      "model_key": "internvl3_5_8b",
+      "prompt_set_artifact_sha256": "12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90",
+      "prompt_set_key": "vt_main_p8_seed20260717",
+      "protocol": "vt",
+      "repr_key": "tme_proxy_anchor_v1",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "embedding_manifest_sha256": "1a3b7252d6f23d78c93f57e3013208bed8e91ee96f4e40ff86e49442c4442ffc",
+      "encoder_checkpoint_sha256": "6cbd0aec21881759f589d57095eac6af6112ed1c7754e4a67efa2deb192c50e2",
+      "model": "qwen2_5_omni_7b",
+      "model_key": "qwen2_5_omni_7b",
+      "prompt_set_artifact_sha256": "23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c",
+      "prompt_set_key": "va_main_p8_seed20260717",
+      "protocol": "va",
+      "repr_key": "tme_proxy_anchor_v1",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    }
+  ],
+  "distance_metric": "geodesic_acos_v1",
+  "excluded_non_official_test_count": 0,
+  "figure_key": "fig04_sdr_distributions",
+  "generated_command": [
+    "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/export_template_v2_figures.py"
+  ],
+  "included_sample_count": 913,
+  "official_test_sample_count": 913,
+  "representation_split": "official_test",
+  "sample_masks": {
+    "D": "representation_split=official_test and S<=kappa",
+    "S": "representation_split=official_test",
+    "abs_R": "representation_split=official_test and S<=kappa and D>tau"
+  },
+  "schema": "mprisk_figure_input_provenance_v1",
+  "sdr_schema": "mprisk_spherical_sdr_v2",
+  "source_representation_split_counts": {
+    "official_test": 913
+  },
+  "source_sample_count": 913,
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig04_sdr_distributions.csv",
+      "sha256": "26444b5cab430e5eaedc471a9d492d149b51d459377d16ee09d17fa41913f903"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig04_sdr_distributions.csv.provenance.json",
+      "sha256": "cdd8d315c095ecb0124752eae8e3a35eb627e829131219f65188d2172709ab39"
+    }
+  ],
+  "split_identities": [
+    {
+      "model": "qwen3_vl_8b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "model": "internvl3_5_8b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    },
+    {
+      "model": "qwen2_5_omni_7b",
+      "representation_split": "official_test",
+      "split_assignment_sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    }
+  ],
+  "status": "Ready",
+  "template_v2": {
+    "figure_key": "fig04_sdr_distributions",
+    "layout_source": "taffc_fig_templates visual grammar only",
+    "pending_misread_panels": false,
+    "row_count": 1886,
+    "schema": "mprisk_template_v2_export_v1",
+    "synthetic_data_used": false
+  },
+  "thresholds_by_model": {
+    "internvl3_5_8b": {
+      "kappa": 0.010745967223884054,
+      "tau": 12.505181205415058
+    },
+    "qwen2_5_omni_7b": {
+      "kappa": 0.023071403132377325,
+      "tau": 5.863486592026688
+    },
+    "qwen3_vl_8b": {
+      "kappa": 0.008338628497713866,
+      "tau": 11.981084282901232
+    }
+  }
+}

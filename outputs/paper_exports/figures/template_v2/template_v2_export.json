@@ -1,0 +1,58 @@
+{
+  "figures": {
+    "fig04_sdr_distributions": {
+      "input": "outputs/paper_exports/figures/template_v2/fig04_sdr_distributions.csv",
+      "input_sha256": "86e1e08ade0e0419e934aacaff63f4bda268b4ae98e13a6467c00c5131917309",
+      "pdf": "paper/figures/generated/template_v2/fig04_state_indices_template_v2.pdf",
+      "pdf_sha256": "fa9da1c55f383522f824000e7b48009eee10ca4b86d6a71ec8967c18be888925",
+      "png": "paper/figures/generated/template_v2/fig04_state_indices_template_v2.png",
+      "png_sha256": "5d952be5ab2dcbd48bd8ca26dbad3bc8b17ad2ff5bdb0b37f6c00289c8b52c49",
+      "provenance": "outputs/paper_exports/figures/template_v2/fig04_sdr_distributions.csv.provenance.json"
+    },
+    "fig05_four_state_stacks": {
+      "input": "outputs/paper_exports/figures/template_v2/fig05_four_state_stacks.csv",
+      "input_sha256": "164bc4ed805966bab9cccb59f7ddd27cf95fed04bbb18518178dc3a995cd7d00",
+      "pdf": "paper/figures/generated/template_v2/fig05_state_patterns_template_v2.pdf",
+      "pdf_sha256": "05137064db9d235e5c69d901c2fc0dac52cfcfcafb2220f875782792cb4d97bb",
+      "png": "paper/figures/generated/template_v2/fig05_state_patterns_template_v2.png",
+      "png_sha256": "a61178f88cf228eacefacd4447f5e3c345d7a89951303d1021c4f87b0525544d",
+      "provenance": "outputs/paper_exports/figures/template_v2/fig05_four_state_stacks.csv.provenance.json"
+    },
+    "fig06_stable_d_signed_r": {
+      "input": "outputs/paper_exports/figures/template_v2/fig06_stable_d_signed_r.csv",
+      "input_sha256": "0a7489346079239f3a8ed3d7c36ec12acba24213e475f0d2b997798df25e640e",
+      "pdf": "paper/figures/generated/template_v2/fig06_geometry_template_v2.pdf",
+      "pdf_sha256": "5466d9c267ac1c6ee7613c810f70032be4f13b3a3ac026375cc3b29e91a5bb0a",
+      "png": "paper/figures/generated/template_v2/fig06_geometry_template_v2.png",
+      "png_sha256": "b8fe7932ac4ae6d4ed4dc8a10b534e12f3e7c4fb452a1772201e074d39ce0f01",
+      "provenance": "outputs/paper_exports/figures/template_v2/fig06_stable_d_signed_r.csv.provenance.json"
+    },
+    "fig07_misread_bias": {
+      "input": "outputs/paper_exports/figures/template_v2/fig07_misread_bias.csv",
+      "input_sha256": "4440660f4a5f68056268563d2ccaa2ba869e67d9ad06d5477f84c92d7e02e3c2",
+      "pdf": "paper/figures/generated/template_v2/fig07_misread_associations_template_v2.pdf",
+      "pdf_sha256": "9dbe5d7f55fea30a2c4e4a238cbbc4b618b3f7835c974f42a3d68438dc8eb30b",
+      "png": "paper/figures/generated/template_v2/fig07_misread_associations_template_v2.png",
+      "png_sha256": "66aa55c93fd4fb2d889f092d827c51d094cc07bf7483d82524ae0447e4fec0e2",
+      "provenance": "outputs/paper_exports/figures/template_v2/fig07_misread_bias.csv.provenance.json"
+    },
+    "fig08_representation_comparison": {
+      "input": "outputs/paper_exports/figures/template_v2/fig08_representation_comparison.csv",
+      "input_sha256": "aebd0846e582d102604f0daab988992c84ea7114fdeac3ce9f2ea7a91aac2c56",
+      "pdf": "paper/figures/generated/template_v2/fig08_representation_quality_template_v2.pdf",
+      "pdf_sha256": "82ec7f5b0964fa8648345aa7f668b2d5d19eff53f7202fbd1ca00fcc4c6d5212",
+      "png": "paper/figures/generated/template_v2/fig08_representation_quality_template_v2.png",
+      "png_sha256": "f37fa7c5b99cb765f2acfd49ee811df37ab31de86dd8e98cc2b8f1b8c9bc2dc7",
+      "provenance": "outputs/paper_exports/figures/template_v2/fig08_representation_comparison.csv.provenance.json"
+    }
+  },
+  "input_root": "outputs/paper_exports/figures/template_v2",
+  "output_root": "paper/figures/generated/template_v2",
+  "pending_panels": {
+    "fig05": "Conflict State Pattern by Misread outcome",
+    "fig07": "State-to-Misread associations",
+    "fig08": "Conflict-only Misread projections and supervision-budget curves"
+  },
+  "schema": "mprisk_template_v2_export_v1",
+  "source_root": "outputs/paper_exports/figures"
+}
