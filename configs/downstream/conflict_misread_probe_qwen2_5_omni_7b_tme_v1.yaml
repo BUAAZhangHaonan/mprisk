@@ -1,0 +1,31 @@
+schema: mprisk_conflict_misread_probe_config_v1
+status: ready
+run_id: delivery_20260716_qwen2_5_omni_7b_primary_tme_conflict_probe_v1
+model_key: qwen2_5_omni_7b
+protocol: va
+prompt_set_key: va_main_p8_seed20260717
+labels:
+  root: outputs/labels/delivery_20260716_single_flash_v1
+  complete_sha256: 89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f
+  artifact_sha256: bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19
+  expected_eligible_rows_sha256: f1340c524656c02c8df7ebc4fc24e01b928392d11c4adec799b49e3d8d6a69b3
+representations:
+- name: tme
+  path: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_inputs_v1/qwen2_5_omni_7b/tme/frozen_tme_conflict_probe.jsonl
+  sha256: ee290a8a3d66aae59e5b3aa9528d33ad2006d5734cefbddc2f9f3d88b78fe4ac
+  repr_key: tme_proxy_anchor_v1
+  feature_field: sample_relation_feature
+  expected_feature_dim: 32
+split_assignment_key: delivery_20260716_representation_split_v1
+split_assignment_sha256: e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41
+expected_sample_ids_sha256: 29b06d6c0ba169057f36fee9ee2a377a2e476a2a41e98087aedaf8a6f156bd72
+training:
+  seed: 20260717
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_dim: 128
+  dropout: 0.1
+  device: cpu
+output_root: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_v1/qwen2_5_omni_7b_tme_only
