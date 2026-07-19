@@ -1,0 +1,31 @@
+schema: mprisk_misread_budget_queue_config_v1
+status: ready
+delivery: delivery_20260716
+seed: 20260717
+fractions: [0.10, 0.25, 0.50, 1.00]
+budget_root: outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1
+formal_label_root: outputs/labels/delivery_20260716_single_flash_v1
+output_root: outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1
+lock_path: outputs/downstream/runtime_locks/delivery_20260716_misread_budget_probe_v1.lock
+poll_seconds: 30
+representation_policy: frozen_no_encoder_gradients
+misread_labels_used_for_encoder_training: false
+models:
+  - model_key: qwen3_vl_8b
+    protocol: vt
+    prompt_set_key: vt_main_p8_seed20260717
+  - model_key: internvl3_5_8b
+    protocol: vt
+    prompt_set_key: vt_main_p8_seed20260717
+  - model_key: qwen2_5_omni_7b
+    protocol: va
+    prompt_set_key: va_main_p8_seed20260717
+training:
+  seed: 20260717
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_dim: 128
+  dropout: 0.1
+  device: cpu
