@@ -223,8 +223,10 @@ def load_probe_config(path: str | Path) -> ProbeConfig:
     )
 
     raw_representations = payload["representations"]
-    if not isinstance(raw_representations, list) or len(raw_representations) != 3:
-        raise ValueError("probe config requires exactly three frozen representations")
+    if not isinstance(raw_representations, list) or not 1 <= len(raw_representations) <= len(
+        REPRESENTATION_NAMES
+    ):
+        raise ValueError("probe config requires one to three frozen representations")
     representations: list[RepresentationSpec] = []
     for row in raw_representations:
         _require_exact_keys(
@@ -258,8 +260,12 @@ def load_probe_config(path: str | Path) -> ProbeConfig:
                 expected_feature_dim=expected_dim,
             )
         )
-    if tuple(spec.name for spec in representations) != REPRESENTATION_NAMES:
-        raise ValueError("representations must be ordered as single_point, trajectory_mlp, tme")
+    representation_names = tuple(spec.name for spec in representations)
+    if len(set(representation_names)) != len(representation_names):
+        raise ValueError("probe config representation names must be unique")
+    registered_order = tuple(name for name in REPRESENTATION_NAMES if name in representation_names)
+    if representation_names != registered_order:
+        raise ValueError("probe config representations must use registered order")
 
     raw_training = payload["training"]
     _require_exact_keys(
@@ -522,9 +528,10 @@ def _load_probe_dataset(config: ProbeConfig, *, label_root_status: str) -> Probe
         feature_dims[spec.name] = spec.expected_feature_dim
         representation_ids[spec.name] = set(by_id)
 
-    intersection = set.intersection(*(representation_ids[name] for name in REPRESENTATION_NAMES))
-    if any(representation_ids[name] != intersection for name in REPRESENTATION_NAMES):
-        counts = {name: len(representation_ids[name]) for name in REPRESENTATION_NAMES}
+    selected_names = tuple(spec.name for spec in config.representations)
+    intersection = set.intersection(*(representation_ids[name] for name in selected_names))
+    if any(representation_ids[name] != intersection for name in selected_names):
+        counts = {name: len(representation_ids[name]) for name in selected_names}
         raise ValueError(f"frozen representation sample intersection drift: {counts}")
     if set(labels) != intersection:
         raise ValueError(

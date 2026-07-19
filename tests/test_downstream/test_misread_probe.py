@@ -330,6 +330,19 @@ def test_unified_probe_consumes_only_locked_formal_eligible_rows(tmp_path: Path)
             )
 
 
+def test_probe_supports_a_registered_tme_only_interim_run(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        mutate=lambda payload: payload.update({"representations": [payload["representations"][2]]}),
+    )
+
+    result = run_conflict_misread_probe(config)
+    marker = json.loads(Path(result["run_complete_path"]).read_text())
+
+    assert [row["representation"] for row in marker["representations"]] == ["tme"]
+    assert marker["representations"][0]["metrics"]["sample_count"] == 4
+
+
 def test_probe_rejects_incomplete_formal_eligible_subset(tmp_path: Path) -> None:
     config = _config(tmp_path)
     payload = yaml.safe_load(config.read_text())
