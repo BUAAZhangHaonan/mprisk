@@ -1,0 +1,106 @@
+{
+  "excluded_labels": {
+    "blocked": 5,
+    "label_eligible": 5684,
+    "probe_eligible": 5684,
+    "unresolved": 2
+  },
+  "figure_key": "fig08_representation_quality_template_v3_misread",
+  "generated_command": [
+    "/home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python",
+    "/home/team/zhanghaonan/TAFFC/mprisk/scripts/export_template_v3_misread_figures.py",
+    "--labels-root",
+    "outputs/labels/delivery_20260716_single_flash_v1",
+    "--probes-root",
+    "outputs/paper_exports/figures/template_v3_misread/adapters/probes",
+    "--budgets-root",
+    "outputs/paper_exports/figures/template_v3_misread/adapters/budgets",
+    "--input-root",
+    "outputs/paper_exports/figures/template_v3_misread",
+    "--output-root",
+    "paper/figures/generated/template_v3_misread",
+    "--table-input-root",
+    "outputs/paper_exports/tables/template_v3_misread",
+    "--table-output-root",
+    "paper/tables/generated/template_v3_misread"
+  ],
+  "input_sha256": "050fcf78e997ed682e38c21751b9ce234bdb1dc2d0f8353d4c3a69f48561b24b",
+  "panel_readiness": {
+    "budget": true,
+    "ca_umap": true
+  },
+  "row_count": 924,
+  "schema": "mprisk_template_v3_figure_input_v1",
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig05_four_state_stacks.csv",
+      "sha256": "88e22f93a3402ccd4b116a95be4ca9b5962c5aa9dad3595300027b2605f32439"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig05_four_state_stacks.csv.provenance.json",
+      "sha256": "9638bae0e9b5bb4c00d00a28f4e09f4e5bfc8ec1173bfbd607ef5591632a73f0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig07_misread_bias.csv",
+      "sha256": "4e1298bd833fdb1f85692cfc28de1e9c641b7c69f0d79c101085dc99016119af"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig07_misread_bias.csv.provenance.json",
+      "sha256": "22d6944e504b62ce9efd29081a0bbeabf9314a00cdc4a2b7a965708f89fa45f4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig08_representation_comparison.csv",
+      "sha256": "6d21c47d98e50faa0db5a78c67f85944febd2f02e8a3dcf903d0ad19f1c21775"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/fig08_representation_comparison.csv.provenance.json",
+      "sha256": "94b5e5d2d5bbde130f4103eaea47315639ee52c06de23ff309d92420a01846cf"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/COMPLETE.json",
+      "sha256": "89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/labels/gemma4_12b_it.jsonl",
+      "sha256": "8a8b8d61642e87e9f6f0ba81e756754117ee2b00254ed91ba864a2dd4d292874"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/labels/internvl3_5_8b.jsonl",
+      "sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/labels/qwen2_5_omni_7b.jsonl",
+      "sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/labels/qwen3_vl_8b.jsonl",
+      "sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/provenance.json",
+      "sha256": "1e20193f6dda2ed85ae5f2f0119964d488c91014c8b7a1b44855b257139da2f7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1/summary.json",
+      "sha256": "40859c31ac7514bfb77746e89fdeccba153b2bffa71a2c6e3af9f6fe0959acf1"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/probes/COMPLETE.json",
+      "sha256": "aaafe3722830960b663b0696669a2c6ec2bf5f781587d6c50f618f6f1827da51"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/probes/probe_metrics.csv",
+      "sha256": "0ae4f84a67bb87fec429a3471a71d0e51bcef324aeb4509da1e0b26ce26db8f8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/budgets/COMPLETE.json",
+      "sha256": "f2f0c63118034acebfce8bb5beffb8bcdade899676224c964ee32c5a86f75759"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/budgets/budget_metrics.csv",
+      "sha256": "adada7cf4b6fa189768615ee99553b9b9302002305e2b061970045525633ed61"
+    }
+  ],
+  "status": "Ready",
+  "synthetic_data_used": false
+}

@@ -934,12 +934,27 @@ def _export_tables(
             group = [row for row in probe_rows if row["method"] == method]
 
             def summary(name: str, rows: list[dict[str, Any]] = group) -> str:
-                values = np.asarray([float(row[name]) for row in rows])
+                values = np.asarray(
+                    [float(row[name]) for row in rows if row[name] is not None], dtype=float
+                )
+                if values.size == 0:
+                    return "Pending"
                 return (
                     f"{values.mean():.3f} +/- {values.std(ddof=1):.3f}"
                     if values.size > 1
                     else f"{values.mean():.3f}"
                 )
+
+            def latency_summary(rows: list[dict[str, Any]] = group) -> str:
+                values = np.asarray(
+                    [float(row["latency_ms"]) for row in rows if row["latency_ms"] is not None],
+                    dtype=float,
+                )
+                if values.size == 0:
+                    return "Pending"
+                if values.size > 1:
+                    return f"{values.mean():.3f} +/- {values.std(ddof=1):.3f} ms"
+                return f"{values.mean():.3f} ms"
 
             tab2.append(
                 dict(
@@ -950,12 +965,15 @@ def _export_tables(
                             summary("accuracy"),
                             summary("macro_f1"),
                             summary("auprc"),
-                            summary("latency_ms") + " ms",
+                            latency_summary(),
                         ),
                         strict=True,
                     )
                 )
             )
+    probes_ready = probes is not None and probe_rows is not None and all(
+        row["latency_ms"] is not None for row in probe_rows
+    )
     tables["tab02_conflict_misread_baselines_template_v3_misread"] = _write_table(
         "tab02_conflict_misread_baselines_template_v3_misread",
         tab2_columns,
@@ -964,8 +982,8 @@ def _export_tables(
         output_root,
         command,
         sources,
-        probes is not None,
-        {},
+        probes_ready,
+        {"latency_pending": not probes_ready},
     )
     return tables
 
@@ -1011,6 +1029,31 @@ def _write_table(
     )
     lines.extend(["\\bottomrule", "\\end{tabular}", ""])
     tex_path.write_text("\n".join(lines), encoding="utf-8")
+    pdf_path = output_root / f"{key}.pdf"
+    table_figure = plt.figure(figsize=(10.5, max(1.8, 0.55 * (len(display) + 1))), dpi=100)
+    table_axis = table_figure.add_axes([0.03, 0.08, 0.94, 0.84])
+    table_axis.axis("off")
+    table = table_axis.table(
+        cellText=[[str(row[column]) for column in columns] for row in display],
+        colLabels=list(columns),
+        loc="center",
+        cellLoc="center",
+        colLoc="center",
+    )
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.0, 1.8)
+    for (row_index, column_index), cell in table.get_celld().items():
+        cell.set_edgecolor("#444444")
+        if row_index == 0:
+            cell.set_facecolor("#E9EEF7")
+            cell.set_text_props(weight="bold")
+        elif row_index % 2 == 0:
+            cell.set_facecolor("#F7F7F7")
+    table_figure.savefig(pdf_path, format="pdf", facecolor="white")
+    plt.close(table_figure)
+    if not pdf_path.read_bytes().startswith(b"%PDF-"):
+        raise RuntimeError(f"failed to produce an openable table PDF: {pdf_path}")
     return {
         "status": provenance["status"],
         "input": str(csv_path),
@@ -1018,6 +1061,8 @@ def _write_table(
         "provenance": str(sidecar),
         "output": str(tex_path),
         "output_sha256": sha256(tex_path),
+        "pdf": str(pdf_path),
+        "pdf_sha256": sha256(pdf_path),
     }
 
 

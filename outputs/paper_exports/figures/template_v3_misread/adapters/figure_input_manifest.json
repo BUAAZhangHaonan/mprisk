@@ -1,0 +1,9 @@
+{
+  "budget_marker_sha256": "f2f0c63118034acebfce8bb5beffb8bcdade899676224c964ee32c5a86f75759",
+  "budget_root": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/budgets",
+  "labels_root": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1",
+  "probe_marker_sha256": "aaafe3722830960b663b0696669a2c6ec2bf5f781587d6c50f618f6f1827da51",
+  "probe_root": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/paper_exports/figures/template_v3_misread/adapters/probes",
+  "schema": "mprisk_template_v3_adapter_manifest_v1",
+  "source_read_only": true
+}

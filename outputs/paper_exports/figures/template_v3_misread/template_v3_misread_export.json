@@ -1,0 +1,100 @@
+{
+  "excluded_labels": {
+    "blocked": 5,
+    "label_eligible": 5684,
+    "probe_eligible": 5684,
+    "unresolved": 2
+  },
+  "figures": {
+    "fig05_state_patterns_template_v3_misread": {
+      "input": "outputs/paper_exports/figures/template_v3_misread/fig05_state_patterns_template_v3_misread.csv",
+      "input_sha256": "4b7a123011f0770d2bdb821bc2062773634bdac261bb338bdcb732fa28b11a1b",
+      "pdf": "paper/figures/generated/template_v3_misread/fig05_state_patterns_template_v3_misread.pdf",
+      "pdf_sha256": "557f2111beea98f30201328ac1ad968ccf1a729145e184c37015015658aa3a74",
+      "png": "paper/figures/generated/template_v3_misread/fig05_state_patterns_template_v3_misread.png",
+      "png_sha256": "e5e8ecb5c98f5d61a22b012fe53b34d8c813ed4b5a1e6e62e80d0e4616f04ca2",
+      "provenance": "outputs/paper_exports/figures/template_v3_misread/fig05_state_patterns_template_v3_misread.csv.provenance.json",
+      "provenance_sha256": "506c2baaa0e118aa3bf773dd1a725565a922be2bb1821a953e55cbeeb7bda005",
+      "readiness": {
+        "misread": true
+      }
+    },
+    "fig07_misread_associations_template_v3_misread": {
+      "input": "outputs/paper_exports/figures/template_v3_misread/fig07_misread_associations_template_v3_misread.csv",
+      "input_sha256": "4af9021898bec2d7a0f0759df3f9f77cc7430aeabe8dac0a140f01ee696f7c7a",
+      "pdf": "paper/figures/generated/template_v3_misread/fig07_misread_associations_template_v3_misread.pdf",
+      "pdf_sha256": "a5a0694fdda1b8b4553f88a050cbf3539794f2681132fd85e98d82e4b52fc61c",
+      "png": "paper/figures/generated/template_v3_misread/fig07_misread_associations_template_v3_misread.png",
+      "png_sha256": "cd954725f226c817ecae59a8f255a4fa5cd41c94c3e96cf3ad8964d30cd97dbb",
+      "provenance": "outputs/paper_exports/figures/template_v3_misread/fig07_misread_associations_template_v3_misread.csv.provenance.json",
+      "provenance_sha256": "14265dc0ddc09b06d2d21e4d44ea902d496568eff6f7be8f081a38f3ff5b05a3",
+      "readiness": {
+        "bias": true,
+        "misread": true
+      }
+    },
+    "fig08_representation_quality_template_v3_misread": {
+      "input": "outputs/paper_exports/figures/template_v3_misread/fig08_representation_quality_template_v3_misread.csv",
+      "input_sha256": "050fcf78e997ed682e38c21751b9ce234bdb1dc2d0f8353d4c3a69f48561b24b",
+      "pdf": "paper/figures/generated/template_v3_misread/fig08_representation_quality_template_v3_misread.pdf",
+      "pdf_sha256": "847a7f1d15864727dd75c26ff84e8c250effed9d966f0ad1eaf0562fd9314def",
+      "png": "paper/figures/generated/template_v3_misread/fig08_representation_quality_template_v3_misread.png",
+      "png_sha256": "efdb644449a2cdaaab54e1cfa7caaedaf5032ce8c4601695347c87408941a65e",
+      "provenance": "outputs/paper_exports/figures/template_v3_misread/fig08_representation_quality_template_v3_misread.csv.provenance.json",
+      "provenance_sha256": "ebe1ab85f114125dbd6decf57e70cb403e8acbc15dd639ab4cda5d76686e3201",
+      "readiness": {
+        "budget": true,
+        "ca_umap": true
+      }
+    }
+  },
+  "formal_roots": {
+    "budgets": {
+      "marker": "outputs/paper_exports/figures/template_v3_misread/adapters/budgets/COMPLETE.json",
+      "marker_sha256": "f2f0c63118034acebfce8bb5beffb8bcdade899676224c964ee32c5a86f75759",
+      "path": "outputs/paper_exports/figures/template_v3_misread/adapters/budgets",
+      "schema": "mprisk_formal_conflict_budget_root_v1",
+      "status": "complete"
+    },
+    "labels": {
+      "marker": "outputs/labels/delivery_20260716_single_flash_v1/COMPLETE.json",
+      "marker_sha256": "89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f",
+      "path": "outputs/labels/delivery_20260716_single_flash_v1",
+      "schema": "mprisk_formal_misread_labels_root_v1",
+      "status": "partial_manual_review_required"
+    },
+    "probes": {
+      "marker": "outputs/paper_exports/figures/template_v3_misread/adapters/probes/COMPLETE.json",
+      "marker_sha256": "aaafe3722830960b663b0696669a2c6ec2bf5f781587d6c50f618f6f1827da51",
+      "path": "outputs/paper_exports/figures/template_v3_misread/adapters/probes",
+      "schema": "mprisk_formal_misread_probe_root_v1",
+      "status": "complete"
+    }
+  },
+  "input_root": "outputs/paper_exports/figures/template_v3_misread",
+  "output_root": "paper/figures/generated/template_v3_misread",
+  "schema": "mprisk_template_v3_misread_export_v1",
+  "source_root": "outputs/paper_exports/figures",
+  "tables": {
+    "tab01_cross_backbone_results_template_v3_misread": {
+      "input": "outputs/paper_exports/tables/template_v3_misread/tab01_cross_backbone_results_template_v3_misread.csv",
+      "input_sha256": "0f8e5f49c22dba440b15301bf7f4f74ab91814a360c3238ac131af27a6dd8844",
+      "output": "paper/tables/generated/template_v3_misread/tab01_cross_backbone_results_template_v3_misread.tex",
+      "output_sha256": "c4f6302996b9862ee5caf8cb56caefa6af254835a015f0af24801148a681008c",
+      "pdf": "paper/tables/generated/template_v3_misread/tab01_cross_backbone_results_template_v3_misread.pdf",
+      "pdf_sha256": "7bd566cd75a9b26709a0b543856363fac09887130999032a3fc1c0868b75b452",
+      "provenance": "outputs/paper_exports/tables/template_v3_misread/tab01_cross_backbone_results_template_v3_misread.csv.provenance.json",
+      "status": "Ready"
+    },
+    "tab02_conflict_misread_baselines_template_v3_misread": {
+      "input": "outputs/paper_exports/tables/template_v3_misread/tab02_conflict_misread_baselines_template_v3_misread.csv",
+      "input_sha256": "614f8ecffc6ab125fcbc52d506e05fb313ff3aab0e2277915aadf85bfb21dfa2",
+      "output": "paper/tables/generated/template_v3_misread/tab02_conflict_misread_baselines_template_v3_misread.tex",
+      "output_sha256": "fa7ee40c7203a978cd77973360c88f38e0ff8cbcf3341ec30da779ad4e24ddf1",
+      "pdf": "paper/tables/generated/template_v3_misread/tab02_conflict_misread_baselines_template_v3_misread.pdf",
+      "pdf_sha256": "7dd81b93596e1b9d2129980d5b53e3a83bd056fd7e04454be946038011b9b5a0",
+      "provenance": "outputs/paper_exports/tables/template_v3_misread/tab02_conflict_misread_baselines_template_v3_misread.csv.provenance.json",
+      "status": "Pending"
+    }
+  }
+}
