@@ -1,0 +1,43 @@
+schema: mprisk_conflict_misread_probe_config_v1
+status: ready
+run_id: delivery_20260716_qwen3_vl_8b_primary_conflict_probe_v1
+model_key: qwen3_vl_8b
+protocol: vt
+prompt_set_key: vt_main_p8_seed20260717
+labels:
+  root: outputs/labels/delivery_20260716_single_flash_v1
+  complete_sha256: 89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f
+  artifact_sha256: f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c
+  expected_eligible_rows_sha256: 751d4c5d4e49a613996a40505586f3ba3101895b5278ddc1d12c05454feacb19
+representations:
+- name: single_point
+  path: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_inputs_v1/qwen3_vl_8b/single_point/frozen_baseline_conflict_probe.jsonl
+  sha256: bd23f7340544998014cd54424eaf9c40991f76471e4d68b5a1c52d041280f95d
+  repr_key: single_point_binary_v1
+  feature_field: penultimate_feature
+  expected_feature_dim: 12288
+- name: trajectory_mlp
+  path: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_inputs_v1/qwen3_vl_8b/trajectory_mlp/frozen_baseline_conflict_probe.jsonl
+  sha256: ff06c553cca8530b35c35abfe252e0a12e3f3262298ef3b85bf6a7ece9cc3a50
+  repr_key: trajectory_mlp_binary_v1
+  feature_field: penultimate_feature
+  expected_feature_dim: 128
+- name: tme
+  path: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_inputs_v1/qwen3_vl_8b/tme/frozen_tme_conflict_probe.jsonl
+  sha256: 6e218eb764df0642949a7ea05bb2665eb450fd0e1ca261f2db1f34fea3ee9edc
+  repr_key: tme_proxy_anchor_v1
+  feature_field: sample_relation_feature
+  expected_feature_dim: 32
+split_assignment_key: delivery_20260716_representation_split_v1
+split_assignment_sha256: e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41
+expected_sample_ids_sha256: a03440c4813d5275edffaf196d55e303ca78ca978a0cad8fde51b30ead6966eb
+training:
+  seed: 20260717
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  hidden_dim: 128
+  dropout: 0.1
+  device: cpu
+output_root: outputs/downstream/delivery_20260716/seed20260717/formal_misread_probe_v1/qwen3_vl_8b
