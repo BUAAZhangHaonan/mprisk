@@ -10,6 +10,7 @@ from mprisk.experiments.conflict_supervision_budget import (
     BudgetMethod,
     BudgetPlanError,
     _ac_consolidated_row,
+    _selection_scoped_path,
     retained_conflict_rows,
 )
 
@@ -97,3 +98,16 @@ def test_budget_uses_registered_official_ac_metric_fields(tmp_path) -> None:
     assert row["macro_f1"] == 0.7
     assert row["auprc"] == 0.6
     assert "balanced_accuracy" not in row
+
+
+def test_model_selected_queues_use_independent_lock_and_summary_paths(tmp_path) -> None:
+    all_models = {"qwen3_vl_8b", "internvl3_5_8b", "qwen2_5_omni_7b"}
+    base = tmp_path / "BUDGET_COMPLETE.json"
+
+    qwen = _selection_scoped_path(base, {"qwen3_vl_8b"}, all_models)
+    intern = _selection_scoped_path(base, {"internvl3_5_8b"}, all_models)
+    omni = _selection_scoped_path(base, {"qwen2_5_omni_7b"}, all_models)
+
+    assert len({qwen, intern, omni}) == 3
+    assert qwen.name == "BUDGET_COMPLETE.qwen3_vl_8b.json"
+    assert _selection_scoped_path(base, all_models, all_models) == base

@@ -181,8 +181,9 @@ def run_conflict_supervision_budget(
 ) -> Path:
     """Run all selected budgets and return the checksummed completion marker."""
     plan = load_budget_plan(config_path)
-    selected_models = set(model_keys or (job.model_key for job in plan.jobs))
-    unknown_models = selected_models - {job.model_key for job in plan.jobs}
+    all_models = {job.model_key for job in plan.jobs}
+    selected_models = set(model_keys or all_models)
+    unknown_models = selected_models - all_models
     if unknown_models:
         raise BudgetPlanError(f"unknown model selection: {sorted(unknown_models)}")
     selected_methods = set(method_names or METHOD_REPR_KEYS)
@@ -194,8 +195,9 @@ def run_conflict_supervision_budget(
         raise BudgetPlanError(f"configured CUDA device is unavailable: {plan.device}")
     torch.cuda.set_per_process_memory_fraction(plan.max_gpu_memory_fraction, device_index)
     plan.output_root.mkdir(parents=True, exist_ok=True)
-    plan.lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_handle = plan.lock_path.open("a+")
+    lock_path = _selection_scoped_path(plan.lock_path, selected_models, all_models)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_handle = lock_path.open("a+")
     try:
         fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError as exc:
@@ -280,17 +282,24 @@ def run_conflict_supervision_budget(
                     )
                     completed_markers.append(fraction_marker)
         csv_path = _write_csv(
-            plan.output_root / "conflict_supervision_budget_ac_metrics.csv",
+            _selection_scoped_path(
+                plan.output_root / "conflict_supervision_budget_ac_metrics.csv",
+                selected_models,
+                all_models,
+            ),
             consolidated_rows,
         )
         marker = write_json(
-            plan.output_root / "BUDGET_COMPLETE.json",
+            _selection_scoped_path(
+                plan.output_root / "BUDGET_COMPLETE.json",
+                selected_models,
+                all_models,
+            ),
             {
                 "schema": RUN_COMPLETE_SCHEMA,
                 "status": (
                     "complete"
-                    if selected_models == {job.model_key for job in plan.jobs}
-                    and selected_methods == set(METHOD_REPR_KEYS)
+                    if selected_models == all_models and selected_methods == set(METHOD_REPR_KEYS)
                     else "partial_selection_complete"
                 ),
                 "delivery": "delivery_20260716",
@@ -300,6 +309,7 @@ def run_conflict_supervision_budget(
                 "methods": sorted(selected_methods),
                 "config": str(plan.path),
                 "config_sha256": _sha256(plan.path),
+                "lock_path": str(lock_path),
                 "fraction_markers": [
                     {"path": str(path), "sha256": _sha256(path)} for path in completed_markers
                 ],
@@ -648,6 +658,16 @@ def _pinned_file(root: Path, spec: Any, label: str) -> Path:
 def _resolve(root: Path, value: Any) -> Path:
     path = Path(str(value)).expanduser()
     return path.resolve() if path.is_absolute() else (root / path).resolve()
+
+
+def _selection_scoped_path(path: Path, selected_models: set[str], all_models: set[str]) -> Path:
+    """Give each partial model queue an independent lock and summary artifact."""
+    if not selected_models or not selected_models <= all_models:
+        raise BudgetPlanError("selection scope contains no registered model")
+    if selected_models == all_models:
+        return path
+    scope = "__".join(sorted(selected_models))
+    return path.with_name(f"{path.stem}.{scope}{path.suffix}")
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
