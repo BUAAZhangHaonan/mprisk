@@ -241,24 +241,13 @@ def run_conflict_supervision_budget(
                     method_markers[method.name] = marker
                     probe_sets[method.name] = probe_ids
                     consolidated_rows.append(
-                        {
-                            "model_key": job.model_key,
-                            "protocol": job.protocol,
-                            "method": method.name,
-                            "repr_key": METHOD_REPR_KEYS[method.name],
-                            "conflict_supervision_fraction": fraction,
-                            "retained_conflict_train_groups": subset[
-                                "retained_conflict_group_count"
-                            ],
-                            "available_conflict_train_groups": subset[
-                                "available_conflict_group_count"
-                            ],
-                            "accuracy": metrics["accuracy"],
-                            "balanced_accuracy": metrics["balanced_accuracy"],
-                            "macro_f1": metrics["macro_f1"],
-                            "auprc": metrics["auprc"],
-                            "misread_probe_status": "awaiting_bound_probe_run",
-                        }
+                        _ac_consolidated_row(
+                            job=job,
+                            method=method,
+                            fraction=fraction,
+                            subset=subset,
+                            metrics=metrics,
+                        )
                     )
                 if set(method_markers) == selected_methods:
                     if len({frozenset(value) for value in probe_sets.values()}) != 1:
@@ -376,6 +365,34 @@ def retained_conflict_rows(
         "retained_conflict_group_count": keep_count,
         "retained_conflict_group_ids": kept_list,
         "retained_conflict_group_ids_sha256": _sample_ids_sha256(set(kept_list)),
+    }
+
+
+def _ac_consolidated_row(
+    *,
+    job: BudgetJob,
+    method: BudgetMethod,
+    fraction: float,
+    subset: dict[str, Any],
+    metrics: dict[str, Any],
+) -> dict[str, Any]:
+    """Map the registered official C/A metric contract to the budget table."""
+    required_metrics = {"accuracy", "macro_f1", "auprc"}
+    missing = required_metrics - set(metrics)
+    if missing:
+        raise BudgetPlanError(f"official C/A metrics are missing fields: {sorted(missing)}")
+    return {
+        "model_key": job.model_key,
+        "protocol": job.protocol,
+        "method": method.name,
+        "repr_key": METHOD_REPR_KEYS[method.name],
+        "conflict_supervision_fraction": fraction,
+        "retained_conflict_train_groups": subset["retained_conflict_group_count"],
+        "available_conflict_train_groups": subset["available_conflict_group_count"],
+        "accuracy": metrics["accuracy"],
+        "macro_f1": metrics["macro_f1"],
+        "auprc": metrics["auprc"],
+        "misread_probe_status": "awaiting_bound_probe_run",
     }
 
 
@@ -674,7 +691,6 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> Path:
             "retained_conflict_train_groups",
             "available_conflict_train_groups",
             "accuracy",
-            "balanced_accuracy",
             "macro_f1",
             "auprc",
             "misread_probe_status",

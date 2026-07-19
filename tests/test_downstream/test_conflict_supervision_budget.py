@@ -6,7 +6,10 @@ import pytest
 
 from mprisk.experiments.conflict_supervision_budget import (
     FRACTIONS,
+    BudgetJob,
+    BudgetMethod,
     BudgetPlanError,
+    _ac_consolidated_row,
     retained_conflict_rows,
 )
 
@@ -76,3 +79,21 @@ def test_budget_subset_is_seed_deterministic() -> None:
 def test_budget_rejects_unregistered_fraction() -> None:
     with pytest.raises(BudgetPlanError, match="unregistered"):
         retained_conflict_rows(_rows(), fraction=0.20, seed=17)
+
+
+def test_budget_uses_registered_official_ac_metric_fields(tmp_path) -> None:
+    row = _ac_consolidated_row(
+        job=BudgetJob("qwen3_vl_8b", "vt", tmp_path / "relation", "a" * 64, ()),
+        method=BudgetMethod("single_point", tmp_path / "config", "b" * 64),
+        fraction=0.1,
+        subset={
+            "retained_conflict_group_count": 51,
+            "available_conflict_group_count": 510,
+        },
+        metrics={"accuracy": 0.8, "macro_f1": 0.7, "auprc": 0.6},
+    )
+
+    assert row["accuracy"] == 0.8
+    assert row["macro_f1"] == 0.7
+    assert row["auprc"] == 0.6
+    assert "balanced_accuracy" not in row
