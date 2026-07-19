@@ -17,6 +17,7 @@ from mprisk.representation.relation_models import (
 )
 from mprisk.representation.training import (
     TrainingConfig,
+    export_frozen_baseline_probe_representations,
     export_frozen_baseline_representations,
 )
 
@@ -81,6 +82,40 @@ def _official_test_dataset(tmp_path: Path) -> Path:
                 }
             )
     path = tmp_path / "official-test.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+    return path
+
+
+def _full_probe_dataset(tmp_path: Path) -> Path:
+    source = _official_test_dataset(tmp_path)
+    template_rows = [json.loads(line) for line in source.read_text().splitlines()]
+    rows = []
+    for split_index, split in enumerate(("relation_train", "relation_val", "official_test")):
+        for row in template_rows:
+            if row["sample_type"] != "Conflict":
+                continue
+            copied = dict(row)
+            sample_id = f"sample-c-{split_index}"
+            copied["sample_id"] = sample_id
+            copied["row_id"] = f"{sample_id}:{row['prompt_id']}"
+            copied["split_group_id"] = f"group-{sample_id}"
+            copied["representation_split"] = split
+            copied["master_split"] = {
+                "relation_train": "train",
+                "relation_val": "val",
+                "official_test": "test",
+            }[split]
+            copied["conditions"] = {
+                condition: _condition_row(
+                    tmp_path,
+                    sample_id=sample_id,
+                    condition=condition,
+                    prompt_id=str(row["prompt_id"]),
+                )
+                for condition in ("M1", "M2", "M12")
+            }
+            rows.append(copied)
+    path = tmp_path / "full-probe.jsonl"
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     return path
 
@@ -224,6 +259,42 @@ def test_baseline_export_rejects_seven_prompt_samples(tmp_path: Path) -> None:
             checkpoint_path=_checkpoint(tmp_path, TRAJECTORY_MLP_BINARY_V1),
             output_dir=tmp_path / "export-seven",
         )
+
+
+def test_probe_export_uses_full_conflict_split_intersection(tmp_path: Path, monkeypatch) -> None:
+    dataset = _full_probe_dataset(tmp_path)
+
+    def fake_extract(entry):
+        split_offset = int(entry.sample_id.rsplit("-", 1)[1])
+        return np.full((2, 3), split_offset + 0.1, dtype=np.float32)
+
+    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    result = export_frozen_baseline_probe_representations(
+        dataset_path=dataset,
+        checkpoint_path=_checkpoint(tmp_path, TRAJECTORY_MLP_BINARY_V1),
+        output_dir=tmp_path / "probe-export",
+    )
+
+    rows = [json.loads(line) for line in result.manifest_path.read_text().splitlines()]
+    summary = json.loads(result.summary_path.read_text())
+    assert [row["sample_id"] for row in rows] == [
+        "sample-c-0",
+        "sample-c-1",
+        "sample-c-2",
+    ]
+    assert {row["representation_split"] for row in rows} == {
+        "relation_train",
+        "relation_val",
+        "official_test",
+    }
+    assert all(row["sample_type"] == "Conflict" for row in rows)
+    assert summary["sample_count"] == 3
+    assert summary["representation_splits"] == [
+        "relation_train",
+        "relation_val",
+        "official_test",
+    ]
+    assert len(summary["sample_ids_sha256"]) == 64
 
 
 def test_single_point_export_rejects_hidden_projection_checkpoint_drift(

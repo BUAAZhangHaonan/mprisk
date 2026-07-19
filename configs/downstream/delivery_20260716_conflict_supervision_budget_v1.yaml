@@ -1,0 +1,56 @@
+schema: mprisk_conflict_supervision_budget_config_v1
+status: ready
+delivery: delivery_20260716
+seed: 20260717
+fractions: [0.10, 0.25, 0.50, 1.00]
+output_root: outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1
+lock_path: outputs/downstream/runtime_locks/delivery_20260716_conflict_supervision_budget_v1.lock
+resource_gate:
+  device: cuda:0
+  max_gpu_memory_fraction: 0.80
+jobs:
+  - model_key: qwen3_vl_8b
+    protocol: vt
+    relation_dataset:
+      path: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b/relation/relation_dataset.jsonl
+      sha256: 5eb1322d89d4fdf11d76026931f8e35461cc47339a7593e1f94cdd4a139a5fe2
+    methods:
+      single_point:
+        path: configs/experiments/seed_runs/seed20260717/qwen3_vl_8b_single_point_binary_v1.yaml
+        sha256: de30b96c8c7d561b2f2591183ce3086924fdf3cbe7d192a8c5322354b7b9e93d
+      trajectory_mlp:
+        path: configs/experiments/seed_runs/seed20260717/qwen3_vl_8b_trajectory_mlp_binary_v1.yaml
+        sha256: ef363360dc0e49b0dd8f0fb79c1e14ae17d4f7d8d6e5bca55887a2ef7fbc4761
+      tme:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen3_vl_8b_tme_pa_dstrong_v2.yaml
+        sha256: d8c645716705f5b052085fe9d3636d78ebf500729e0249596d63a5515e43d53a
+  - model_key: internvl3_5_8b
+    protocol: vt
+    relation_dataset:
+      path: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/internvl3_5_8b/relation/relation_dataset.jsonl
+      sha256: b44095405707ca61f536061e9813746abc455290aee1135b78063b5c2f7136b4
+    methods:
+      single_point:
+        path: configs/experiments/seed_runs/seed20260717/internvl3_5_8b_single_point_binary_v1.yaml
+        sha256: 1ac31e6b031335d1847d1628c9cdb1af0890f2dcb0455b8dca0faf3b3479f86e
+      trajectory_mlp:
+        path: configs/experiments/seed_runs/seed20260717/internvl3_5_8b_trajectory_mlp_binary_v1.yaml
+        sha256: c2bbc799d25ed1456caa305b0df2038de6a860a6a8cd2c7a0d29b015b5c4587d
+      tme:
+        path: configs/experiments/delivery_20260716/seed20260717/internvl3_5_8b_tme_pa_dstrong_v2.yaml
+        sha256: 0fd8b3f6464894cf1f96252f3a42b81245afdf9fe233d8edb5f5d2da8beb1651
+  - model_key: qwen2_5_omni_7b
+    protocol: va
+    relation_dataset:
+      path: outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen2_5_omni_7b/relation/relation_dataset.jsonl
+      sha256: 523884ae79088e55e0f55359e9781889c6bb54fe27f2ea6344caab2ee6c34e2a
+    methods:
+      single_point:
+        path: configs/experiments/seed_runs/seed20260717/qwen2_5_omni_7b_single_point_binary_v1.yaml
+        sha256: e0b2baf8d2971dd0bd0f42a41e1929165c7b6f367ca86ba7b84f2c3e31ad18ed
+      trajectory_mlp:
+        path: configs/experiments/seed_runs/seed20260717/qwen2_5_omni_7b_trajectory_mlp_binary_v1.yaml
+        sha256: acf1d0d1297e6d0b120c41d2d39bca91b801f507f57c1d18dbdd4f0686ad5bea
+      tme:
+        path: configs/experiments/delivery_20260716/seed20260717/qwen2_5_omni_7b_tme_pa_dstrong_v2.yaml
+        sha256: 28c852c47240798dec3f24c4654d5ece40bd5968629710377297ef4e456d3b2e

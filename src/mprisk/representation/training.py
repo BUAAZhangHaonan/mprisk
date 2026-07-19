@@ -251,15 +251,9 @@ def train_trajectory_encoder(
         best_score = float(checkpoint["best_score"])
         best_epoch = int(checkpoint["best_epoch"])
         stale_epochs = int(checkpoint["stale_epochs"])
-        best_validation_state_separation = checkpoint.get(
-            "best_validation_state_separation"
-        )
-        unconstrained_best_score = float(
-            checkpoint.get("unconstrained_best_score", best_score)
-        )
-        unconstrained_best_epoch = int(
-            checkpoint.get("unconstrained_best_epoch", best_epoch)
-        )
+        best_validation_state_separation = checkpoint.get("best_validation_state_separation")
+        unconstrained_best_score = float(checkpoint.get("unconstrained_best_score", best_score))
+        unconstrained_best_epoch = int(checkpoint.get("unconstrained_best_epoch", best_epoch))
         unconstrained_best_validation_state_separation = checkpoint.get(
             "unconstrained_best_validation_state_separation",
             best_validation_state_separation,
@@ -307,10 +301,7 @@ def train_trajectory_encoder(
             unconstrained_best_epoch = epoch
             unconstrained_best_validation_state_separation = val_state_separation
         if state_constrained_selection:
-            improved = (
-                bool(checkpoint_feasibility["feasible"])
-                and val_score > best_score
-            )
+            improved = bool(checkpoint_feasibility["feasible"]) and val_score > best_score
         else:
             improved = val_score > best_score + config.min_delta
         if improved:
@@ -446,9 +437,7 @@ def train_trajectory_encoder(
                     "min_raw_theta_gap_deg": math.degrees(
                         config.state_selection_min_raw_theta_gap_rad
                     ),
-                    "max_D_mannwhitney_p": (
-                        config.state_selection_max_d_mannwhitney_p
-                    ),
+                    "max_D_mannwhitney_p": (config.state_selection_max_d_mannwhitney_p),
                     "min_D_effect_size": config.state_selection_min_d_effect_size,
                     "rule": "highest_finite_val_balanced_accuracy_among_feasible_epochs",
                 },
@@ -512,9 +501,7 @@ def export_frozen_representations(
             or not checkpoint.get("checkpoint_feasibility", {}).get("feasible", False)
         )
     ):
-        raise ValueError(
-            "state-supervised TME export requires the final feasible checkpoint"
-        )
+        raise ValueError("state-supervised TME export requires the final feasible checkpoint")
     if checkpoint.get("repr_key") != TME_PROXY_ANCHOR_V1:
         raise ValueError(
             "condition z and relation r export requires a tme_proxy_anchor_v1 checkpoint"
@@ -651,6 +638,112 @@ def export_frozen_baseline_representations(
             "feature_definition": _baseline_feature_definition(repr_key),
             "feature_dim": feature_dim,
             "sample_count": sample_count,
+        },
+    )
+    return FrozenBaselineExportResult(manifest_path, summary_path, sample_count)
+
+
+def export_frozen_baseline_probe_representations(
+    *,
+    dataset_path: str | Path,
+    checkpoint_path: str | Path,
+    output_dir: str | Path,
+    representation_splits: tuple[str, ...] = (
+        "relation_train",
+        "relation_val",
+        "official_test",
+    ),
+) -> FrozenBaselineExportResult:
+    """Export frozen Conflict features for the fixed downstream Misread probe.
+
+    The encoder may have been trained with a reduced Conflict-supervision
+    budget, but this export always applies the frozen checkpoint to the full
+    registered relation dataset.  Keeping this path separate from the
+    held-out C/A exporter prevents the probe contract from weakening official
+    evaluation rules.
+    """
+    expected_splits = ("relation_train", "relation_val", "official_test")
+    if tuple(representation_splits) != expected_splits:
+        raise ValueError("baseline probe export requires relation_train/relation_val/official_test")
+    checkpoint_file = Path(checkpoint_path)
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    _validate_checkpoint_architecture(checkpoint)
+    repr_key = str(checkpoint.get("repr_key", ""))
+    if repr_key not in {SINGLE_POINT_BINARY_V1, TRAJECTORY_MLP_BINARY_V1}:
+        raise ValueError("baseline probe export requires a registered baseline checkpoint")
+    if checkpoint.get("proxy_state_dict") is not None:
+        raise ValueError("baseline checkpoints must not contain Proxy Anchor state")
+    config = TrainingConfig(**checkpoint["training_config"])
+    _validate_config(config)
+    rows = _read_relation_rows(
+        dataset_path,
+        expected_model_key=config.model_key,
+        expected_protocol=config.protocol,
+        expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+    )
+    _validate_registered_splits(rows)
+    selected_rows = [
+        row
+        for row in rows
+        if row["sample_type"] == "Conflict" and row["representation_split"] in representation_splits
+    ]
+    selected_split_set = {str(row["representation_split"]) for row in selected_rows}
+    if selected_split_set != set(expected_splits):
+        raise ValueError("full relation dataset lacks a Conflict probe split")
+    samples = sorted(
+        _rows_to_sample_refs(selected_rows),
+        key=lambda sample: (sample.sample_id, sample.prompt_id),
+    )
+    _validate_prompt_contract(samples, config=config)
+    model = build_representation_model(
+        repr_key,
+        input_dim=int(checkpoint["model_config"]["input_dim"]),
+        layer_count=int(checkpoint["model_config"]["layer_count"]),
+        hidden_dim=config.hidden_dim,
+        condition_dim=config.condition_dim,
+        relation_dim=config.relation_dim,
+        dropout=config.dropout,
+    )
+    model.load_state_dict(checkpoint["model_state_dict"])
+    model.eval()
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    manifest_path = output_root / "frozen_baseline_conflict_probe.jsonl"
+    checkpoint_sha256 = _sha256(checkpoint_file)
+    sample_count, feature_dim = _stream_baseline_exports(
+        samples=samples,
+        model=model,
+        batch_size=config.batch_size,
+        model_key=config.model_key,
+        repr_key=repr_key,
+        checkpoint_sha256=checkpoint_sha256,
+        prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+        manifest_path=manifest_path,
+    )
+    sample_ids = sorted({str(row["sample_id"]) for row in selected_rows})
+    summary_path = write_json(
+        output_root / "frozen_baseline_conflict_probe_summary.json",
+        {
+            "schema": "mprisk_frozen_baseline_conflict_probe_summary_v1",
+            "dataset": str(dataset_path),
+            "dataset_sha256": _sha256(Path(dataset_path)),
+            "checkpoint": str(checkpoint_file),
+            "encoder_checkpoint_sha256": checkpoint_sha256,
+            "manifest": str(manifest_path),
+            "manifest_sha256": _sha256(manifest_path),
+            "model_key": config.model_key,
+            "prompt_set_key": config.prompt_set_key,
+            "prompt_set_artifact_sha256": config.prompt_set_artifact_sha256,
+            "repr_key": repr_key,
+            "representation_splits": list(expected_splits),
+            "sample_type": "Conflict",
+            "aggregation": "mean_over_synchronized_prompts",
+            "feature_definition": _baseline_feature_definition(repr_key),
+            "feature_dim": feature_dim,
+            "sample_count": sample_count,
+            "sample_ids_sha256": hashlib.sha256(
+                json.dumps(sample_ids, separators=(",", ":")).encode()
+            ).hexdigest(),
         },
     )
     return FrozenBaselineExportResult(manifest_path, summary_path, sample_count)
@@ -1402,14 +1495,10 @@ def _state_separation_summary(
         f"{prefix}_D_pair_margin_satisfaction": float((d_gaps >= d_margin).float().mean()),
         f"{prefix}_aligned_split_angle_deg_mean": float(angle_aligned.mean() * degrees),
         f"{prefix}_conflict_split_angle_deg_mean": float(angle_conflict.mean() * degrees),
-        f"{prefix}_split_angle_gap_deg": float(
-            raw_theta_gap_rad * degrees
-        ),
+        f"{prefix}_split_angle_gap_deg": float(raw_theta_gap_rad * degrees),
         f"{prefix}_raw_theta_gap_rad": float(raw_theta_gap_rad),
         f"{prefix}_raw_theta_gap_deg": float(raw_theta_gap_rad * degrees),
-        f"{prefix}_split_angle_effect_size": _pooled_effect_size(
-            angle_aligned, angle_conflict
-        ),
+        f"{prefix}_split_angle_effect_size": _pooled_effect_size(angle_aligned, angle_conflict),
         f"{prefix}_angular_pair_margin_satisfaction": float(
             (angle_gaps >= angular_margin_rad).float().mean()
         ),
@@ -1441,20 +1530,17 @@ def _state_checkpoint_feasibility(
     )
     raw_theta_gap_rad = (
         float(val_state_separation["val_raw_theta_gap_rad"])
-        if val_state_separation is not None
-        and "val_raw_theta_gap_rad" in val_state_separation
+        if val_state_separation is not None and "val_raw_theta_gap_rad" in val_state_separation
         else float("nan")
     )
     d_mannwhitney_p = (
         float(val_state_separation["val_D_mannwhitney_p"])
-        if val_state_separation is not None
-        and "val_D_mannwhitney_p" in val_state_separation
+        if val_state_separation is not None and "val_D_mannwhitney_p" in val_state_separation
         else float("nan")
     )
     d_effect_size = (
         float(val_state_separation["val_D_effect_size"])
-        if val_state_separation is not None
-        and "val_D_effect_size" in val_state_separation
+        if val_state_separation is not None and "val_D_effect_size" in val_state_separation
         else float("nan")
     )
     required_metrics_finite = all(
@@ -1486,18 +1572,14 @@ def _state_checkpoint_feasibility(
         "observed_val_D_effect_size": d_effect_size,
         "minimum_val_D_gap": config.state_selection_min_d_gap,
         "minimum_val_raw_theta_gap_rad": config.state_selection_min_raw_theta_gap_rad,
-        "minimum_val_raw_theta_gap_deg": math.degrees(
-            config.state_selection_min_raw_theta_gap_rad
-        ),
+        "minimum_val_raw_theta_gap_deg": math.degrees(config.state_selection_min_raw_theta_gap_rad),
         "maximum_val_D_mannwhitney_p": config.state_selection_max_d_mannwhitney_p,
         "minimum_val_D_effect_size": config.state_selection_min_d_effect_size,
     }
 
 
 def _pooled_effect_size(aligned: torch.Tensor, conflict: torch.Tensor) -> float:
-    pooled_scale = torch.sqrt(
-        (aligned.var(unbiased=False) + conflict.var(unbiased=False)) / 2.0
-    )
+    pooled_scale = torch.sqrt((aligned.var(unbiased=False) + conflict.var(unbiased=False)) / 2.0)
     if float(pooled_scale) <= 1e-12:
         return 0.0
     return float((conflict.mean() - aligned.mean()) / pooled_scale)
@@ -1763,9 +1845,7 @@ def _batches(samples: list[_Sample], batch_size: int) -> list[list[_Sample]]:
 def _training_signature(dataset_path: str | Path, config: TrainingConfig) -> str:
     config_payload = asdict(config)
     config_payload.pop("max_epochs")
-    if not (
-        config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision
-    ):
+    if not (config.repr_key == TME_PROXY_ANCHOR_V1 and config.enable_state_supervision):
         config_payload.pop("state_selection_min_d_gap")
         config_payload.pop("state_selection_min_raw_theta_gap_rad")
         config_payload.pop("state_selection_max_d_mannwhitney_p")
@@ -1851,9 +1931,7 @@ def _validate_config(config: TrainingConfig) -> None:
                 )
             if (
                 not math.isfinite(config.state_selection_min_raw_theta_gap_rad)
-                or not 0.0
-                < config.state_selection_min_raw_theta_gap_rad
-                <= math.pi
+                or not 0.0 < config.state_selection_min_raw_theta_gap_rad <= math.pi
             ):
                 raise ValueError(
                     "state-supervised TME state_selection_min_raw_theta_gap_rad must be in (0, pi]"
