@@ -180,11 +180,12 @@ def aggregate_timing(path: str | Path) -> list[dict[str, Any]]:
                 "prompt_count": p,
                 "full_prefill_seconds": full,
                 "prompt_kv_prefill_seconds": kv,
-                "prefill_speedup": None if kv == 0 else full / kv,
+                # P=1 has no reusable prefix, so a KV speedup is not defined.
+                "prefill_speedup": None if p == 1 or kv == 0 else full / kv,
                 "generation_seconds": generation,
                 "full_end_to_end_seconds": full_e2e,
                 "prompt_kv_end_to_end_seconds": kv_e2e,
-                "end_to_end_speedup": None if kv_e2e == 0 else full_e2e / kv_e2e,
+                "end_to_end_speedup": None if p == 1 or kv_e2e == 0 else full_e2e / kv_e2e,
                 "condition_count": len(rows),
             }
         )
