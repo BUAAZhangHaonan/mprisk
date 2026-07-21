@@ -313,13 +313,12 @@ def _render_latency(rows: list[dict[str, Any]], expected: tuple[int, ...], pdf: 
 def _render_latency_bar(
     rows: list[dict[str, Any]], expected: tuple[int, ...], pdf: Path, png: Path
 ) -> None:
-    """Render total end-to-end latency as equal-width grouped bars.
+    """Render prefill/generation timing as two bars per prompt budget.
 
-    The legacy latency figure is retained above for reproducibility.  This
-    figure is the publication-facing view: each P occupies one categorical
-    slot, so the bar widths and gaps do not change with the numerical value of
-    P.  The two series are the recorded full-prefill and Prompt-KV
-    end-to-end totals (prefill plus the same generation time).
+    The Full bar is stacked: its lower segment is full prefill and its upper
+    segment is generation.  The Prompt-KV bar contains only the measured KV
+    prefill, because this cache path does not retain generation timing.  This
+    keeps the two timing protocols visually and semantically separate.
     """
     by_p = {int(row["prompt_count"]): row for row in rows}
     missing = [p for p in expected if p not in by_p]
@@ -328,8 +327,9 @@ def _render_latency_bar(
 
     ordered = [by_p[p] for p in expected]
     x = list(range(len(expected)))
-    full = [float(row["full_end_to_end_seconds"]) for row in ordered]
-    kv = [float(row["prompt_kv_end_to_end_seconds"]) for row in ordered]
+    full_prefill = [float(row["full_prefill_seconds"]) for row in ordered]
+    generation = [float(row["generation_seconds"]) for row in ordered]
+    prompt_kv = [float(row["prompt_kv_prefill_seconds"]) for row in ordered]
     width = 0.36
 
     plt.rcParams.update(
@@ -341,41 +341,49 @@ def _render_latency_bar(
         }
     )
     fig, ax = plt.subplots(figsize=(7.6, 4.8), constrained_layout=True)
-    full_bars = ax.bar(
-        [value - width / 2 for value in x],
-        full,
-        width=width,
-        color="#577590",
-        label="Full prefill + generation",
-        zorder=2,
-    )
-    kv_bars = ax.bar(
-        [value + width / 2 for value in x],
-        kv,
-        width=width,
-        color="#f3722c",
-        label="Prompt KV + generation",
-        zorder=2,
-    )
+    full_x = [value - width / 2 for value in x]
+    kv_x = [value + width / 2 for value in x]
 
-    # P=8 is the selected knee/constraint point.  Use a restrained outline so
-    # the selection remains visible without adding an annotation to the plot.
-    if 8 in expected:
-        selected = expected.index(8)
-        ax.axvspan(selected - 0.48, selected + 0.48, color="#2a9d8f", alpha=0.08, zorder=0)
-        for bar in (full_bars[selected], kv_bars[selected]):
-            bar.set_edgecolor("#2a9d8f")
-            bar.set_linewidth(2.0)
+    # The Full protocol includes generation; Prompt-KV reports only prefill.
+    ax.bar(
+        full_x,
+        full_prefill,
+        width=width,
+        color="#315f8f",
+        label="Full prefill",
+        zorder=2,
+    )
+    ax.bar(
+        full_x,
+        generation,
+        width=width,
+        bottom=full_prefill,
+        color="#9dc1e2",
+        label="Generation",
+        zorder=2,
+    )
+    ax.bar(
+        kv_x,
+        prompt_kv,
+        width=width,
+        color="#6e9fc8",
+        label="Prompt-KV prefill",
+        zorder=2,
+    )
 
     ax.set_xticks(x)
     ax.set_xticklabels([str(value) for value in expected])
     ax.set_xlabel("Equivalent prompts, P")
-    ax.set_ylabel("Total latency (s)")
+    ax.set_ylabel("Latency (s)")
     ax.set_xlim(-0.6, len(expected) - 0.4)
-    ymax = max(full + kv)
+    ymax = max(
+        full_prefill[index] + generation[index]
+        for index in range(len(ordered))
+    )
     ax.set_ylim(0, ymax * 1.08)
     ax.grid(axis="y", color="#d9dde2", linewidth=0.8, alpha=0.75, zorder=1)
-    ax.legend(frameon=False, loc="upper left", ncol=2)
+    ax.set_axisbelow(True)
+    ax.legend(frameon=False, loc="upper left", ncol=3, handlelength=1.3, columnspacing=1.2)
     fig.savefig(pdf, format="pdf")
     fig.savefig(png, format="png", dpi=220)
     plt.close(fig)
