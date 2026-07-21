@@ -191,7 +191,8 @@ def _render(
         or row["state_index_error_mean"] is not None
         for row in rows
     )
-    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.8), constrained_layout=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.8), constrained_layout=False)
+    fig.subplots_adjust(left=0.08, right=0.98, bottom=0.20, top=0.82, wspace=0.18)
     ax_latency, ax_stability = axes
     _setup_log_x(ax_latency, expected)
     _setup_log_x(ax_stability, expected)
@@ -278,7 +279,7 @@ def _render(
     fig.suptitle("Qwen3-VL-8B KV-cache prompt sweep", fontsize=13)
     fig.text(
         0.01,
-        0.01,
+        0.035,
         "Only recorded measurements are shown; missing metrics are Pending.",
         fontsize=8,
     )
