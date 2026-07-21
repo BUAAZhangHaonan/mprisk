@@ -267,6 +267,18 @@ def _state_payload(
     prompt_rows: Sequence[dict[str, str]],
     results_by_condition: dict[str, list[Any]],
 ) -> dict[str, Any]:
+    if p == 1:
+        return {
+            "schema": "mprisk_qwen_vl_kv_p_state_metrics_v1",
+            "sample_id": sample["sample_id"],
+            "sample_type": sample["sample_type"],
+            "p": p,
+            "prompt_ids": [row["prompt_id"] for row in prompt_rows],
+            "repr_key": "raw_trajectory_last_layer_unit",
+            "state_status": "undefined_single_prompt",
+            "undefined_metrics": ["S_mean", "D", "R", "R_bootstrap_se"],
+            "state": {"S_mean": None, "D": None, "R": None, "R_bootstrap_se": None},
+        }
     embeddings: dict[str, dict[str, list[float]]] = {}
     for condition in CONDITIONS:
         results = results_by_condition[condition]
@@ -297,6 +309,7 @@ def _state_payload(
         "p": p,
         "prompt_ids": [row["prompt_id"] for row in prompt_rows],
         "repr_key": "raw_trajectory_last_layer_unit",
+        "state_status": "complete",
         "state": state,
     }
 
@@ -342,17 +355,17 @@ def _aggregate(connection: sqlite3.Connection, p: int) -> dict[str, Any]:
         "state_metrics": {
             "repr_key": "raw_trajectory_last_layer_unit",
             "sample_count": len(metric_rows),
-            "S_mean_mean": float(np.mean([row["state"]["S_mean"] for row in metric_rows]))
-            if metric_rows else None,
-            "D_mean": float(np.mean([row["state"]["D"] for row in metric_rows]))
-            if metric_rows else None,
-            "R_mean": float(np.mean([row["state"]["R"] for row in metric_rows]))
-            if metric_rows else None,
-            "R_bootstrap_se_mean": float(
-                np.mean([row["state"]["R_bootstrap_se"] for row in metric_rows])
-            ) if metric_rows else None,
+            "S_mean_mean": _metric_mean(metric_rows, "S_mean"),
+            "D_mean": _metric_mean(metric_rows, "D"),
+            "R_mean": _metric_mean(metric_rows, "R"),
+            "R_bootstrap_se_mean": _metric_mean(metric_rows, "R_bootstrap_se"),
         },
     }
+
+
+def _metric_mean(rows: Sequence[dict[str, Any]], key: str) -> float | None:
+    values = [row["state"].get(key) for row in rows if row["state"].get(key) is not None]
+    return float(np.mean(values)) if values else None
 
 
 def _add_convergence(summary: list[dict[str, Any]], connection: sqlite3.Connection, reference_p: int) -> None:
@@ -375,23 +388,23 @@ def _add_convergence(summary: list[dict[str, Any]], connection: sqlite3.Connecti
         shared = sorted(set(reference) & set(current))
         if not shared:
             raise RuntimeError(f"P={p} has no samples shared with P={reference_p}")
-        errors = {
-            key: float(
-                np.mean(
-                    [
-                        abs(float(current[sample]["state"][key]) - float(reference[sample]["state"][key]))
-                        for sample in shared
-                    ]
-                )
-            )
-            for key in ("S_mean", "D", "R")
-        }
+        errors: dict[str, float | None] = {}
+        for key in ("S_mean", "D", "R"):
+            values = [
+                abs(float(current[sample]["state"][key]) - float(reference[sample]["state"][key]))
+                for sample in shared
+                if current[sample]["state"].get(key) is not None
+                and reference[sample]["state"].get(key) is not None
+            ]
+            errors[key] = float(np.mean(values)) if values else None
+        defined_errors = [value for value in errors.values() if value is not None]
         item["stability"] = {
             "definition": "absolute state-index error against nested P=64 reference on shared samples",
             "reference_p": reference_p,
             "shared_sample_count": len(shared),
             "state_index_mae_vs_reference": errors,
-            "state_index_mae_mean": float(np.mean(list(errors.values()))),
+            "state_index_mae_mean": float(np.mean(defined_errors)) if defined_errors else None,
+            "undefined_metrics": [key for key, value in errors.items() if value is None],
         }
 
 
