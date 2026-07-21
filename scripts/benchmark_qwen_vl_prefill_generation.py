@@ -305,13 +305,14 @@ def run(args: argparse.Namespace) -> int:
                     requests = _requests(sample, prompt_rows, condition, prompt_set_key, args.video_fps)
                     for request in requests:
                         wrapper.extract_prefill(request)
-                    extractor.extract_condition_batch(
-                        sample_row=sample, build_request_fn=build_condition_request,
-                        prompt_texts=[row["template_text"] for row in prompt_rows],
-                        condition=condition, protocol=PROTOCOL, prompt_set_key=prompt_set_key,
-                        prompt_ids=[row["prompt_id"] for row in prompt_rows],
-                        common_kwargs={"joint_audio_mode": "embedded_video", "video_fps": args.video_fps},
-                    )
+                    if p > 1:
+                        extractor.extract_condition_batch(
+                            sample_row=sample, build_request_fn=build_condition_request,
+                            prompt_texts=[row["template_text"] for row in prompt_rows],
+                            condition=condition, protocol=PROTOCOL, prompt_set_key=prompt_set_key,
+                            prompt_ids=[row["prompt_id"] for row in prompt_rows],
+                            common_kwargs={"joint_audio_mode": "embedded_video", "video_fps": args.video_fps},
+                        )
                     for request in requests:
                         _generate_one(wrapper, extractor, request, args.max_new_tokens, torch)
                 _sync_cuda(torch, args.device)
@@ -337,13 +338,17 @@ def run(args: argparse.Namespace) -> int:
                         started = time.perf_counter()
                         for condition in CONDITIONS:
                             condition_started = time.perf_counter()
-                            extractor.extract_condition_batch(
-                                sample_row=sample, build_request_fn=build_condition_request,
-                                prompt_texts=[row["template_text"] for row in prompt_rows],
-                                condition=condition, protocol=PROTOCOL, prompt_set_key=prompt_set_key,
-                                prompt_ids=[row["prompt_id"] for row in prompt_rows],
-                                common_kwargs={"joint_audio_mode": "embedded_video", "video_fps": args.video_fps},
-                            )
+                            if p == 1:
+                                for request in _requests(sample, prompt_rows, condition, prompt_set_key, args.video_fps):
+                                    wrapper.extract_prefill(request)
+                            else:
+                                extractor.extract_condition_batch(
+                                    sample_row=sample, build_request_fn=build_condition_request,
+                                    prompt_texts=[row["template_text"] for row in prompt_rows],
+                                    condition=condition, protocol=PROTOCOL, prompt_set_key=prompt_set_key,
+                                    prompt_ids=[row["prompt_id"] for row in prompt_rows],
+                                    common_kwargs={"joint_audio_mode": "embedded_video", "video_fps": args.video_fps},
+                                )
                             _sync_cuda(torch, args.device)
                             kv_condition[condition] = (time.perf_counter() - condition_started) * 1000.0
                         kv_ms = (time.perf_counter() - started) * 1000.0
