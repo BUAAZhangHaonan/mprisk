@@ -36,7 +36,13 @@ exceed 50% of total length."""
 class QwenVlPromptKvPrefillExtractor:
     """Run 8 prompt forwards per (sample, condition) sharing one KV cache."""
 
-    def __init__(self, wrapper: Any, *, verbose: bool = True) -> None:
+    def __init__(
+        self,
+        wrapper: Any,
+        *,
+        verbose: bool = True,
+        min_prefix_fraction: float = _SAFETY_PREFIX_FRACTION,
+    ) -> None:
         _require_isolated_python_environment()
         family = getattr(wrapper, "family", None)
         if family not in {"qwen_vl"}:
@@ -46,6 +52,9 @@ class QwenVlPromptKvPrefillExtractor:
             )
         self.wrapper = wrapper
         self.verbose = bool(verbose)
+        if not 0.0 <= min_prefix_fraction <= 1.0:
+            raise ValueError("min_prefix_fraction must be between 0 and 1")
+        self.min_prefix_fraction = float(min_prefix_fraction)
 
     # ------------------------------------------------------------------
     # Public API
@@ -129,10 +138,11 @@ class QwenVlPromptKvPrefillExtractor:
                     f"{max(int(mi['input_ids'].shape[-1]) for mi in model_inputs_per_prompt)}"
                 )
 
-            if prefix_len < int(shortest_len * _SAFETY_PREFIX_FRACTION) or prefix_len == 0:
+            if prefix_len < int(shortest_len * self.min_prefix_fraction) or prefix_len == 0:
                 raise RuntimeError(
                     f"Common prefix too short ({prefix_len}/{shortest_len}); "
-                    "prompt texts probably differ before the expected split point."
+                    "prompt texts probably differ before the expected split point; "
+                    f"required fraction={self.min_prefix_fraction:.3f}."
                 )
 
             _assert_identical_token_prefix(model_inputs_per_prompt, prefix_len)
@@ -356,6 +366,7 @@ class QwenVlPromptKvPrefillExtractor:
                 "prefix_identity": prefix_identity,
                 "prefix_len": int(prefix_len),
                 "suffix_len": int(suffix_len),
+                "min_prefix_fraction": self.min_prefix_fraction,
                 "schema": "mprisk_qwen3_vl_prefill_provenance_v2",
             }
         )

@@ -527,7 +527,14 @@ def run(args: argparse.Namespace) -> int:
             attn_implementation=args.attn_implementation,
         )
         wrapper.load()
-        extractor = QwenVlPromptKvPrefillExtractor(wrapper, verbose=False)
+        # The reviewed prompt bank deliberately varies the first instruction
+        # token.  The model-native cache remains exact as long as the media/chat
+        # prefix is non-empty; the extractor's default 50% cost guard would
+        # reject these valid short suffixes, so this sweep records the relaxed
+        # contract explicitly instead of silently falling back.
+        extractor = QwenVlPromptKvPrefillExtractor(
+            wrapper, verbose=False, min_prefix_fraction=0.0
+        )
         for p in p_values:
             prompts = prompt_pool[:p]
             prompt_set_key = f"kv_sweep_p{p}_nested"
