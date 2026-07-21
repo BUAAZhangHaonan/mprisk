@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import csv
+import hashlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -13,6 +16,36 @@ assert SPEC is not None and SPEC.loader is not None
 bundle = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = bundle
 SPEC.loader.exec_module(bundle)
+
+
+def _write_legacy_control_bundle(output: Path, identity_path: Path) -> bytes:
+    output.mkdir()
+    payload = output / "payload.bin"
+    payload.write_bytes(b"immutable payload")
+    inventory = {
+        "schema": "taffc_complete_bundle_inventory_v2",
+        "bundle_name": identity_path.name,
+        "bundle_path": str(identity_path.absolute()),
+        "scope": {},
+    }
+    controls = bundle.build_control_payloads(identity_path, inventory, [])
+    for rel, content in controls.items():
+        (output / rel).write_bytes(content)
+    hashed = {
+        "payload.bin": bundle.sha256_file(payload),
+        **{rel: bundle.sha256_file(output / rel) for rel in bundle.ROOT_METADATA_FILES},
+    }
+    sha_bytes = b"".join(f"{hashed[rel]}  {rel}\n".encode() for rel in sorted(hashed))
+    (output / "SHA256SUMS").write_bytes(sha_bytes)
+    with (output / "file_provenance.tsv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle, delimiter="\t", lineterminator="\n")
+        writer.writerow(["relative_path", "source_path", "size_bytes", "allocated_bytes", "sha256", "link_mode"])
+        for rel in sorted(hashed):
+            target = output / rel
+            writer.writerow([rel, "fixture", target.stat().st_size, 0, hashed[rel], "generated"])
+    return b"".join(
+        line for line in sha_bytes.splitlines(keepends=True) if line.split(b"  ", 1)[1].decode().strip() not in bundle.CONTROL_FILES
+    )
 
 
 def test_normalize_rel_rejects_absolute_and_parent_paths() -> None:
@@ -70,6 +103,111 @@ def test_builder_hardlinks_and_records_inode(tmp_path: Path) -> None:
     target = builder.staging / "payload/source.bin"
     assert source.stat().st_ino == target.stat().st_ino
     assert builder.records["payload/source.bin"].mode == "hardlink"
+
+
+def test_finalize_excludes_all_root_controls_from_payload_manifests(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    output = repo / "outputs/final"
+    builder = bundle.BundleBuilder(repo, output, workers=1, dry_run=False, probe_streams=False)
+    builder.prepare()
+    builder.write_bytes("payload.bin", b"payload", "fixture")
+    builder.write_control_payload()
+    builder.finalize()
+
+    sha_paths = {
+        line.split("  ", 1)[1]
+        for line in (output / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+    }
+    assert sha_paths == {"payload.bin"}
+    with (output / "file_provenance.tsv").open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [row["relative_path"] for row in rows] == ["payload.bin"]
+    assert {path.name for path in output.iterdir()} == bundle.CONTROL_FILES | {"payload.bin"}
+    bundle.verify_control_metadata(output)
+
+
+def test_control_refresh_migrates_legacy_entries_without_payload_rehash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "canonical_bundle"
+    expected_payload_sha = _write_legacy_control_bundle(output, tmp_path / "candidate_bundle")
+    payload = output / "payload.bin"
+    before = (payload.read_bytes(), payload.stat().st_ino, payload.stat().st_mtime_ns)
+    original_sha256_file = bundle.sha256_file
+    hashed_paths: list[Path] = []
+
+    def control_only_sha(path: Path) -> str:
+        path = Path(path)
+        assert path.parent == output
+        assert path.name in bundle.CONTROL_FILES
+        hashed_paths.append(path)
+        return original_sha256_file(path)
+
+    monkeypatch.setattr(bundle, "sha256_file", control_only_sha)
+    result = bundle.refresh_control_metadata(output)
+
+    assert result["payload_rehashed"] is False
+    assert result["payload_sha_files"] == 1
+    assert result["payload_sha256sums_digest"] == hashlib.sha256(expected_payload_sha).hexdigest()
+    assert set(result["legacy_control_entries_removed"]) == bundle.LEGACY_HASHED_CONTROL_FILES
+    assert (payload.read_bytes(), payload.stat().st_ino, payload.stat().st_mtime_ns) == before
+    assert (output / "SHA256SUMS").read_bytes() == expected_payload_sha
+    assert {path.name for path in hashed_paths} == bundle.LEGACY_HASHED_CONTROL_FILES | {"SHA256SUMS"}
+    inventory = json.loads((output / "inventory.json").read_text(encoding="utf-8"))
+    report = json.loads((output / "validation_report.json").read_text(encoding="utf-8"))
+    assert inventory["bundle_name"] == output.name
+    assert inventory["bundle_path"] == str(output)
+    assert report["bundle"] == bundle.bundle_identity(output)
+    assert report["checksum_policy"]["excluded_control_files"] == sorted(bundle.CONTROL_FILES)
+    with (output / "file_provenance.tsv").open("r", encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle, delimiter="\t"))
+    assert [row["relative_path"] for row in rows] == ["payload.bin"]
+
+    hashed_paths.clear()
+    second = bundle.refresh_control_metadata(output)
+    assert second["legacy_control_entries_removed"] == []
+    assert (output / "SHA256SUMS").read_bytes() == expected_payload_sha
+    assert hashed_paths == [output / "SHA256SUMS"]
+
+
+def test_promotion_refreshes_candidate_identity_to_final_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    candidate = tmp_path / "candidate_bundle"
+    final = tmp_path / "canonical_bundle"
+    _write_legacy_control_bundle(candidate, candidate)
+    bundle.refresh_control_metadata(candidate)
+    final.mkdir()
+    (final / "old.txt").write_text("old bundle", encoding="utf-8")
+    monkeypatch.setattr(bundle, "require_independent_verification_record", lambda *args: {"status": "PASS"})
+    monkeypatch.setattr(
+        bundle,
+        "_verify_package_indexes",
+        lambda _path: {"generated_cache_models": 5},
+    )
+    verified_identities: list[dict[str, str]] = []
+
+    def verify_identity(path: Path, _workers: int) -> None:
+        bundle.verify_control_metadata(path)
+        verified_identities.append(bundle.bundle_identity(path))
+
+    monkeypatch.setattr(bundle, "verify_bundle", verify_identity)
+    bundle.promote_verified_bundle(
+        candidate,
+        final,
+        workers=1,
+        verified_status=tmp_path / "verify.status",
+        verified_log=tmp_path / "verify.log",
+    )
+
+    assert verified_identities == [bundle.bundle_identity(final)]
+    assert not candidate.exists()
+    assert (final / "payload.bin").read_bytes() == b"immutable payload"
+    inventory = json.loads((final / "inventory.json").read_text(encoding="utf-8"))
+    assert inventory["bundle_name"] == final.name
+    assert inventory["bundle_path"] == str(final)
 
 
 def test_formal_model_scope_is_exact() -> None:

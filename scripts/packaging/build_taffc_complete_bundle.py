@@ -31,7 +31,14 @@ from typing import Any, Iterable, Iterator, Sequence
 EXPECTED_SILENT_IDS = {f"gen:accept_a_va:S{number:04d}" for number in range(544, 549)}
 PROMPT_COUNT = 8
 CONDITIONS = {"M1", "M2", "M12"}
-CONTROL_FILES = {"SHA256SUMS", "file_provenance.tsv"}
+ROOT_METADATA_FILES = {
+    "README.md",
+    "inventory.json",
+    "validation_report.json",
+    "validation_report.md",
+}
+CONTROL_FILES = ROOT_METADATA_FILES | {"SHA256SUMS", "file_provenance.tsv"}
+LEGACY_HASHED_CONTROL_FILES = ROOT_METADATA_FILES
 GENERATED_CACHE_ROOT = "caches/generated_set"
 NATURAL_CACHE_ROOT = "caches/natural_set/ch_sims_v2"
 
@@ -162,6 +169,86 @@ def json_payload(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
 
 
+def read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    require(isinstance(value, dict), f"expected JSON object: {path}")
+    return value
+
+
+def bundle_identity(output: Path) -> dict[str, str]:
+    output = output.absolute()
+    return {"bundle_name": output.name, "bundle_path": str(output)}
+
+
+def build_control_payloads(
+    output: Path,
+    inventory: dict[str, Any],
+    checks: Sequence[dict[str, Any]],
+) -> dict[str, bytes]:
+    identity = bundle_identity(output)
+    normalized_inventory = copy.deepcopy(inventory)
+    normalized_inventory.update(identity)
+    report = {
+        "schema": "taffc_complete_bundle_validation_v1",
+        "status": "PASS",
+        "bundle": identity,
+        "checks": copy.deepcopy(list(checks)),
+        "checksum_policy": {
+            "algorithm": "SHA-256",
+            "excluded_control_files": sorted(CONTROL_FILES),
+            "verification_command": (
+                "python3 scripts/packaging/build_taffc_complete_bundle.py "
+                "--verify-only --output <bundle>"
+            ),
+        },
+    }
+    readme = (
+        "# TAFFC complete bundle\n\n"
+        f"Canonical bundle name: `{identity['bundle_name']}`  \n"
+        f"Canonical bundle path: `{identity['bundle_path']}`\n\n"
+        "This directory is the canonical, fail-closed delivery for the 3,810-row generated "
+        "in-domain set, the CH-SIMS v2 cross-domain natural set, five hidden-state caches, "
+        "15 formal Misread label sets, and state outputs for exactly three models.\n\n"
+        "Caches are organized by dataset. `caches/generated_set/` contains the five generated-set "
+        "model caches. `caches/natural_set/ch_sims_v2/` contains only Qwen3.5-4B. The original "
+        "new-only and overlap-frozen-v2 split is retained only as internal source provenance.\n\n"
+        "All dataset media and cache paths are relative to the bundle root. Large source files "
+        "use hardlinks when source ownership permits it; cross-owner media are byte-copied. "
+        "There are no symlinks. `SHA256SUMS` covers every immutable payload file and package "
+        "manifest. It excludes the six root control files listed in `validation_report.json`, "
+        "so canonical identity metadata can be refreshed after atomic promotion without "
+        "rehashing payload. Run the builder with `--verify-only` for full payload checksum and "
+        "coverage validation.\n\n"
+        "Qwen3.5-4B and Gemma4-12B have cache and Misread labels only. Their state indices are "
+        "NOT COMPUTED and their TME is NOT TRAINED.\n"
+    )
+    lines = [
+        "# Validation report",
+        "",
+        f"Canonical bundle name: `{identity['bundle_name']}`  ",
+        f"Canonical bundle path: `{identity['bundle_path']}`",
+        "",
+        "Overall status: **PASS**",
+        "",
+    ]
+    for check in checks:
+        detail = json.dumps(check["detail"], ensure_ascii=False, sort_keys=True)
+        lines.append(f"- PASS `{check['name']}`: {detail}")
+    lines.extend(
+        [
+            "",
+            "Qwen3.5-4B and Gemma4-12B state/TME: **NOT COMPUTED / NOT TRAINED**.",
+            "",
+        ]
+    )
+    return {
+        "README.md": readme.encode("utf-8"),
+        "inventory.json": json_payload(normalized_inventory),
+        "validation_report.json": json_payload(report),
+        "validation_report.md": "\n".join(lines).encode("utf-8"),
+    }
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -280,7 +367,7 @@ class BundleBuilder:
         self.checks: list[dict[str, Any]] = []
         self.inventory: dict[str, Any] = {
             "schema": "taffc_complete_bundle_inventory_v2",
-            "bundle_name": output.name,
+            **bundle_identity(self.output),
             "scope": {
                 "generated_dataset": "3810 valid in-domain protocol rows",
                 "natural_dataset": "CH-SIMS v2 cross-domain protocol views",
@@ -358,6 +445,25 @@ class BundleBuilder:
 
     def write_json(self, rel: str, value: Any, source: str, mode: str = "generated") -> None:
         self.write_bytes(rel, json_payload(value), source, mode)
+
+    def write_control_bytes(self, rel: str, payload: bytes) -> None:
+        rel = normalize_rel(rel)
+        require(rel in ROOT_METADATA_FILES, f"not a root metadata file: {rel}")
+        if self.dry_run:
+            return
+        target = self._target(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if self.resume_existing and target.exists():
+            require(target.is_file() and not target.is_symlink(), f"bad resumed control file: {target}")
+            if target.read_bytes() != payload:
+                replacement = target.with_name(f".{target.name}.resume-replacement")
+                require(not replacement.exists(), f"stale control replacement exists: {replacement}")
+                with replacement.open("xb") as handle:
+                    handle.write(payload)
+                os.replace(replacement, target)
+            return
+        with target.open("xb") as handle:
+            handle.write(payload)
 
     def write_jsonl(
         self,
@@ -1116,41 +1222,8 @@ class BundleBuilder:
         self.check("canonical_states", {"models": list(summaries), "all_exact_coverage": True})
 
     def write_control_payload(self) -> None:
-        readme = (
-            "# TAFFC complete bundle 2026-07-21\n\n"
-            "This directory is the canonical, fail-closed delivery for the 3,810-row generated "
-            "in-domain set, the CH-SIMS v2 cross-domain natural set, five hidden-state caches, "
-            "15 formal Misread label sets, and state outputs for exactly three models.\n\n"
-            "Caches are organized by dataset. `caches/generated_set/` contains the five generated-set "
-            "model caches. `caches/natural_set/ch_sims_v2/` contains only Qwen3.5-4B. The original "
-            "new-only and overlap-frozen-v2 split is retained only as internal source provenance.\n\n"
-            "All dataset media and cache paths are relative to the bundle root. Large source files "
-            "use hardlinks when source ownership permits it; cross-owner media are byte-copied. "
-            "There are no symlinks. `SHA256SUMS` covers every file except itself "
-            "and `file_provenance.tsv`, which are control manifests whose recursion is intentionally "
-            "excluded. Run the builder with `--verify-only` for full checksum and coverage validation.\n\n"
-            "Qwen3.5-4B and Gemma4-12B have cache and Misread labels only. Their state indices are "
-            "NOT COMPUTED and their TME is NOT TRAINED.\n"
-        )
-        self.write_text("README.md", readme, "packaging contract")
-        self.write_json("inventory.json", self.inventory, "derived verified inventory")
-        report = {
-            "schema": "taffc_complete_bundle_validation_v1",
-            "status": "PASS",
-            "checks": self.checks,
-            "checksum_policy": {
-                "algorithm": "SHA-256",
-                "excluded_control_files": sorted(CONTROL_FILES),
-                "verification_command": "python3 scripts/packaging/build_taffc_complete_bundle.py --verify-only --output <bundle>",
-            },
-        }
-        self.write_json("validation_report.json", report, "builder validation results")
-        lines = ["# Validation report", "", "Overall status: **PASS**", ""]
-        for check in self.checks:
-            detail = json.dumps(check["detail"], ensure_ascii=False, sort_keys=True)
-            lines.append(f"- PASS `{check['name']}`: {detail}")
-        lines.extend(["", "Qwen3.5-4B and Gemma4-12B state/TME: **NOT COMPUTED / NOT TRAINED**.", ""])
-        self.write_text("validation_report.md", "\n".join(lines), "builder validation results")
+        for rel, payload in build_control_payloads(self.output, self.inventory, self.checks).items():
+            self.write_control_bytes(rel, payload)
 
     def finalize(self) -> None:
         if self.dry_run:
@@ -1164,7 +1237,10 @@ class BundleBuilder:
         }
         symlinks = [path for path in self.staging.rglob("*") if path.is_symlink()]
         require(not symlinks, f"delivery contains symlinks: {symlinks[:5]}")
-        require(actual == set(self.records), f"pre-checksum file registry mismatch: actual={len(actual)} registered={len(self.records)}")
+        require(
+            actual == set(self.records) | ROOT_METADATA_FILES,
+            f"pre-checksum file registry mismatch: actual={len(actual)} registered={len(self.records)}",
+        )
 
         rel_paths = sorted(self.records)
         hashes: dict[str, str] = {}
@@ -1368,21 +1444,168 @@ def _verify_package_indexes(output: Path) -> dict[str, Any]:
     }
 
 
+def verify_control_metadata(output: Path) -> None:
+    output = output.resolve(strict=True)
+    inventory = read_json(output / "inventory.json")
+    report = read_json(output / "validation_report.json")
+    require(inventory.get("schema") == "taffc_complete_bundle_inventory_v2", "inventory schema mismatch")
+    require(report.get("schema") == "taffc_complete_bundle_validation_v1", "validation schema mismatch")
+    require(report.get("status") == "PASS", "validation report is not PASS")
+    identity = bundle_identity(output)
+    require(
+        {key: inventory.get(key) for key in identity} == identity,
+        "inventory bundle identity does not match directory",
+    )
+    require(report.get("bundle") == identity, "validation report bundle identity does not match directory")
+    policy = report.get("checksum_policy")
+    require(isinstance(policy, dict), "validation checksum policy missing")
+    require(policy.get("algorithm") == "SHA-256", "validation checksum algorithm mismatch")
+    require(
+        policy.get("excluded_control_files") == sorted(CONTROL_FILES),
+        "validation excluded control files mismatch",
+    )
+    checks = report.get("checks")
+    require(isinstance(checks, list), "validation checks missing")
+    expected = build_control_payloads(output, inventory, checks)
+    for rel, payload in expected.items():
+        require((output / rel).read_bytes() == payload, f"root control metadata is not canonical: {rel}")
+
+
+def _parse_sha256_lines(path: Path) -> tuple[list[tuple[str, str, bytes]], dict[str, str]]:
+    entries: list[tuple[str, str, bytes]] = []
+    expected: dict[str, str] = {}
+    with path.open("rb") as handle:
+        for line_number, raw in enumerate(handle, 1):
+            require(raw.endswith(b"\n"), f"SHA256SUMS line {line_number} lacks newline")
+            try:
+                text = raw[:-1].decode("utf-8")
+            except UnicodeDecodeError as error:
+                raise BundleError(f"bad SHA256SUMS UTF-8 line {line_number}") from error
+            digest, separator, rel = text.partition("  ")
+            require(
+                separator == "  " and re.fullmatch(r"[0-9a-f]{64}", digest) is not None,
+                f"bad SHA256SUMS line {line_number}",
+            )
+            rel = normalize_rel(rel)
+            require(rel not in expected, f"duplicate SHA path: {rel}")
+            expected[rel] = digest
+            entries.append((rel, digest, raw))
+    return entries, expected
+
+
+def refresh_control_metadata(output: Path) -> dict[str, Any]:
+    """Canonicalize root controls without reading or hashing payload file content."""
+
+    output = output.resolve(strict=True)
+    require(output.is_dir(), f"not a bundle directory: {output}")
+    sha_path = output / "SHA256SUMS"
+    provenance_path = output / "file_provenance.tsv"
+    require(sha_path.is_file() and provenance_path.is_file(), "control manifests missing")
+    for rel in ROOT_METADATA_FILES:
+        require((output / rel).is_file(), f"root metadata file missing: {rel}")
+
+    entries, expected = _parse_sha256_lines(sha_path)
+    hashed_controls = set(expected) & CONTROL_FILES
+    require(
+        hashed_controls in (set(), LEGACY_HASHED_CONTROL_FILES),
+        f"unexpected control files in SHA256SUMS: {sorted(hashed_controls)}",
+    )
+    for rel in sorted(hashed_controls):
+        require(sha256_file(output / rel) == expected[rel], f"legacy control SHA mismatch: {rel}")
+    payload_expected = {rel: digest for rel, digest in expected.items() if rel not in CONTROL_FILES}
+
+    actual_files = {
+        path.relative_to(output).as_posix()
+        for path in output.rglob("*")
+        if path.is_file()
+    }
+    require(actual_files == set(payload_expected) | CONTROL_FILES, "bundle file coverage mismatch during control refresh")
+
+    inventory = read_json(output / "inventory.json")
+    report = read_json(output / "validation_report.json")
+    require(isinstance(report.get("checks"), list), "validation checks missing")
+    metadata_payloads = build_control_payloads(output, inventory, report["checks"])
+
+    temporary = output.parent / f".{output.name}.control-refresh-{os.getpid()}"
+    require(not temporary.exists(), f"control refresh temporary path exists: {temporary}")
+    temporary.mkdir(parents=False, exist_ok=False)
+    provenance_payload_paths: set[str] = set()
+    provenance_control_paths: set[str] = set()
+    try:
+        if hashed_controls:
+            with (temporary / "SHA256SUMS").open("xb") as handle:
+                for rel, _digest, raw in entries:
+                    if rel not in CONTROL_FILES:
+                        handle.write(raw)
+
+        with provenance_path.open("r", encoding="utf-8", newline="") as source:
+            reader = csv.DictReader(source, delimiter="\t")
+            require(reader.fieldnames is not None, "provenance header missing")
+            target = (temporary / "file_provenance.tsv").open("x", encoding="utf-8", newline="") if hashed_controls else None
+            try:
+                writer = None
+                if target is not None:
+                    writer = csv.DictWriter(target, fieldnames=reader.fieldnames, delimiter="\t", lineterminator="\n")
+                    writer.writeheader()
+                for row in reader:
+                    rel = normalize_rel(row["relative_path"])
+                    if rel in CONTROL_FILES:
+                        provenance_control_paths.add(rel)
+                        require(rel in hashed_controls, f"unexpected control provenance row: {rel}")
+                        require(row["sha256"] == expected[rel], f"legacy control provenance SHA mismatch: {rel}")
+                        require(int(row["size_bytes"]) == (output / rel).stat().st_size, f"legacy control size mismatch: {rel}")
+                        continue
+                    require(rel not in provenance_payload_paths, f"duplicate provenance path: {rel}")
+                    require(row["sha256"] == payload_expected.get(rel), f"payload provenance SHA mismatch: {rel}")
+                    provenance_payload_paths.add(rel)
+                    if writer is not None:
+                        writer.writerow(row)
+            finally:
+                if target is not None:
+                    target.close()
+        require(provenance_control_paths == hashed_controls, "legacy control provenance coverage mismatch")
+        require(provenance_payload_paths == set(payload_expected), "payload provenance coverage mismatch")
+
+        for rel, payload in metadata_payloads.items():
+            with (temporary / rel).open("xb") as handle:
+                handle.write(payload)
+        replacements = [*sorted(ROOT_METADATA_FILES)]
+        if hashed_controls:
+            replacements = ["SHA256SUMS", "file_provenance.tsv", *replacements]
+        for rel in replacements:
+            os.replace(temporary / rel, output / rel)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+    verify_control_metadata(output)
+    refreshed_entries, refreshed_expected = _parse_sha256_lines(output / "SHA256SUMS")
+    require(not (set(refreshed_expected) & CONTROL_FILES), "control files remain in SHA256SUMS")
+    require(refreshed_expected == payload_expected, "payload SHA entries changed during control refresh")
+    manifest_digest = sha256_file(output / "SHA256SUMS")
+    result = {
+        "status": "PASS",
+        "bundle": bundle_identity(output),
+        "payload_sha_files": len(refreshed_entries),
+        "payload_sha256sums_digest": manifest_digest,
+        "legacy_control_entries_removed": sorted(hashed_controls),
+        "payload_rehashed": False,
+    }
+    print(json.dumps(result, sort_keys=True), flush=True)
+    return result
+
+
 def verify_bundle(output: Path, workers: int) -> None:
     output = output.resolve(strict=True)
     require(output.is_dir(), f"not a bundle directory: {output}")
+    verify_control_metadata(output)
     symlinks = [path for path in output.rglob("*") if path.is_symlink()]
     require(not symlinks, f"bundle contains symlinks: {symlinks[:5]}")
     sha_path = output / "SHA256SUMS"
     provenance_path = output / "file_provenance.tsv"
     require(sha_path.is_file() and provenance_path.is_file(), "control manifests missing")
-    expected: dict[str, str] = {}
-    for line_number, line in enumerate(sha_path.read_text(encoding="utf-8").splitlines(), 1):
-        digest, separator, rel = line.partition("  ")
-        require(separator == "  " and re.fullmatch(r"[0-9a-f]{64}", digest) is not None, f"bad SHA256SUMS line {line_number}")
-        rel = normalize_rel(rel)
-        require(rel not in expected, f"duplicate SHA path: {rel}")
-        expected[rel] = digest
+    _entries, expected = _parse_sha256_lines(sha_path)
+    require(not (set(expected) & CONTROL_FILES), "control files must not appear in payload SHA256SUMS")
     actual_files = {
         path.relative_to(output).as_posix()
         for path in output.rglob("*")
@@ -1493,15 +1716,24 @@ def promote_verified_bundle(
     require_independent_verification_record(candidate, verified_status, verified_log)
     logical = _verify_package_indexes(candidate)
     require(logical["generated_cache_models"] == 5, "candidate logical cache scope changed after verification")
+    verify_control_metadata(candidate)
+    candidate_metadata = {rel: (candidate / rel).read_bytes() for rel in ROOT_METADATA_FILES}
     atomic_exchange_directories(candidate, output)
     os.replace(candidate, backup)
     print(f"PROMOTE old bundle preserved at: {backup}", flush=True)
     try:
+        print(f"PROMOTE canonicalizing root control metadata: {output}", flush=True)
+        refresh_control_metadata(output)
         print(f"PROMOTE post-exchange full verification: {output}", flush=True)
         verify_bundle(output, workers)
     except Exception:
         os.replace(backup, candidate)
         atomic_exchange_directories(candidate, output)
+        for rel, payload in candidate_metadata.items():
+            replacement = candidate / f".{rel}.promotion-rollback"
+            with replacement.open("xb") as handle:
+                handle.write(payload)
+            os.replace(replacement, candidate / rel)
         print("PROMOTE rolled back atomic exchange after failed final verification", file=sys.stderr, flush=True)
         raise
     require(backup.is_dir() and output.is_dir(), "post-exchange bundle directories missing")
@@ -1522,6 +1754,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Audit every source and planned package path without writing")
     parser.add_argument("--verify-only", action="store_true", help="Verify an existing bundle and recompute all SHA-256 digests")
     parser.add_argument(
+        "--refresh-control-metadata",
+        action="store_true",
+        help="Canonicalize root identity/checksum controls without reading or rehashing payload file content",
+    )
+    parser.add_argument(
         "--promote-candidate",
         type=Path,
         help="Fully verify a sibling candidate, atomically exchange it with --output, verify again, then delete the old bundle",
@@ -1540,9 +1777,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     require(args.workers > 0, "workers must be positive")
-    selected_modes = sum(bool(value) for value in (args.dry_run, args.verify_only, args.promote_candidate))
-    require(selected_modes <= 1, "--dry-run, --verify-only, and --promote-candidate are mutually exclusive")
+    selected_modes = sum(
+        bool(value)
+        for value in (
+            args.dry_run,
+            args.verify_only,
+            args.refresh_control_metadata,
+            args.promote_candidate,
+        )
+    )
+    require(
+        selected_modes <= 1,
+        "--dry-run, --verify-only, --refresh-control-metadata, and --promote-candidate are mutually exclusive",
+    )
     require(not (args.resume_existing_staging and args.verify_only), "cannot resume staging in verify-only mode")
+    require(
+        not (args.resume_existing_staging and args.refresh_control_metadata),
+        "cannot resume staging in control-refresh mode",
+    )
     require(not (args.resume_existing_staging and args.promote_candidate), "cannot resume staging in promote mode")
     if args.promote_candidate is None:
         require(args.verified_status is None and args.verified_log is None, "verification record arguments are promotion-only")
@@ -1563,6 +1815,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.verify_only:
         verify_bundle(args.output, args.workers)
+        return 0
+    if args.refresh_control_metadata:
+        refresh_control_metadata(args.output)
         return 0
     if args.promote_candidate is not None:
         promote_verified_bundle(

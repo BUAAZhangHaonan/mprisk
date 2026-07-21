@@ -52,8 +52,11 @@ cache files is long-running. The candidate is built without touching the
 current final bundle. An independent verify run fully rehashes the candidate.
 Promotion requires that run's durable exit-0/PASS record, uses Linux
 `renameat2(RENAME_EXCHANGE)` for an atomic directory swap, fully verifies the
-new final path, and only then deletes the old bundle. Between exchange and
-final verification, the old bundle is preserved at
+new final path, and only then deletes the old bundle. Immediately after the
+exchange, promotion rewrites the four root identity/report files through the
+same control-metadata code path used by `--refresh-control-metadata`, so a
+candidate name or path cannot survive at the canonical final path. Between
+exchange and final verification, the old bundle is preserved at
 `.taffc_complete_bundle_20260721.backup_pre_dataset_reorg_20260721`:
 
 ```bash
@@ -70,6 +73,23 @@ python3 scripts/packaging/build_taffc_complete_bundle.py \
   --verify-only \
   --output outputs/deliveries/taffc_complete_bundle_20260721
 ```
+
+`SHA256SUMS` and `file_provenance.tsv` cover immutable payload and package
+manifests only. The six root controls (`README.md`, `inventory.json`, both
+validation reports, `SHA256SUMS`, and `file_provenance.tsv`) are excluded from
+that payload set. Refresh canonical identity and checksum-policy metadata
+without reading or hashing payload content with:
+
+```bash
+python3 scripts/packaging/build_taffc_complete_bundle.py \
+  --refresh-control-metadata \
+  --output outputs/deliveries/taffc_complete_bundle_20260721
+```
+
+The refresh command also migrates the one legacy bundle format that placed the
+four identity/report files inside the checksum manifests. It verifies only
+those small legacy control files, removes their rows, and preserves every
+payload path and digest byte-for-byte.
 
 The final directory contains no symlinks. Large source artifacts use hardlinks
 when the source has the same owner and filesystem. Linux protected-hardlink
