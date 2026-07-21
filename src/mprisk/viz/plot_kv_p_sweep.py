@@ -33,6 +33,7 @@ CSV_FIELDS = (
     "metric_convergence_s",
     "metric_convergence_d",
     "metric_convergence_r",
+    "state_index_error_mean",
     "stability_n",
     "status",
 )
@@ -49,12 +50,12 @@ def load_sweep(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         metadata = {
             str(key): value
             for key, value in payload.items()
-            if key not in {"rows", "points", "results"}
+            if key not in {"rows", "points", "results", "summary"}
         }
         raw_rows = next(
             (
                 payload[key]
-                for key in ("rows", "points", "results")
+                for key in ("rows", "points", "results", "summary")
                 if isinstance(payload.get(key), list)
             ),
             None,
@@ -75,7 +76,7 @@ def normalize_rows(raw_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
         prompt_count = _number(raw, "prompt_count", "P", "p")
         if prompt_count is None or prompt_count <= 0 or not float(prompt_count).is_integer():
             raise ValueError(f"invalid prompt_count in sweep row: {raw!r}")
-        latency = raw.get("latency")
+        latency = raw.get("latency", raw.get("timing"))
         if not isinstance(latency, Mapping):
             latency = raw
         stability = raw.get("stability")
@@ -84,16 +85,24 @@ def normalize_rows(raw_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
         normalized.append(
             {
                 "prompt_count": int(prompt_count),
-                "latency_median_seconds": _number(
-                    latency, "median_seconds", "latency_median_seconds", "median"
+                "latency_median_seconds": _scaled_number(
+                    latency,
+                    ("median_seconds", "latency_median_seconds", "median"),
+                    ("total_median_ms",),
                 ),
-                "latency_p95_seconds": _number(
-                    latency, "p95_seconds", "latency_p95_seconds", "p95"
+                "latency_p95_seconds": _scaled_number(
+                    latency,
+                    ("p95_seconds", "latency_p95_seconds", "p95"),
+                    ("total_p95_ms",),
                 ),
-                "latency_mean_seconds": _number(
-                    latency, "mean_seconds", "latency_mean_seconds", "mean"
+                "latency_mean_seconds": _scaled_number(
+                    latency,
+                    ("mean_seconds", "latency_mean_seconds", "mean"),
+                    ("total_mean_ms",),
                 ),
-                "latency_n": _integer_or_none(latency.get("n", raw.get("latency_n"))),
+                "latency_n": _integer_or_none(
+                    latency.get("n", latency.get("measured_runs", raw.get("latency_n")))
+                ),
                 "pattern_agreement": _number(
                     stability, "pattern_agreement", "state_pattern_agreement"
                 ),
@@ -107,7 +116,12 @@ def normalize_rows(raw_rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]
                 "metric_convergence_r": _number(
                     stability, "metric_convergence_r", "r_convergence"
                 ),
-                "stability_n": _integer_or_none(stability.get("n", raw.get("stability_n"))),
+                "state_index_error_mean": _number(
+                    stability, "state_index_error_mean", "state_index_mae_mean"
+                ),
+                "stability_n": _integer_or_none(
+                    stability.get("n", stability.get("shared_sample_count", raw.get("stability_n")))
+                ),
                 "status": str(raw.get("status", "ok")),
             }
         )
@@ -172,7 +186,9 @@ def _render(
     x = [row["prompt_count"] for row in rows]
     has_latency = any(row["latency_median_seconds"] is not None for row in rows)
     has_stability = any(
-        row["pattern_agreement"] is not None or row["metric_convergence"] is not None
+        row["pattern_agreement"] is not None
+        or row["metric_convergence"] is not None
+        or row["state_index_error_mean"] is not None
         for row in rows
     )
     fig, axes = plt.subplots(1, 2, figsize=(11.2, 4.8), constrained_layout=True)
@@ -222,6 +238,11 @@ def _render(
             for p, row in zip(x, rows, strict=True)
             if row["metric_convergence"] is not None
         ]
+        error = [
+            (p, row["state_index_error_mean"])
+            for p, row in zip(x, rows, strict=True)
+            if row["state_index_error_mean"] is not None
+        ]
         if pattern:
             ax_stability.plot(
                 *zip(*pattern, strict=True),
@@ -236,8 +257,16 @@ def _render(
                 color="#7b4b9a",
                 label="Metric convergence",
             )
+        if error:
+            ax_stability.plot(
+                *zip(*error, strict=True),
+                marker="^",
+                color="#a05a2c",
+                label="State-index error vs P=64",
+            )
         if pattern or convergence:
             ax_stability.set_ylim(0.0, 1.05)
+        if pattern or convergence or error:
             ax_stability.legend(frameon=False)
         else:
             _pending(ax_stability)
@@ -245,7 +274,7 @@ def _render(
         _pending(ax_stability)
     ax_stability.set_title("State stability")
     ax_stability.set_xlabel("Equivalent prompts (P)")
-    ax_stability.set_ylabel("Agreement / convergence")
+    ax_stability.set_ylabel("Agreement / error")
     fig.suptitle("Qwen3-VL-8B KV-cache prompt sweep", fontsize=13)
     fig.text(
         0.01,
@@ -289,6 +318,16 @@ def _number(mapping: Mapping[str, Any], *keys: str) -> float | None:
     return None
 
 
+def _scaled_number(
+    mapping: Mapping[str, Any], second_keys: tuple[str, ...], millisecond_keys: tuple[str, ...]
+) -> float | None:
+    value = _number(mapping, *second_keys)
+    if value is not None:
+        return value
+    value = _number(mapping, *millisecond_keys)
+    return None if value is None else value / 1000.0
+
+
 def _integer_or_none(value: Any) -> int | None:
     if value is None or value == "":
         return None
@@ -304,4 +343,3 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
-
