@@ -4,35 +4,28 @@ set -euo pipefail
 mode="${1:-}"
 repo_root="/home/team/zhanghaonan/TAFFC/mprisk"
 delivery="${repo_root}/outputs/deliveries/taffc_complete_bundle_20260721"
+candidate="${repo_root}/outputs/deliveries/taffc_complete_bundle_20260721_dataset_reorg_candidate"
 log_root="${repo_root}/outputs/deliveries/logs"
 
 case "${mode}" in
-  dry-run)
-    session="taffc_bundle_dryrun_20260721"
-    arguments="--dry-run"
+  reorg-dry-run)
+    session="taffc_bundle_reorg_dryrun_20260721"
+    arguments="--dry-run --workers 1 --output ${candidate}"
     ;;
-  build)
-    session="taffc_bundle_build_20260721"
-    arguments=""
+  reorg-build)
+    session="taffc_bundle_reorg_build_20260721"
+    arguments="--skip-media-stream-probe --workers 1 --output ${candidate}"
     ;;
-  build-resume1)
-    session="taffc_bundle_build_resume1_20260721"
-    arguments="--skip-media-stream-probe"
+  reorg-verify)
+    session="taffc_bundle_reorg_verify_20260721"
+    arguments="--verify-only --workers 1 --output ${candidate}"
     ;;
-  build-resume2)
-    session="taffc_bundle_build_resume2_20260721"
-    arguments="--skip-media-stream-probe --resume-existing-staging"
-    ;;
-  build-resume3)
-    session="taffc_bundle_build_resume3_20260721"
-    arguments="--skip-media-stream-probe --resume-existing-staging"
-    ;;
-  verify)
-    session="taffc_bundle_verify_20260721"
-    arguments="--verify-only --output ${delivery}"
+  reorg-promote)
+    session="taffc_bundle_reorg_promote_20260721"
+    arguments="--workers 1 --promote-candidate ${candidate} --verified-status ${log_root}/taffc_bundle_reorg_verify_20260721.status --verified-log ${log_root}/taffc_bundle_reorg_verify_20260721.log --output ${delivery}"
     ;;
   *)
-    echo "usage: $0 {dry-run|build|build-resume1|build-resume2|build-resume3|verify}" >&2
+    echo "usage: $0 {reorg-dry-run|reorg-build|reorg-verify|reorg-promote}" >&2
     exit 2
     ;;
 esac

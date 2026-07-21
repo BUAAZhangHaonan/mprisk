@@ -23,6 +23,18 @@ def test_normalize_rel_rejects_absolute_and_parent_paths() -> None:
         bundle.normalize_rel("a/../b")
 
 
+def test_cache_path_must_stay_inside_dataset_model_subtree() -> None:
+    root = "caches/generated_set/qwen3_vl_8b"
+    path = f"{root}/payload/source_001/shard.safetensors"
+    assert bundle.require_within_package_subtree(path, root, "fixture") == path
+    with pytest.raises(bundle.BundleError, match="path escapes"):
+        bundle.require_within_package_subtree(
+            "caches/natural_set/ch_sims_v2/qwen3_5_4b/payload/shard.safetensors",
+            root,
+            "fixture",
+        )
+
+
 def test_validate_task_matrix_accepts_exact_8_by_3_matrix() -> None:
     sample_ids = {"sample:a", "sample:b"}
     rows = [
@@ -71,3 +83,44 @@ def test_formal_model_scope_is_exact() -> None:
         "internvl3_5_8b",
         "qwen2_5_omni_7b",
     }
+    assert bundle.GENERATED_CACHE_ROOT == "caches/generated_set"
+    assert bundle.NATURAL_CACHE_ROOT == "caches/natural_set/ch_sims_v2"
+    assert set(bundle.UNION_CACHE_SPECS) | set(bundle.FULL_CACHE_SPECS) == {
+        "qwen3_vl_8b",
+        "internvl3_5_8b",
+        "qwen2_5_omni_7b",
+        "qwen3_5_4b",
+        "gemma4_12b",
+    }
+
+
+def test_atomic_exchange_directories(tmp_path: Path) -> None:
+    first = tmp_path / "candidate"
+    second = tmp_path / "final"
+    first.mkdir()
+    second.mkdir()
+    (first / "identity.txt").write_text("candidate", encoding="utf-8")
+    (second / "identity.txt").write_text("old", encoding="utf-8")
+    bundle.atomic_exchange_directories(first, second)
+    assert (first / "identity.txt").read_text(encoding="utf-8") == "old"
+    assert (second / "identity.txt").read_text(encoding="utf-8") == "candidate"
+
+
+def test_independent_verification_record_is_fail_closed(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "SHA256SUMS").write_text("0" * 64 + "  payload.bin\n", encoding="utf-8")
+    status = tmp_path / "verify.status"
+    status.write_text("0\n", encoding="utf-8")
+    log = tmp_path / "verify.log"
+    log.write_text(
+        '{"status":"PASS","sha_files":1,"generated":3810,'
+        '"ch_sims_protocol_rows":4225,"generated_cache_models":5,'
+        '"natural_cache_models":{"ch_sims_v2":["qwen3_5_4b"]}}\n',
+        encoding="utf-8",
+    )
+    record = bundle.require_independent_verification_record(candidate, status, log)
+    assert record["sha_files"] == 1
+    status.write_text("1\n", encoding="utf-8")
+    with pytest.raises(bundle.BundleError, match="status is not 0"):
+        bundle.require_independent_verification_record(candidate, status, log)

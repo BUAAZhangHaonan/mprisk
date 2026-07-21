@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import copy
 import csv
+import ctypes
 import hashlib
 import json
 import os
@@ -31,6 +32,8 @@ EXPECTED_SILENT_IDS = {f"gen:accept_a_va:S{number:04d}" for number in range(544,
 PROMPT_COUNT = 8
 CONDITIONS = {"M1", "M2", "M12"}
 CONTROL_FILES = {"SHA256SUMS", "file_provenance.tsv"}
+GENERATED_CACHE_ROOT = "caches/generated_set"
+NATURAL_CACHE_ROOT = "caches/natural_set/ch_sims_v2"
 
 FORMAL_LABEL_MODELS = {
     "gemma3_4b": "VT",
@@ -155,6 +158,10 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def json_payload(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n").encode("utf-8")
+
+
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -174,6 +181,18 @@ def normalize_rel(value: str | PurePosixPath) -> str:
     require(str(path) not in {"", "."}, f"empty package path: {value}")
     require("\n" not in str(path) and "\r" not in str(path), f"newline in path: {value}")
     return path.as_posix()
+
+
+def require_within_package_subtree(value: str, subtree: str, source: str) -> str:
+    relative = normalize_rel(value)
+    root = PurePosixPath(normalize_rel(subtree))
+    path = PurePosixPath(relative)
+    require(path == root or root in path.parents, f"{source}: path escapes {root}: {relative}")
+    return relative
+
+
+def cache_task_key(row: dict[str, Any]) -> tuple[str, str, str]:
+    return str(row["sample_id"]), str(row["prompt_id"]), str(row["condition"])
 
 
 def safe_name(value: str) -> str:
@@ -260,12 +279,16 @@ class BundleBuilder:
         self._record_lock = threading.Lock()
         self.checks: list[dict[str, Any]] = []
         self.inventory: dict[str, Any] = {
-            "schema": "taffc_complete_bundle_inventory_v1",
+            "schema": "taffc_complete_bundle_inventory_v2",
             "bundle_name": output.name,
             "scope": {
                 "generated_dataset": "3810 valid in-domain protocol rows",
                 "natural_dataset": "CH-SIMS v2 cross-domain protocol views",
                 "cache_models": list(UNION_CACHE_SPECS) + list(FULL_CACHE_SPECS),
+                "cache_layout": {
+                    "generated_set": list(UNION_CACHE_SPECS) + list(FULL_CACHE_SPECS),
+                    "natural_set": {"ch_sims_v2": ["qwen3_5_4b"]},
+                },
                 "formal_misread_models": list(FORMAL_LABEL_MODELS),
                 "state_models": list(STATE_SPECS),
                 "state_not_computed": ["qwen3_5_4b", "gemma4_12b"],
@@ -334,8 +357,7 @@ class BundleBuilder:
         self.write_bytes(rel, text.encode("utf-8"), source, mode)
 
     def write_json(self, rel: str, value: Any, source: str, mode: str = "generated") -> None:
-        payload = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-        self.write_text(rel, payload, source, mode)
+        self.write_bytes(rel, json_payload(value), source, mode)
 
     def write_jsonl(
         self,
@@ -628,21 +650,22 @@ class BundleBuilder:
         self.check("ch_sims_v2_cross_domain", self.inventory["ch_sims_v2_cross_domain"])
 
     def _union_root_maps(
-        self, model: str, data: dict[str, Any]
+        self, model: str, data: dict[str, Any], model_root: str
     ) -> tuple[dict[Path, str], dict[Path, str]]:
         sources = data.get("provenance", {}).get("sources")
         require(isinstance(sources, list) and sources, f"{model}: union provenance sources missing")
         root_targets: dict[Path, str] = {}
         evidence_targets: dict[Path, str] = {}
         source_ids: set[str] = set()
-        for source in sources:
+        for index, source in enumerate(sources, 1):
             source_id = safe_name(str(source.get("source_id")))
             require(source_id not in source_ids, f"{model}: duplicate source_id {source_id}")
             source_ids.add(source_id)
             root = Path(str(source.get("cache_root"))).resolve(strict=True)
-            root_targets[root] = f"caches/{model}/source_cache/{source_id}"
+            source_slot = f"source_{index:03d}"
+            root_targets[root] = f"{model_root}/payload/{source_slot}"
             evidence = Path(str(source.get("evidence_path"))).resolve(strict=True)
-            evidence_targets[evidence] = f"caches/{model}/evidence/{source_id}.json"
+            evidence_targets[evidence] = f"{model_root}/provenance/{source_slot}/evidence.package.json"
         return root_targets, evidence_targets
 
     @staticmethod
@@ -659,6 +682,7 @@ class BundleBuilder:
         return max(candidates, key=lambda item: item[0])[1]
 
     def build_union_cache(self, model: str, spec: dict[str, Any]) -> None:
+        model_root = f"{GENERATED_CACHE_ROOT}/{model}"
         source_index = self.repo_root / str(spec["path"])
         require(sha256_file(source_index) == spec["sha256"], f"{model}: union source SHA mismatch")
         data = json.loads(source_index.read_text(encoding="utf-8"))
@@ -676,14 +700,14 @@ class BundleBuilder:
             require(Counter(row.get("sample_id") for row in blocked) == Counter({sample_id: 24 for sample_id in EXPECTED_SILENT_IDS}), "Omni blocked tasks must be 24 per silent sample")
             require({row.get("reason") for row in blocked} == {"missing_audio_stream"}, "Omni blocked reasons mismatch")
 
-        root_targets, evidence_targets = self._union_root_maps(model, data)
+        root_targets, evidence_targets = self._union_root_maps(model, data, model_root)
         link_map: dict[str, tuple[Path, str, bool]] = {}
-        for root, target_root in root_targets.items():
-            for path in sorted(item for item in root.iterdir() if item.is_file()):
-                target = f"{target_root}/{path.name}"
-                link_map[target] = (path, target, False)
-        for source, target in evidence_targets.items():
-            link_map[target] = (source, target, True)
+
+        def add_link(source: Path, target: str, nonzero: bool) -> None:
+            target = require_within_package_subtree(target, model_root, f"{model} union")
+            existing = link_map.get(target)
+            require(existing is None or existing[0] == source, f"{model}: package path collision at {target}")
+            link_map[target] = (source, target, nonzero)
 
         rewritten = copy.deepcopy(data)
         for original, output in zip(entries, rewritten["entries"], strict=True):
@@ -691,8 +715,8 @@ class BundleBuilder:
             sidecar_source = Path(str(original["metadata"]["sidecar_path"])).resolve(strict=True)
             shard_target = self._map_union_path(shard_source, root_targets, model)
             sidecar_target = self._map_union_path(sidecar_source, root_targets, model)
-            link_map[shard_target] = (shard_source, shard_target, True)
-            link_map[sidecar_target] = (sidecar_source, sidecar_target, True)
+            add_link(shard_source, shard_target, True)
+            add_link(sidecar_source, sidecar_target, True)
             self.register_expected_sha(shard_target, str(original["checksum"]), f"{model} union")
             output["cache_root"] = self._map_union_path(Path(str(original["cache_root"])), root_targets, model)
             output["shard_path"] = shard_target
@@ -708,37 +732,67 @@ class BundleBuilder:
             source_provenance["sidecar_path"] = sidecar_target
         for original, output in zip(data["provenance"]["sources"], rewritten["provenance"]["sources"], strict=True):
             output["cache_root"] = self._map_union_path(Path(str(original["cache_root"])), root_targets, model)
-            output["ledger_path"] = self._map_union_path(Path(str(original["ledger_path"])), root_targets, model)
+            ledger_source = Path(str(original["ledger_path"])).resolve(strict=True)
+            output["ledger_path"] = self._map_union_path(ledger_source, root_targets, model)
+            add_link(ledger_source, output["ledger_path"], True)
             evidence_source = Path(str(original["evidence_path"])).resolve(strict=True)
             output["evidence_path"] = evidence_targets[evidence_source]
+            evidence_data = json.loads(evidence_source.read_text(encoding="utf-8"))
+            require(isinstance(evidence_data, dict), f"{model}: malformed source evidence")
+            evidence_data["cache_root"] = output["cache_root"]
+            evidence_data["ledger_path"] = output["ledger_path"]
+            evidence_payload = json_payload(evidence_data)
+            output["evidence_sha256"] = hashlib.sha256(evidence_payload).hexdigest()
+            self.write_bytes(
+                output["evidence_path"],
+                evidence_payload,
+                str(evidence_source),
+                "generated_cache_evidence_path_rewrite",
+            )
+
+        blocked_provenance = f"provenance/caches/{model}/generated_set/blocked_tasks.jsonl"
+        rewritten["blocked_tasks"] = []
+        rewritten["package_provenance"] = {
+            "source_union_sha256": spec["sha256"],
+            "source_blocked_tasks": len(blocked),
+            "blocked_tasks_ledger": blocked_provenance,
+            "source_partitions_are_internal_provenance": True,
+        }
 
         self.link_many(list(link_map.values()), f"{model} union cache")
-        self.link(source_index, f"provenance/caches/{model}/union_v2.original.json", True)
         self.write_json(
-            f"caches/{model}/index/union.package.json",
+            f"{model_root}/index/manifest.package.json",
             rewritten,
             str(source_index),
             "generated_cache_path_rewrite",
         )
         self.write_jsonl(
-            f"caches/{model}/index/blocked_tasks.jsonl",
+            blocked_provenance,
             blocked,
             str(source_index),
             "generated_cache_ledger",
         )
-        self.inventory.setdefault("caches", {})[model] = {
+        self.write_json(
+            f"provenance/caches/{model}/generated_set/source_union.json",
+            {"source_path": str(source_index), "source_sha256": spec["sha256"]},
+            str(source_index),
+            "generated_source_metadata",
+        )
+        cache_inventory = self.inventory.setdefault("caches", {}).setdefault("generated_set", {})
+        cache_inventory[model] = {
             "kind": "production_union",
             "protocol": spec["protocol"],
             "samples": len(sample_ids),
             "successful_tasks": len(entries),
-            "blocked_tasks": len(blocked),
+            "active_blocked_tasks": 0,
+            "source_blocked_tasks_in_provenance": len(blocked),
             "source_roots": len(root_targets),
             "tensor_and_metadata_files": len(link_map),
         }
-        self.check(f"cache_{model}", self.inventory["caches"][model])
+        self.check(f"cache_generated_set_{model}", cache_inventory[model])
 
     def _rewrite_local_cache_row(
-        self, model: str, source_root: Path, row: dict[str, Any]
+        self, model: str, source_root: Path, row: dict[str, Any], active_root: str
     ) -> tuple[dict[str, Any], str, str]:
         output = copy.deepcopy(row)
         shard_source = resolve_cache_reference(row, str(row["shard_path"]), model)
@@ -746,12 +800,58 @@ class BundleBuilder:
         shard_relative = path_under(shard_source, source_root, model)
         sidecar_relative = path_under(sidecar_source, source_root, model)
         cache_root_relative = path_under(Path(str(row["cache_root"])), source_root, model)
-        shard_target = f"caches/{model}/source_cache/{shard_relative.as_posix()}"
-        sidecar_target = f"caches/{model}/source_cache/{sidecar_relative.as_posix()}"
-        output["cache_root"] = f"caches/{model}/source_cache/{cache_root_relative.as_posix()}"
+        payload_root = f"{active_root}/payload"
+        shard_target = f"{payload_root}/{shard_relative.as_posix()}"
+        sidecar_target = f"{payload_root}/{sidecar_relative.as_posix()}"
+        output["cache_root"] = f"{payload_root}/{cache_root_relative.as_posix()}"
         output["shard_path"] = shard_target
         output["metadata"]["sidecar_path"] = sidecar_target
+        require_within_package_subtree(output["cache_root"], active_root, f"{model} cache_root")
+        require_within_package_subtree(shard_target, active_root, f"{model} shard")
+        require_within_package_subtree(sidecar_target, active_root, f"{model} sidecar")
         return output, shard_target, sidecar_target
+
+    def _package_local_cache_rows(
+        self,
+        model: str,
+        source_root: Path,
+        rows: list[dict[str, Any]],
+        active_root: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        link_map: dict[str, tuple[Path, str, bool]] = {}
+        rewritten_rows: list[dict[str, Any]] = []
+        for row in rows:
+            output, shard_target, sidecar_target = self._rewrite_local_cache_row(
+                model, source_root, row, active_root
+            )
+            shard_source = resolve_cache_reference(row, str(row["shard_path"]), model)
+            sidecar_source = resolve_cache_reference(row, str(row["metadata"]["sidecar_path"]), model)
+            require(shard_source.stat().st_size > 0, f"{model}: zero tensor")
+            require(sidecar_source.stat().st_size > 0, f"{model}: zero sidecar")
+            for source, target in ((shard_source, shard_target), (sidecar_source, sidecar_target)):
+                existing = link_map.get(target)
+                require(existing is None or existing[0] == source, f"{model}: active payload collision at {target}")
+                link_map[target] = (source, target, True)
+            self.register_expected_sha(shard_target, str(row["checksum"]), f"{model} manifest")
+            rewritten_rows.append(output)
+        self.link_many(list(link_map.values()), f"{active_root} active payload")
+        self.write_jsonl(
+            f"{active_root}/index/manifest.package.jsonl",
+            rewritten_rows,
+            str(source_root / "manifest.jsonl"),
+            "generated_cache_path_rewrite",
+        )
+        return rewritten_rows, len(link_map)
+
+    @staticmethod
+    def _excluded_task_provenance(row: dict[str, Any], reason: str) -> dict[str, Any]:
+        output = {key: copy.deepcopy(value) for key, value in row.items() if key not in {"cache_root", "shard_path"}}
+        metadata = output.get("metadata")
+        if isinstance(metadata, dict):
+            metadata.pop("sidecar_path", None)
+        output["omitted_from_active_cache"] = True
+        output["omission_reason"] = reason
+        return output
 
     def _read_failed_tasks(self, database: Path) -> list[dict[str, Any]]:
         connection = sqlite3.connect(f"file:{database}?mode=ro&immutable=1", uri=True)
@@ -774,49 +874,71 @@ class BundleBuilder:
         require(len(rows) == spec["full_rows"], f"{model}: full manifest row count mismatch")
         require(len({row["sample_id"] for row in rows}) == spec["full_samples"], f"{model}: full sample count mismatch")
 
-        tree_items: list[tuple[Path, str, bool]] = []
-        excluded_backup_files = 0
-        excluded_transient_sqlite_files = 0
-        for path in sorted(source_root.rglob("*")):
-            relative = path.relative_to(source_root)
-            if ".bak_wrong_proto" in relative.parts:
-                if path.is_file():
-                    excluded_backup_files += 1
-                continue
-            if path.name.endswith((".sqlite3-shm", ".sqlite3-wal")):
-                if path.is_file():
-                    excluded_transient_sqlite_files += 1
-                continue
-            require(not path.is_symlink(), f"{model}: source cache symlink forbidden: {path}")
-            if path.is_file():
-                target = f"caches/{model}/source_cache/{relative.as_posix()}"
-                tree_items.append((path, target, False))
-        self.link_many(tree_items, f"{model} complete source cache")
-
-        rewritten_rows: list[dict[str, Any]] = []
-        for row in rows:
-            output, shard_target, sidecar_target = self._rewrite_local_cache_row(model, source_root, row)
-            require((self.staging / shard_target).stat().st_size > 0 if not self.dry_run else resolve_cache_reference(row, str(row["shard_path"]), model).stat().st_size > 0, f"{model}: zero tensor")
-            require((self.staging / sidecar_target).stat().st_size > 0 if not self.dry_run else resolve_cache_reference(row, str(row["metadata"]["sidecar_path"]), model).stat().st_size > 0, f"{model}: zero sidecar")
-            self.register_expected_sha(shard_target, str(row["checksum"]), f"{model} manifest")
-            rewritten_rows.append(output)
-
         if model == "qwen3_5_4b":
-            valid_rows = [row for row in rows if row.get("dataset_key") == "delivery_20260716"]
+            generated_rows = [row for row in rows if row.get("dataset_key") == "delivery_20260716"]
             natural_rows = [row for row in rows if row.get("dataset_key") == "ch_sims_v2"]
-            require({row["sample_id"] for row in valid_rows} == self.dataset_ids["VT"], "Qwen3.5 generated sample set mismatch")
+            require(len(generated_rows) == 45024 and len(natural_rows) == 48840, "Qwen3.5 dataset task counts mismatch")
+            require({row["sample_id"] for row in generated_rows} == self.dataset_ids["VT"], "Qwen3.5 generated sample set mismatch")
             require({row["sample_id"] for row in natural_rows} == self.dataset_ids["CH_SIMS_VT"], "Qwen3.5 CH-SIMS sample set mismatch")
-            validate_task_matrix(valid_rows, self.dataset_ids["VT"], "Qwen3.5 generated subset")
+            validate_task_matrix(generated_rows, self.dataset_ids["VT"], "Qwen3.5 generated subset")
             validate_task_matrix(natural_rows, self.dataset_ids["CH_SIMS_VT"], "Qwen3.5 CH-SIMS subset")
-            valid_rewritten = [row for row in rewritten_rows if row.get("dataset_key") == "delivery_20260716"]
-            require(len(valid_rewritten) == spec["valid_rows"], "Qwen3.5 valid row count mismatch")
-            self.write_jsonl(
-                f"caches/{model}/index/generated_valid_manifest.package.jsonl",
-                valid_rewritten,
-                str(manifest),
-                "generated_cache_filter_rewrite",
+            require({cache_task_key(row) for row in generated_rows}.isdisjoint({cache_task_key(row) for row in natural_rows}), "Qwen3.5 logical entries overlap across datasets")
+            generated_refs = {
+                (resolve_cache_reference(row, str(row["shard_path"]), model), resolve_cache_reference(row, str(row["metadata"]["sidecar_path"]), model))
+                for row in generated_rows
+            }
+            natural_refs = {
+                (resolve_cache_reference(row, str(row["shard_path"]), model), resolve_cache_reference(row, str(row["metadata"]["sidecar_path"]), model))
+                for row in natural_rows
+            }
+            require(generated_refs.isdisjoint(natural_refs), "Qwen3.5 payload references overlap across datasets")
+
+            generated_root = f"{GENERATED_CACHE_ROOT}/{model}"
+            natural_root = f"{NATURAL_CACHE_ROOT}/{model}"
+            generated_rewritten, generated_files = self._package_local_cache_rows(
+                model, source_root, generated_rows, generated_root
             )
-            extra = {"ch_sims_tasks": len(natural_rows), "failed_tasks": 0}
+            natural_rewritten, natural_files = self._package_local_cache_rows(
+                model, source_root, natural_rows, natural_root
+            )
+            rewritten_by_task = {
+                cache_task_key(row): row for row in [*generated_rewritten, *natural_rewritten]
+            }
+            require(len(rewritten_by_task) == len(rows), "Qwen3.5 mixed provenance task coverage mismatch")
+            mixed_rewritten = [rewritten_by_task[cache_task_key(row)] for row in rows]
+            mixed_root = "provenance/caches/qwen3_5_4b/mixed_original"
+            self.write_jsonl(
+                f"{mixed_root}/manifest.package.jsonl",
+                mixed_rewritten,
+                str(manifest),
+                "generated_mixed_manifest_path_rewrite",
+            )
+            self.link(source_root / "batch_state.sqlite3", f"{mixed_root}/batch_state.sqlite3", True)
+            self.link(source_root / "batch_summary.json", f"{mixed_root}/batch_summary.json", True)
+            self.write_json(
+                f"{mixed_root}/source_metadata.json",
+                {"source_manifest": str(manifest), "source_manifest_sha256": spec["manifest_sha256"]},
+                str(manifest),
+                "generated_source_metadata",
+            )
+            generated_inventory = self.inventory.setdefault("caches", {}).setdefault("generated_set", {})
+            natural_inventory = self.inventory["caches"].setdefault("natural_set", {}).setdefault("ch_sims_v2", {})
+            generated_inventory[model] = {
+                "kind": "dataset_split_manifest",
+                "protocol": "VT",
+                "samples": 1876,
+                "successful_tasks": 45024,
+                "payload_files": generated_files,
+            }
+            natural_inventory[model] = {
+                "kind": "dataset_split_manifest",
+                "protocol": "VT",
+                "samples": 2035,
+                "successful_tasks": 48840,
+                "payload_files": natural_files,
+            }
+            self.check("cache_generated_set_qwen3_5_4b", generated_inventory[model])
+            self.check("cache_natural_set_ch_sims_v2_qwen3_5_4b", natural_inventory[model])
         else:
             valid_rows = [row for row in rows if row.get("sample_id") not in EXPECTED_SILENT_IDS]
             excluded_success = [row for row in rows if row.get("sample_id") in EXPECTED_SILENT_IDS]
@@ -829,48 +951,43 @@ class BundleBuilder:
             require(len(failed) == 40, "Gemma failed task count must be 40")
             require(Counter(row["sample_id"] for row in failed) == Counter({sample_id: 8 for sample_id in EXPECTED_SILENT_IDS}), "Gemma failures must be 8 per silent sample")
             require({row["condition"] for row in failed} == {"M2"}, "Gemma failed tasks must all be M2")
-            valid_rewritten = [row for row in rewritten_rows if row.get("sample_id") not in EXPECTED_SILENT_IDS]
-            excluded_rewritten = [row for row in rewritten_rows if row.get("sample_id") in EXPECTED_SILENT_IDS]
+            active_root = f"{GENERATED_CACHE_ROOT}/{model}"
+            valid_rewritten, active_files = self._package_local_cache_rows(
+                model, source_root, valid_rows, active_root
+            )
             require(len(valid_rewritten) == spec["valid_rows"], "Gemma valid row count mismatch")
+            provenance_root = "provenance/caches/gemma4_12b/generated_source"
             self.write_jsonl(
-                f"caches/{model}/index/generated_valid_manifest.package.jsonl",
-                valid_rewritten,
+                f"{provenance_root}/excluded_silent_successes.task_ledger.jsonl",
+                [self._excluded_task_provenance(row, "silent_sample_excluded_from_valid_generated_set") for row in excluded_success],
                 str(manifest),
-                "generated_cache_filter_rewrite",
+                "generated_excluded_task_provenance",
             )
             self.write_jsonl(
-                f"caches/{model}/index/excluded_silent_successes.package.jsonl",
-                excluded_rewritten,
-                str(manifest),
-                "generated_cache_exclusion_ledger",
-            )
-            self.write_jsonl(
-                f"caches/{model}/index/failed_tasks.jsonl",
+                f"{provenance_root}/failed_tasks.jsonl",
                 failed,
                 str(source_root / "batch_state.sqlite3"),
                 "generated_sqlite_failure_ledger",
             )
-            extra = {"excluded_silent_successful_tasks": 80, "failed_tasks": 40}
-
-        self.write_jsonl(
-            f"caches/{model}/index/full_manifest.package.jsonl",
-            rewritten_rows,
-            str(manifest),
-            "generated_cache_path_rewrite",
-        )
-        self.inventory.setdefault("caches", {})[model] = {
-            "kind": "complete_source_cache",
-            "protocol": spec["protocol"],
-            "full_samples": spec["full_samples"],
-            "full_successful_tasks": spec["full_rows"],
-            "valid_generated_samples": spec["valid_samples"],
-            "valid_generated_tasks": spec["valid_rows"],
-            "source_files": len(tree_items),
-            "excluded_backup_files": excluded_backup_files,
-            "excluded_transient_sqlite_files": excluded_transient_sqlite_files,
-            **extra,
-        }
-        self.check(f"cache_{model}", self.inventory["caches"][model])
+            self.link(source_root / "batch_state.sqlite3", f"{provenance_root}/batch_state.sqlite3", True)
+            self.link(source_root / "batch_summary.json", f"{provenance_root}/batch_summary.json", True)
+            self.write_json(
+                f"{provenance_root}/source_metadata.json",
+                {"source_manifest": str(manifest), "source_manifest_sha256": spec["manifest_sha256"]},
+                str(manifest),
+                "generated_source_metadata",
+            )
+            generated_inventory = self.inventory.setdefault("caches", {}).setdefault("generated_set", {})
+            generated_inventory[model] = {
+                "kind": "valid_generated_manifest",
+                "protocol": "VA",
+                "samples": 1934,
+                "successful_tasks": 46416,
+                "payload_files": active_files,
+                "excluded_silent_successful_tasks_in_provenance": 80,
+                "failed_silent_tasks_in_provenance": 40,
+            }
+            self.check("cache_generated_set_gemma4_12b", generated_inventory[model])
 
     def build_caches(self) -> None:
         for model, spec in UNION_CACHE_SPECS.items():
@@ -880,10 +997,14 @@ class BundleBuilder:
         self.write_text(
             "caches/README.md",
             "# Hidden-state caches\n\n"
-            "Each package index uses paths relative to the bundle root. Qwen3-VL, InternVL, and "
-            "Qwen2.5-Omni contain the exact valid generated-set union. Qwen3.5 contains its complete "
-            "mixed generated plus CH-SIMS cache and an exact generated-only index. Gemma contains the "
-            "complete source cache except `.bak_wrong_proto`, with valid, excluded-success, and failure ledgers.\n",
+            "The active hierarchy is dataset-first. `generated_set/` contains exactly five models: "
+            "Qwen3-VL, InternVL, Qwen2.5-Omni, Qwen3.5, and Gemma4. `natural_set/ch_sims_v2/` "
+            "contains only Qwen3.5. New-only and overlap-frozen-v2 are internal source provenance "
+            "inside the three production-union indexes, not dataset categories.\n\n"
+            "Every active cache manifest and payload reference stays inside its dataset/model subtree. "
+            "Qwen3.5 generated and CH-SIMS entries and payloads are disjoint. Gemma's 80 partial "
+            "successes and 40 failures for five silent samples are provenance-only and never appear "
+            "in the active generated cache.\n",
             "packaging contract",
         )
 
@@ -966,7 +1087,7 @@ class BundleBuilder:
                 "training_config_sha256": run_complete["training_config_sha256"],
                 "best_checkpoint": f"states/{model}/method_evidence/training/best_checkpoint.pt",
                 "best_checkpoint_sha256": run_complete["best_checkpoint_sha256"],
-                "cache_union": f"caches/{model}/index/union.package.json",
+                "cache_union": f"{GENERATED_CACHE_ROOT}/{model}/index/manifest.package.json",
                 "source_cache_union_sha256": run_complete["cache_union_sha256"],
                 "misread_labels_used": False,
             }
@@ -1000,6 +1121,9 @@ class BundleBuilder:
             "This directory is the canonical, fail-closed delivery for the 3,810-row generated "
             "in-domain set, the CH-SIMS v2 cross-domain natural set, five hidden-state caches, "
             "15 formal Misread label sets, and state outputs for exactly three models.\n\n"
+            "Caches are organized by dataset. `caches/generated_set/` contains the five generated-set "
+            "model caches. `caches/natural_set/ch_sims_v2/` contains only Qwen3.5-4B. The original "
+            "new-only and overlap-frozen-v2 split is retained only as internal source provenance.\n\n"
             "All dataset media and cache paths are relative to the bundle root. Large source files "
             "use hardlinks when source ownership permits it; cross-owner media are byte-copied. "
             "There are no symlinks. `SHA256SUMS` covers every file except itself "
@@ -1090,6 +1214,42 @@ class BundleBuilder:
         self.finalize()
 
 
+def _verify_active_cache_row(output: Path, row: dict[str, Any], active_root: str, source: str) -> tuple[str, str]:
+    cache_root = require_within_package_subtree(str(row["cache_root"]), active_root, f"{source} cache_root")
+    shard = require_within_package_subtree(str(row["shard_path"]), active_root, f"{source} shard")
+    sidecar = require_within_package_subtree(
+        str(row["metadata"]["sidecar_path"]), active_root, f"{source} sidecar"
+    )
+    require((output / cache_root).is_dir(), f"bad packaged cache_root: {cache_root}")
+    for relative in (shard, sidecar):
+        target = output / relative
+        require(target.is_file() and target.stat().st_size > 0, f"bad packaged cache payload: {target}")
+    return shard, sidecar
+
+
+def _verify_local_active_manifest(
+    output: Path,
+    rows: list[dict[str, Any]],
+    expected_ids: set[str],
+    active_root: str,
+    source: str,
+) -> set[str]:
+    validate_task_matrix(rows, expected_ids, source)
+    referenced: set[str] = set()
+    for row in rows:
+        shard, sidecar = _verify_active_cache_row(output, row, active_root, source)
+        require(shard not in referenced and sidecar not in referenced, f"{source}: duplicate payload reference")
+        referenced.update((shard, sidecar))
+    payload_root = output / active_root / "payload"
+    actual = {
+        path.relative_to(output).as_posix()
+        for path in payload_root.rglob("*")
+        if path.is_file()
+    }
+    require(actual == referenced, f"{source}: active payload file set mismatch")
+    return referenced
+
+
 def _verify_package_indexes(output: Path) -> dict[str, Any]:
     vt_rows = read_jsonl(output / "datasets/generated_3810/manifests/vt.jsonl")
     va_rows = read_jsonl(output / "datasets/generated_3810/manifests/va.jsonl")
@@ -1105,6 +1265,7 @@ def _verify_package_indexes(output: Path) -> dict[str, Any]:
     ch_va = read_jsonl(output / "datasets/ch_sims_v2_cross_domain/manifests/va.jsonl")
     require(len(ch_vt) == 2035 and len(ch_va) == 2190, "packaged CH-SIMS count mismatch")
     require(len({value for row in [*ch_vt, *ch_va] for value in row["media_paths"].values()}) == 2445, "packaged CH-SIMS media count mismatch")
+    ch_ids = {"VT": id_set(ch_vt, "packaged CH-SIMS VT"), "VA": id_set(ch_va, "packaged CH-SIMS VA")}
 
     for model, protocol in FORMAL_LABEL_MODELS.items():
         rows = read_jsonl(output / f"misread_labels/{model}/judgments.jsonl")
@@ -1113,25 +1274,98 @@ def _verify_package_indexes(output: Path) -> dict[str, Any]:
         rows = read_jsonl(output / f"states/{model}/method_evidence/state_all_registered_splits/state_patterns.jsonl")
         require(id_set(rows, f"packaged {model} states") == ids[str(spec["protocol"])], f"packaged {model} state coverage mismatch")
 
+    cache_root = output / "caches"
+    require({path.name for path in cache_root.iterdir()} == {"README.md", "generated_set", "natural_set"}, "cache top-level layout mismatch")
+    generated_models = {path.name for path in (cache_root / "generated_set").iterdir() if path.is_dir()}
+    require(generated_models == set(UNION_CACHE_SPECS) | set(FULL_CACHE_SPECS), "generated cache model set mismatch")
+    natural_categories = {path.name for path in (cache_root / "natural_set").iterdir() if path.is_dir()}
+    require(natural_categories == {"ch_sims_v2"}, "natural cache dataset set mismatch")
+    natural_models = {path.name for path in (cache_root / "natural_set/ch_sims_v2").iterdir() if path.is_dir()}
+    require(natural_models == {"qwen3_5_4b"}, "only Qwen3.5 may appear under natural_set/ch_sims_v2")
+
     for model, spec in UNION_CACHE_SPECS.items():
-        data = json.loads((output / f"caches/{model}/index/union.package.json").read_text(encoding="utf-8"))
+        active_root = f"{GENERATED_CACHE_ROOT}/{model}"
+        data = json.loads((output / active_root / "index/manifest.package.json").read_text(encoding="utf-8"))
         entries = data["entries"]
         require(len(entries) == spec["tasks"], f"packaged {model} union task mismatch")
         validate_task_matrix(entries, ids[str(spec["protocol"])], f"packaged {model} union")
+        require(data.get("blocked_tasks") == [], f"packaged {model}: blocked tasks must be provenance-only")
         for row in entries:
-            for value in (row["shard_path"], row["metadata"]["sidecar_path"]):
-                require(not Path(value).is_absolute(), f"absolute packaged cache path: {value}")
-                target = output / value
-                require(target.is_file() and target.stat().st_size > 0, f"bad packaged cache payload: {target}")
-    q35 = read_jsonl(output / "caches/qwen3_5_4b/index/generated_valid_manifest.package.jsonl")
-    gemma = read_jsonl(output / "caches/gemma4_12b/index/generated_valid_manifest.package.jsonl")
-    validate_task_matrix(q35, ids["VT"], "packaged Qwen3.5 generated cache")
-    validate_task_matrix(gemma, ids["VA"], "packaged Gemma valid cache")
-    require(len(read_jsonl(output / "caches/gemma4_12b/index/excluded_silent_successes.package.jsonl")) == 80, "packaged Gemma excluded success mismatch")
-    require(len(read_jsonl(output / "caches/gemma4_12b/index/failed_tasks.jsonl")) == 40, "packaged Gemma failure mismatch")
+            _verify_active_cache_row(output, row, active_root, f"packaged {model} union")
+            provenance = row.get("source_provenance")
+            require(isinstance(provenance, dict), f"packaged {model}: source provenance missing")
+            source_root = require_within_package_subtree(
+                str(provenance["source_cache_root"]), active_root, f"packaged {model} source_cache_root"
+            )
+            ledger = require_within_package_subtree(
+                str(provenance["ledger_path"]), active_root, f"packaged {model} ledger"
+            )
+            require((output / source_root).is_dir(), f"packaged {model}: missing source cache root")
+            require((output / ledger).is_file(), f"packaged {model}: missing source ledger")
+        for source in data["provenance"]["sources"]:
+            source_root = require_within_package_subtree(
+                str(source["cache_root"]), active_root, f"packaged {model} provenance cache_root"
+            )
+            ledger = require_within_package_subtree(
+                str(source["ledger_path"]), active_root, f"packaged {model} provenance ledger"
+            )
+            evidence = require_within_package_subtree(
+                str(source["evidence_path"]), active_root, f"packaged {model} provenance evidence"
+            )
+            require((output / source_root).is_dir(), f"packaged {model}: source root missing")
+            require((output / ledger).is_file(), f"packaged {model}: source ledger missing")
+            require((output / evidence).is_file(), f"packaged {model}: source evidence missing")
+            require(sha256_file(output / evidence) == source["evidence_sha256"], f"packaged {model}: evidence SHA mismatch")
+        blocked = read_jsonl(output / f"provenance/caches/{model}/generated_set/blocked_tasks.jsonl")
+        require(len(blocked) == spec["blocked"], f"packaged {model}: blocked provenance count mismatch")
+
+    q35_generated_root = f"{GENERATED_CACHE_ROOT}/qwen3_5_4b"
+    q35_natural_root = f"{NATURAL_CACHE_ROOT}/qwen3_5_4b"
+    gemma_root = f"{GENERATED_CACHE_ROOT}/gemma4_12b"
+    q35_generated = read_jsonl(output / q35_generated_root / "index/manifest.package.jsonl")
+    q35_natural = read_jsonl(output / q35_natural_root / "index/manifest.package.jsonl")
+    gemma = read_jsonl(output / gemma_root / "index/manifest.package.jsonl")
+    require(len(q35_generated) == 45024, "packaged Qwen3.5 generated task count mismatch")
+    require(len(q35_natural) == 48840, "packaged Qwen3.5 CH-SIMS task count mismatch")
+    require(len(gemma) == 46416, "packaged Gemma task count mismatch")
+    require({row.get("dataset_key") for row in q35_generated} == {"delivery_20260716"}, "Qwen3.5 generated dataset key mismatch")
+    require({row.get("dataset_key") for row in q35_natural} == {"ch_sims_v2"}, "Qwen3.5 natural dataset key mismatch")
+    q35_generated_refs = _verify_local_active_manifest(
+        output, q35_generated, ids["VT"], q35_generated_root, "packaged Qwen3.5 generated cache"
+    )
+    q35_natural_refs = _verify_local_active_manifest(
+        output, q35_natural, ch_ids["VT"], q35_natural_root, "packaged Qwen3.5 CH-SIMS cache"
+    )
+    require({cache_task_key(row) for row in q35_generated}.isdisjoint({cache_task_key(row) for row in q35_natural}), "packaged Qwen3.5 task sets overlap")
+    require(q35_generated_refs.isdisjoint(q35_natural_refs), "packaged Qwen3.5 payload paths overlap")
+    _verify_local_active_manifest(output, gemma, ids["VA"], gemma_root, "packaged Gemma valid cache")
+    require(not ({row["sample_id"] for row in gemma} & EXPECTED_SILENT_IDS), "silent samples entered active Gemma cache")
+
+    mixed = read_jsonl(output / "provenance/caches/qwen3_5_4b/mixed_original/manifest.package.jsonl")
+    require(len(mixed) == 93864, "packaged Qwen3.5 mixed provenance count mismatch")
+    require({cache_task_key(row) for row in mixed} == {cache_task_key(row) for row in [*q35_generated, *q35_natural]}, "Qwen3.5 mixed provenance coverage mismatch")
+    for row in mixed:
+        expected_root = q35_generated_root if row.get("dataset_key") == "delivery_20260716" else q35_natural_root
+        _verify_active_cache_row(output, row, expected_root, "Qwen3.5 mixed provenance")
+
+    excluded = read_jsonl(output / "provenance/caches/gemma4_12b/generated_source/excluded_silent_successes.task_ledger.jsonl")
+    failed = read_jsonl(output / "provenance/caches/gemma4_12b/generated_source/failed_tasks.jsonl")
+    require(len(excluded) == 80, "packaged Gemma excluded success mismatch")
+    require(len(failed) == 40, "packaged Gemma failure mismatch")
+    require({row["sample_id"] for row in [*excluded, *failed]} == EXPECTED_SILENT_IDS, "Gemma silent provenance IDs mismatch")
+    for row in excluded:
+        require("cache_root" not in row and "shard_path" not in row, "excluded Gemma provenance contains active cache path")
+        require("sidecar_path" not in row.get("metadata", {}), "excluded Gemma provenance contains active sidecar path")
     require(not (output / "states/qwen3_5_4b").exists(), "Qwen3.5 state directory must not exist")
     require(not (output / "states/gemma4_12b").exists(), "Gemma state directory must not exist")
-    return {"generated": 3810, "ch_sims_protocol_rows": 4225, "formal_models": 15, "state_models": 3}
+    return {
+        "generated": 3810,
+        "ch_sims_protocol_rows": 4225,
+        "formal_models": 15,
+        "state_models": 3,
+        "generated_cache_models": 5,
+        "natural_cache_models": {"ch_sims_v2": ["qwen3_5_4b"]},
+    }
 
 
 def verify_bundle(output: Path, workers: int) -> None:
@@ -1188,6 +1422,94 @@ def verify_bundle(output: Path, workers: int) -> None:
     print(json.dumps({"status": "PASS", "sha_files": len(expected), **logical}, sort_keys=True), flush=True)
 
 
+def atomic_exchange_directories(first: Path, second: Path) -> None:
+    first = first.absolute()
+    second = second.absolute()
+    require(first.parent == second.parent, "atomic exchange requires sibling directories")
+    require(first.is_dir() and second.is_dir(), "atomic exchange targets must be directories")
+    require(first.stat().st_dev == second.stat().st_dev, "atomic exchange requires one filesystem")
+    libc = ctypes.CDLL(None, use_errno=True)
+    renameat2 = getattr(libc, "renameat2", None)
+    require(renameat2 is not None, "libc renameat2 is required for atomic directory exchange")
+    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.restype = ctypes.c_int
+    at_fdcwd = -100
+    rename_exchange = 2
+    result = renameat2(
+        at_fdcwd,
+        os.fsencode(first),
+        at_fdcwd,
+        os.fsencode(second),
+        rename_exchange,
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise BundleError(f"atomic renameat2 exchange failed: errno={error_number} {os.strerror(error_number)}")
+
+
+def require_independent_verification_record(
+    candidate: Path, status_path: Path, log_path: Path
+) -> dict[str, Any]:
+    status_path = status_path.resolve(strict=True)
+    log_path = log_path.resolve(strict=True)
+    require(status_path.read_text(encoding="utf-8").strip() == "0", "independent verification status is not 0")
+    pass_record: dict[str, Any] | None = None
+    for line in reversed(log_path.read_text(encoding="utf-8").splitlines()):
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict) and value.get("status") == "PASS":
+            pass_record = value
+            break
+    require(pass_record is not None, "independent verification log lacks final PASS record")
+    sha_path = candidate / "SHA256SUMS"
+    require(sha_path.is_file(), "candidate SHA256SUMS missing")
+    sha_files = sum(1 for line in sha_path.open("r", encoding="utf-8") if line.strip())
+    require(pass_record.get("sha_files") == sha_files, "independent verification SHA file count mismatch")
+    require(pass_record.get("generated") == 3810, "independent verification generated count mismatch")
+    require(pass_record.get("ch_sims_protocol_rows") == 4225, "independent verification CH-SIMS count mismatch")
+    require(pass_record.get("generated_cache_models") == 5, "independent verification generated cache scope mismatch")
+    require(pass_record.get("natural_cache_models") == {"ch_sims_v2": ["qwen3_5_4b"]}, "independent verification natural cache scope mismatch")
+    require(status_path.stat().st_mtime_ns >= sha_path.stat().st_mtime_ns, "verification status predates candidate checksums")
+    require(log_path.stat().st_mtime_ns >= sha_path.stat().st_mtime_ns, "verification log predates candidate checksums")
+    print(f"PROMOTE accepted independent verification record: {pass_record}", flush=True)
+    return pass_record
+
+
+def promote_verified_bundle(
+    candidate: Path,
+    output: Path,
+    workers: int,
+    verified_status: Path,
+    verified_log: Path,
+) -> None:
+    candidate = candidate.resolve(strict=True)
+    output = output.resolve(strict=True)
+    require(candidate != output, "candidate and final output must differ")
+    require(candidate.parent == output.parent, "candidate and final output must be siblings")
+    backup = output.parent / f".{output.name}.backup_pre_dataset_reorg_20260721"
+    require(not backup.exists(), f"promotion backup path already exists: {backup}")
+    require_independent_verification_record(candidate, verified_status, verified_log)
+    logical = _verify_package_indexes(candidate)
+    require(logical["generated_cache_models"] == 5, "candidate logical cache scope changed after verification")
+    atomic_exchange_directories(candidate, output)
+    os.replace(candidate, backup)
+    print(f"PROMOTE old bundle preserved at: {backup}", flush=True)
+    try:
+        print(f"PROMOTE post-exchange full verification: {output}", flush=True)
+        verify_bundle(output, workers)
+    except Exception:
+        os.replace(backup, candidate)
+        atomic_exchange_directories(candidate, output)
+        print("PROMOTE rolled back atomic exchange after failed final verification", file=sys.stderr, flush=True)
+        raise
+    require(backup.is_dir() and output.is_dir(), "post-exchange bundle directories missing")
+    shutil.rmtree(backup)
+    require(not backup.exists(), f"old bundle cleanup failed: {backup}")
+    print(f"PROMOTE_COMPLETE final={output} old_bundle_deleted={backup}", flush=True)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo-root", type=Path, default=Path(__file__).resolve().parents[2])
@@ -1200,6 +1522,13 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Audit every source and planned package path without writing")
     parser.add_argument("--verify-only", action="store_true", help="Verify an existing bundle and recompute all SHA-256 digests")
     parser.add_argument(
+        "--promote-candidate",
+        type=Path,
+        help="Fully verify a sibling candidate, atomically exchange it with --output, verify again, then delete the old bundle",
+    )
+    parser.add_argument("--verified-status", type=Path, help="Durable status file from the independent candidate verification")
+    parser.add_argument("--verified-log", type=Path, help="Durable log from the independent candidate verification")
+    parser.add_argument(
         "--resume-existing-staging",
         action="store_true",
         help="Validate and reuse the fixed staging directory after an interrupted build",
@@ -1211,10 +1540,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     require(args.workers > 0, "workers must be positive")
-    require(not (args.dry_run and args.verify_only), "--dry-run and --verify-only are mutually exclusive")
+    selected_modes = sum(bool(value) for value in (args.dry_run, args.verify_only, args.promote_candidate))
+    require(selected_modes <= 1, "--dry-run, --verify-only, and --promote-candidate are mutually exclusive")
     require(not (args.resume_existing_staging and args.verify_only), "cannot resume staging in verify-only mode")
+    require(not (args.resume_existing_staging and args.promote_candidate), "cannot resume staging in promote mode")
+    if args.promote_candidate is None:
+        require(args.verified_status is None and args.verified_log is None, "verification record arguments are promotion-only")
+    else:
+        require(args.verified_status is not None and args.verified_log is not None, "promotion requires --verified-status and --verified-log")
     if not args.output.is_absolute():
         args.output = args.repo_root / args.output
+    if args.promote_candidate is not None and not args.promote_candidate.is_absolute():
+        args.promote_candidate = args.repo_root / args.promote_candidate
+    for name in ("verified_status", "verified_log"):
+        value = getattr(args, name)
+        if value is not None and not value.is_absolute():
+            setattr(args, name, args.repo_root / value)
     return args
 
 
@@ -1222,6 +1563,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.verify_only:
         verify_bundle(args.output, args.workers)
+        return 0
+    if args.promote_candidate is not None:
+        promote_verified_bundle(
+            args.promote_candidate,
+            args.output,
+            args.workers,
+            args.verified_status,
+            args.verified_log,
+        )
         return 0
     builder = BundleBuilder(
         repo_root=args.repo_root,

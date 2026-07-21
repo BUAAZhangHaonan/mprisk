@@ -9,6 +9,32 @@ Qwen2.5-Omni-7B.
 Qwen3.5-4B and Gemma4-12B are cache/Misread-only. The builder never computes
 their state indices and never trains TME.
 
+The active cache hierarchy is dataset-first:
+
+```text
+caches/
+  generated_set/
+    qwen3_vl_8b/          # 1876 samples, 45024 tasks
+    internvl3_5_8b/       # 1876 samples, 45024 tasks
+    qwen2_5_omni_7b/      # 1934 samples, 46416 tasks
+    qwen3_5_4b/           # 1876 samples, 45024 tasks
+    gemma4_12b/           # 1934 samples, 46416 tasks
+  natural_set/
+    ch_sims_v2/
+      qwen3_5_4b/         # 2035 samples, 48840 tasks
+```
+
+Only Qwen3.5 appears under `natural_set`. Its source mixed manifest is split by
+the exact generated and CH-SIMS ID sets, and the two active payload sets are
+required to be disjoint. The source mixed manifest, SQLite ledger, and summary
+are retained under `provenance/caches/qwen3_5_4b/mixed_original`; its packaged
+manifest has valid package-relative references into the two active subtrees.
+
+For Qwen3-VL, InternVL, and Qwen2.5-Omni, `new-only` and
+`overlap-frozen-v2` remain internal union provenance only. They are not exposed
+as dataset categories. Gemma's five silent IDs, 80 partial successes, and 40
+failures are absent from the active cache and retained only under `provenance/`.
+
 Run the source and path audit first:
 
 ```bash
@@ -21,13 +47,20 @@ Run the focused unit tests with:
 python3 -m pytest -q scripts/packaging/test_build_taffc_complete_bundle.py
 ```
 
-Build in tmux because linking and hashing hundreds of thousands of cache files
-is long-running:
+Build and promote in tmux because linking and hashing hundreds of thousands of
+cache files is long-running. The candidate is built without touching the
+current final bundle. An independent verify run fully rehashes the candidate.
+Promotion requires that run's durable exit-0/PASS record, uses Linux
+`renameat2(RENAME_EXCHANGE)` for an atomic directory swap, fully verifies the
+new final path, and only then deletes the old bundle. Between exchange and
+final verification, the old bundle is preserved at
+`.taffc_complete_bundle_20260721.backup_pre_dataset_reorg_20260721`:
 
 ```bash
-bash scripts/packaging/run_taffc_complete_bundle_tmux.sh dry-run
-bash scripts/packaging/run_taffc_complete_bundle_tmux.sh build
-bash scripts/packaging/run_taffc_complete_bundle_tmux.sh verify
+bash scripts/packaging/run_taffc_complete_bundle_tmux.sh reorg-dry-run
+bash scripts/packaging/run_taffc_complete_bundle_tmux.sh reorg-build
+bash scripts/packaging/run_taffc_complete_bundle_tmux.sh reorg-verify
+bash scripts/packaging/run_taffc_complete_bundle_tmux.sh reorg-promote
 ```
 
 Independently recompute every payload SHA and re-check package coverage:
