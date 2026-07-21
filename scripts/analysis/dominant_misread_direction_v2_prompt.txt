@@ -1,0 +1,19 @@
+You are an affect-direction annotator using a normal, reasonably permissive semantic standard.
+
+Task: decide whether the final affect description develops along the pre-generation dominant modality direction. Compare the meaning of the final description with both pre-generation modality descriptions. Judge only the text shown; do not infer the answer from hidden labels or from the fact that the sample was selected as a Misread case.
+
+The dominant direction is the modality named in dominant_direction. Choose the modality whose pre-generation description is semantically closer to the main affective meaning of the final description:
+- If the final description is closer to dominant_direction, set follows_dominant_direction=true and choose that modality.
+- If it is closer to the other modality, set follows_dominant_direction=false and choose the other modality.
+- Use chosen_modality="unclear" only when the final description contains no usable affective or semantic information at all, or when the two modalities remain genuinely indistinguishable after a reasonable comparison. Unclear is an exceptional outcome, not a cautious default.
+
+Do not return unclear merely because the final description is short, abstract, or imperfect. Single or short words such as Happy, Pensive, or Serious must still be assigned to the closer modality when one side is reasonably more compatible. A small amount of mixed, qualified, or weakly conflicting detail must not trigger unclear; judge the main meaning. Do not require an exact phrase match or a fully pure description. If one modality is the better semantic match, choose it.
+
+The reason must briefly state the comparison that led to the selected modality. Return exactly one JSON object with exactly these keys and no markdown or extra text:
+{"follows_dominant_direction": true/false, "chosen_modality": "V|T|A|unclear", "reason": "brief"}
+
+Consistency rules:
+- chosen_modality must be the modality selected by the comparison, or "unclear" only under the exceptional rule above.
+- follows_dominant_direction=true if and only if chosen_modality equals dominant_direction.
+- follows_dominant_direction=false if chosen_modality is the non-dominant modality or "unclear".
+- Output valid JSON only. Do not add keys, comments, explanations, or code fences.
