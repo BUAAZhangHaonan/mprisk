@@ -128,6 +128,12 @@ def export_tables(
         ),
     )
     _render_latency(timing_rows, expected, output / "kv_total_latency.pdf", output / "kv_total_latency.png")
+    _render_latency_bar(
+        timing_rows,
+        expected,
+        output / "kv_total_latency_bar.pdf",
+        output / "kv_total_latency_bar.png",
+    )
     _render_stability(stability_rows, expected, output / "kv_stability.pdf", output / "kv_stability.png")
     _render_pareto(
         pareto_rows,
@@ -299,6 +305,77 @@ def _render_latency(rows: list[dict[str, Any]], expected: tuple[int, ...], pdf: 
     ax_generation.set_xticks(expected)
     ax_generation.set_xticklabels([str(value) for value in expected])
     ax_generation.grid(axis="y", alpha=0.22)
+    fig.savefig(pdf, format="pdf")
+    fig.savefig(png, format="png", dpi=220)
+    plt.close(fig)
+
+
+def _render_latency_bar(
+    rows: list[dict[str, Any]], expected: tuple[int, ...], pdf: Path, png: Path
+) -> None:
+    """Render total end-to-end latency as equal-width grouped bars.
+
+    The legacy latency figure is retained above for reproducibility.  This
+    figure is the publication-facing view: each P occupies one categorical
+    slot, so the bar widths and gaps do not change with the numerical value of
+    P.  The two series are the recorded full-prefill and Prompt-KV
+    end-to-end totals (prefill plus the same generation time).
+    """
+    by_p = {int(row["prompt_count"]): row for row in rows}
+    missing = [p for p in expected if p not in by_p]
+    if missing:
+        raise ValueError(f"timing rows missing expected prompt counts: {missing}")
+
+    ordered = [by_p[p] for p in expected]
+    x = list(range(len(expected)))
+    full = [float(row["full_end_to_end_seconds"]) for row in ordered]
+    kv = [float(row["prompt_kv_end_to_end_seconds"]) for row in ordered]
+    width = 0.36
+
+    plt.rcParams.update(
+        {
+            "font.size": 10,
+            "axes.spines.top": False,
+            "axes.spines.right": False,
+            "axes.titleweight": "regular",
+        }
+    )
+    fig, ax = plt.subplots(figsize=(7.6, 4.8), constrained_layout=True)
+    full_bars = ax.bar(
+        [value - width / 2 for value in x],
+        full,
+        width=width,
+        color="#577590",
+        label="Full prefill + generation",
+        zorder=2,
+    )
+    kv_bars = ax.bar(
+        [value + width / 2 for value in x],
+        kv,
+        width=width,
+        color="#f3722c",
+        label="Prompt KV + generation",
+        zorder=2,
+    )
+
+    # P=8 is the selected knee/constraint point.  Use a restrained outline so
+    # the selection remains visible without adding an annotation to the plot.
+    if 8 in expected:
+        selected = expected.index(8)
+        ax.axvspan(selected - 0.48, selected + 0.48, color="#2a9d8f", alpha=0.08, zorder=0)
+        for bar in (full_bars[selected], kv_bars[selected]):
+            bar.set_edgecolor("#2a9d8f")
+            bar.set_linewidth(2.0)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels([str(value) for value in expected])
+    ax.set_xlabel("Equivalent prompts, P")
+    ax.set_ylabel("Total latency (s)")
+    ax.set_xlim(-0.6, len(expected) - 0.4)
+    ymax = max(full + kv)
+    ax.set_ylim(0, ymax * 1.08)
+    ax.grid(axis="y", color="#d9dde2", linewidth=0.8, alpha=0.75, zorder=1)
+    ax.legend(frameon=False, loc="upper left", ncol=2)
     fig.savefig(pdf, format="pdf")
     fig.savefig(png, format="png", dpi=220)
     plt.close(fig)
