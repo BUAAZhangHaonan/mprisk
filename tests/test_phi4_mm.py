@@ -9,6 +9,11 @@ import torch
 
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.phi4_mm import Phi4MmWrapper
+from mprisk.models.wrapper_registry import get_wrapper
+
+
+def test_phi4_is_registered() -> None:
+    assert get_wrapper("phi4_multimodal") is Phi4MmWrapper
 
 
 class _FakeProcessor:
