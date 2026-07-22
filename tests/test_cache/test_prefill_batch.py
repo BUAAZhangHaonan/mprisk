@@ -8,6 +8,7 @@ import pytest
 
 from mprisk.cache.prefill_batch import (
     BatchLedger,
+    _resolve_runtime_asset,
     build_batch_plan,
     build_parser,
     main,
@@ -170,6 +171,18 @@ def test_plan_signature_records_family_and_prompt_identity(tmp_path) -> None:
     assert plan.signature["prefill_strategy"] == "full_prefill"
     assert plan.signature["prefill_strategy_version"] == "v1"
     assert all(task.prompt_set_key == "va" for task in plan.tasks)
+
+
+def test_phi3_vision_defaults_to_its_supported_eager_attention(tmp_path) -> None:
+    args = _args(tmp_path, question="judge emotion")
+    args.model_key = "phi3_5_vision"
+    args.family = None
+    args.attn_implementation = None
+
+    _resolve_runtime_asset(args)
+
+    assert args.family == "phi3_vision"
+    assert args.attn_implementation == "eager"
 
 
 def test_prompt_kv_strategy_requires_qwen_vl_vt(tmp_path) -> None:

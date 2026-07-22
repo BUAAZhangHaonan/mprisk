@@ -977,7 +977,10 @@ def _resolve_runtime_asset(args: argparse.Namespace) -> None:
     if args.model_path is None:
         args.model_path = asset.local_model_path
     if args.attn_implementation is None:
-        args.attn_implementation = "eager" if asset.family == "internvl" else "sdpa"
+        eager_only_families = {"internvl", "phi3_vision"}
+        args.attn_implementation = (
+            "eager" if asset.family in eager_only_families else "sdpa"
+        )
 
 
 def _parse_variables(items: Sequence[str]) -> dict[str, str]:
