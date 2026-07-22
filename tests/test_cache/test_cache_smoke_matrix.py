@@ -10,6 +10,7 @@ from mprisk.cache.cache_smoke_matrix import (
     _evidence_matches,
     _sha256,
     _validate_frame_contract,
+    _validate_gemma4_processor_media_contract,
     _validate_media_contract,
     build_parser,
 )
@@ -92,6 +93,103 @@ def test_validate_media_contract_rejects_wrong_message_media(tmp_path: Path) -> 
                     {"role": "user", "content": [{"type": "video"}, {"type": "text"}]}
                 ],
                 "use_audio_in_video": False,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    (
+        "condition",
+        "message_types",
+        "embedded_audio",
+        "video_count",
+        "audio_count",
+        "audio_source",
+    ),
+    [
+        ("M1", ("video",), False, 1, 0, "none"),
+        ("M2", ("audio",), False, 0, 1, "explicit_audio_path"),
+        ("M12", ("video", "audio"), True, 1, 1, "embedded_video_waveform"),
+    ],
+)
+def test_validate_gemma4_media_contract_requires_exact_processor_inputs(
+    tmp_path: Path,
+    condition: str,
+    message_types: tuple[str, ...],
+    embedded_audio: bool,
+    video_count: int,
+    audio_count: int,
+    audio_source: str,
+) -> None:
+    vision = tmp_path / "vision.mp4"
+    audio = tmp_path / "audio.wav"
+    vision.write_bytes(b"video")
+    audio.write_bytes(b"audio")
+    provenance = {
+        "processor_media_contract": {
+            "schema": "mprisk_gemma4_processor_media_contract_v1",
+            "condition": condition,
+            "video_input_count": video_count,
+            "audio_input_count": audio_count,
+            "audio_input_source": audio_source,
+            "image_input_count": 0,
+        }
+    }
+
+    value, contains_video = _validate_media_contract(
+        "va",
+        {
+            "condition": condition,
+            "media_paths": {"vision": str(vision), "audio": str(audio)},
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        *[{"type": item} for item in message_types],
+                        {"type": "text", "text": "prompt"},
+                    ],
+                }
+            ],
+            "use_audio_in_video": embedded_audio,
+        },
+        family="gemma4",
+        provenance=provenance,
+    )
+
+    assert "processor_media_contract_v1" in value
+    assert contains_video is (video_count == 1)
+
+
+def test_validate_gemma4_media_contract_rejects_duplicate_audio() -> None:
+    with pytest.raises(ValueError, match="processor_media_contract mismatch"):
+        _validate_gemma4_processor_media_contract(
+            "M12",
+            {
+                "processor_media_contract": {
+                    "schema": "mprisk_gemma4_processor_media_contract_v1",
+                    "condition": "M12",
+                    "video_input_count": 1,
+                    "audio_input_count": 2,
+                    "audio_input_source": "embedded_video_waveform",
+                    "image_input_count": 0,
+                }
+            },
+        )
+
+
+def test_validate_gemma4_media_contract_rejects_wrong_audio_source() -> None:
+    with pytest.raises(ValueError, match="processor_media_contract mismatch"):
+        _validate_gemma4_processor_media_contract(
+            "M12",
+            {
+                "processor_media_contract": {
+                    "schema": "mprisk_gemma4_processor_media_contract_v1",
+                    "condition": "M12",
+                    "video_input_count": 1,
+                    "audio_input_count": 1,
+                    "audio_input_source": "explicit_audio_path",
+                    "image_input_count": 0,
+                }
             },
         )
 

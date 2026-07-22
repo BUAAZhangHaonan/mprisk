@@ -31,6 +31,34 @@ from mprisk.cache.cache_matrix_queue import (
     normalize_manifest,
 )
 
+GEMMA4_PROCESSOR_MEDIA_SCHEMA = "mprisk_gemma4_processor_media_contract_v1"
+GEMMA4_PROCESSOR_MEDIA_CONTRACTS = {
+    "M1": {
+        "schema": GEMMA4_PROCESSOR_MEDIA_SCHEMA,
+        "condition": "M1",
+        "video_input_count": 1,
+        "audio_input_count": 0,
+        "audio_input_source": "none",
+        "image_input_count": 0,
+    },
+    "M2": {
+        "schema": GEMMA4_PROCESSOR_MEDIA_SCHEMA,
+        "condition": "M2",
+        "video_input_count": 0,
+        "audio_input_count": 1,
+        "audio_input_source": "explicit_audio_path",
+        "image_input_count": 0,
+    },
+    "M12": {
+        "schema": GEMMA4_PROCESSOR_MEDIA_SCHEMA,
+        "condition": "M12",
+        "video_input_count": 1,
+        "audio_input_count": 1,
+        "audio_input_source": "embedded_video_waveform",
+        "image_input_count": 0,
+    },
+}
+
 
 @dataclass(frozen=True)
 class SmokePaths:
@@ -180,7 +208,12 @@ def validate_smoke(
         provenance = sidecar_payload.get("provenance")
         if not isinstance(request, dict) or not isinstance(provenance, dict):
             raise ValueError(f"Invalid sidecar contract: {sidecar}")
-        media_contract, contains_video = _validate_media_contract(job.model.protocol, request)
+        media_contract, contains_video = _validate_media_contract(
+            job.model.protocol,
+            request,
+            family=job.model.family,
+            provenance=provenance,
+        )
         media_checks[media_contract] += 1
         actual_frames[str(entry["condition"])].append(
             _validate_frame_contract(
@@ -209,6 +242,7 @@ def validate_smoke(
                         "video_sampling_method",
                         "video_frame_indices",
                         "video_source_total_frames",
+                        "processor_media_contract",
                     )
                     if provenance.get(key) is not None
                 }
@@ -331,7 +365,13 @@ def _require_gpu_capacity(lane: int, fraction: float) -> None:
         raise RuntimeError(f"GPU {lane} memory is already {used / total:.1%} utilized")
 
 
-def _validate_media_contract(protocol: str, request: dict[str, Any]) -> tuple[str, bool]:
+def _validate_media_contract(
+    protocol: str,
+    request: dict[str, Any],
+    *,
+    family: str | None = None,
+    provenance: dict[str, Any] | None = None,
+) -> tuple[str, bool]:
     condition = str(request.get("condition"))
     media = request.get("media_paths")
     if not isinstance(media, dict):
@@ -351,7 +391,27 @@ def _validate_media_contract(protocol: str, request: dict[str, Any]) -> tuple[st
     ]
     media_types = [item for item in content_types if item in {"image", "video", "audio"}]
     use_audio_in_video = bool(request.get("use_audio_in_video"))
-    if protocol == "vt":
+    processor_contract: dict[str, Any] | None = None
+    if family == "gemma4":
+        if protocol != "va":
+            raise ValueError(f"Gemma-4 smoke contract requires va protocol; got {protocol!r}")
+        expected = {
+            "M1": ["video"],
+            "M2": ["audio"],
+            "M12": ["video", "audio"],
+        }.get(condition)
+        if expected is None:
+            raise ValueError(f"Unsupported Gemma-4 condition: {condition!r}")
+        expected_embedded_audio = condition == "M12"
+        if use_audio_in_video is not expected_embedded_audio:
+            raise ValueError(
+                f"Gemma-4 {condition} expected use_audio_in_video="
+                f"{expected_embedded_audio}; got {use_audio_in_video}"
+            )
+        processor_contract = _validate_gemma4_processor_media_contract(
+            condition, provenance
+        )
+    elif protocol == "vt":
         expected = ["video"] if condition in {"M1", "M12"} else []
     else:
         if condition == "M1":
@@ -366,9 +426,35 @@ def _validate_media_contract(protocol: str, request: dict[str, Any]) -> tuple[st
         )
     return (
         f"{protocol}:{condition}:{'+'.join(media_types) or 'none'}:"
-        f"embedded_audio={str(use_audio_in_video).lower()}",
+        f"embedded_audio={str(use_audio_in_video).lower()}"
+        + (
+            f":processor={_canonical_json(processor_contract)}"
+            if processor_contract is not None
+            else ""
+        ),
         "video" in media_types or "image" in media_types,
     )
+
+
+def _validate_gemma4_processor_media_contract(
+    condition: str, provenance: dict[str, Any] | None
+) -> dict[str, Any]:
+    if not isinstance(provenance, dict):
+        raise ValueError("Gemma-4 smoke sidecar provenance must be a mapping")
+    contract = provenance.get("processor_media_contract")
+    if not isinstance(contract, dict):
+        raise ValueError(
+            "Gemma-4 provenance processor_media_contract must be a mapping"
+        )
+    expected = GEMMA4_PROCESSOR_MEDIA_CONTRACTS.get(condition)
+    if expected is None:
+        raise ValueError(f"Unsupported Gemma-4 condition: {condition!r}")
+    if contract != expected:
+        raise ValueError(
+            f"Gemma-4 {condition} processor_media_contract mismatch: "
+            f"expected={expected!r}, got={contract!r}"
+        )
+    return contract
 
 
 def _validate_frame_contract(
