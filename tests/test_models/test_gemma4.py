@@ -97,6 +97,7 @@ def test_gemma4_m12_rejects_missing_audio():
             "M12",
             {
                 "videos": [np.zeros((1, 2, 2, 3), dtype=np.uint8)],
+                "video_metadata": [{"total_num_frames": 1, "fps": 1.0, "frames_indices": [0]}],
                 "audio": None,
                 "audio_waveforms": None,
             },
@@ -141,6 +142,7 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
             "audio": None,
             "audio_waveforms": [(np.ones(1600, dtype=np.float32), 16000)],
             "videos": [np.zeros((4, 2, 2, 3), dtype=np.uint8)],
+            "video_metadata": [{"total_num_frames": 4, "fps": 1.0, "frames_indices": [0, 1, 2, 3]}],
             "images": None,
             "temporary_paths": [],
         },

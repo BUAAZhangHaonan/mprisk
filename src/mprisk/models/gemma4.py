@@ -158,6 +158,7 @@ class Gemma4Wrapper(BaseModelWrapper):
             processor_kwargs["audio"] = media["audio"]
         if media["videos"] is not None:
             processor_kwargs["videos"] = media["videos"]
+            processor_kwargs["video_metadata"] = media["video_metadata"]
             # We pre-decode via PyAV and pass numpy frame stacks, so tell the
             # video processor exactly how many frames we have to avoid the
             # default 32-frame sampler exceeding the supplied frame count.
@@ -380,6 +381,7 @@ def _collect_media_inputs(request: PrefillRequest) -> dict[str, Any]:
     audio_paths: list[str] = []
     audio_waveforms: list[Any] = []  # raw np.float32 mono arrays
     video_frames: list[Any] = []
+    video_metadata: list[dict[str, Any]] = []
     image_paths: list[str] = []
     temporary_paths: list[str] = []
 
@@ -402,18 +404,22 @@ def _collect_media_inputs(request: PrefillRequest) -> dict[str, Any]:
             elif ctype == "video":
                 vp = str(item.get("video"))
                 if request.use_audio_in_video:
-                    frames, audio_arr, sr = _video_to_frames_with_audio(vp)
+                    frames, audio_arr, sr, metadata = _video_to_frames_with_audio(vp)
                     video_frames.append(frames)
+                    video_metadata.append(metadata)
                     if audio_arr is not None:
                         audio_waveforms.append((audio_arr, sr))
                 else:
-                    video_frames.append(_video_to_frames(vp))
+                    frames, metadata = _video_to_frames(vp)
+                    video_frames.append(frames)
+                    video_metadata.append(metadata)
             elif ctype == "image":
                 image_paths.append(str(item.get("image")))
 
     media: dict[str, Any] = {
         "audio": None,
         "videos": None,
+        "video_metadata": None,
         "images": None,
         "audio_waveforms": None,
         "temporary_paths": temporary_paths,
@@ -424,6 +430,7 @@ def _collect_media_inputs(request: PrefillRequest) -> dict[str, Any]:
         media["audio_waveforms"] = audio_waveforms
     if video_frames:
         media["videos"] = video_frames
+        media["video_metadata"] = video_metadata
     if image_paths:
         media["images"] = image_paths
     return media
@@ -460,47 +467,53 @@ def _audio_to_wav(source_path: str) -> str:
     return tmp.name
 
 
-def _video_to_frames(video_path: str, *, max_frames: int = MAX_VIDEO_FRAMES) -> Any:
-    """Uniformly sample up to max_frames RGB frames via PyAV (uint8 ndarray)."""
+def _video_to_frames(
+    video_path: str,
+    *,
+    max_frames: int = MAX_VIDEO_FRAMES,
+) -> tuple[Any, dict[str, Any]]:
+    """Uniformly sample RGB frames and preserve their source timestamps."""
     import av
     import numpy as np
 
     container = av.open(video_path)
-    all_frames = [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
-    container.close()
+    try:
+        stream = container.streams.video[0]
+        fps = float(stream.average_rate) if stream.average_rate is not None else None
+        all_frames = [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
+    finally:
+        container.close()
     if not all_frames:
         raise ValueError(f"Video yielded no frames: {video_path}")
+    if fps is None or fps <= 0:
+        raise ValueError(f"Video does not expose a valid frame rate: {video_path}")
     if len(all_frames) <= max_frames:
-        return np.stack(all_frames)
-    indices = np.linspace(0, len(all_frames) - 1, max_frames, dtype=int)
-    return np.stack([all_frames[i] for i in indices])
+        indices = np.arange(len(all_frames), dtype=int)
+    else:
+        indices = np.linspace(0, len(all_frames) - 1, max_frames, dtype=int)
+    frames = np.stack([all_frames[int(index)] for index in indices])
+    metadata = {
+        "total_num_frames": len(all_frames),
+        "fps": fps,
+        "width": int(frames.shape[2]),
+        "height": int(frames.shape[1]),
+        "duration": len(all_frames) / fps,
+        "video_backend": "pyav",
+        "frames_indices": [int(index) for index in indices],
+    }
+    return frames, metadata
 
 
 def _video_to_frames_with_audio(
     video_path: str,
     *,
     max_frames: int = MAX_VIDEO_FRAMES,
-) -> tuple[Any, Any, int]:
-    """Decode video frames and its audio track using independent containers."""
+) -> tuple[Any, Any, int, dict[str, Any]]:
+    """Decode timestamped video frames and audio using independent containers."""
     import av
     import numpy as np
 
-    video_container = av.open(video_path)
-    try:
-        all_frames = [
-            frame.to_ndarray(format="rgb24")
-            for frame in video_container.decode(video=0)
-        ]
-    finally:
-        video_container.close()
-    if not all_frames:
-        raise ValueError(f"Video yielded no frames: {video_path}")
-    if len(all_frames) <= max_frames:
-        frames = np.stack(all_frames)
-    else:
-        indices = np.linspace(0, len(all_frames) - 1, max_frames, dtype=int)
-        frames = np.stack([all_frames[index] for index in indices])
-
+    frames, metadata = _video_to_frames(video_path, max_frames=max_frames)
     audio_container = av.open(video_path)
     try:
         if not audio_container.streams.audio:
@@ -518,12 +531,14 @@ def _video_to_frames_with_audio(
     audio = np.concatenate(arrays).astype(np.float32) / 32768.0
     if audio.size == 0 or not np.isfinite(audio).all():
         raise ValueError(f"Decoded audio is empty or non-finite: {video_path}")
-    return frames, audio, 16000
+    return frames, audio, 16000, metadata
 
 
 def _validate_media_contract(condition: str, media: Mapping[str, Any]) -> None:
     has_video = bool(media.get("videos"))
     has_audio = bool(media.get("audio")) or bool(media.get("audio_waveforms"))
+    if has_video and not media.get("video_metadata"):
+        raise ValueError("Gemma-4 video input requires source video metadata")
     if condition == "M1" and (not has_video or has_audio):
         raise ValueError("Gemma-4 M1 must contain video and no audio")
     if condition == "M2" and (has_video or not has_audio):
