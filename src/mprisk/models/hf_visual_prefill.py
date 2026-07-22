@@ -236,7 +236,7 @@ def template_kwargs(*, enable_thinking: bool, video_fps: float | None) -> dict[s
     if enable_thinking:
         kwargs["enable_thinking"] = False
     if video_fps is not None:
-        kwargs["fps"] = video_fps
+        kwargs["processor_kwargs"] = {"videos_kwargs": {"fps": video_fps}}
     return kwargs
 
 
