@@ -1146,8 +1146,6 @@ def build_asset_signature(
         "env_isolation": model.env_isolation,
         "frame_protocol": model.frame_protocol,
         "requested_frames": model.requested_frames,
-        "max_candidate_frames": model.max_candidate_frames,
-        "context_budget_mode": model.context_budget_mode,
         "video_sampling_method": model.video_sampling_method,
         "runtime_library_path": str(runtime_library_path),
         "sys_executable": runtime["sys_executable"],
@@ -1163,6 +1161,8 @@ def build_asset_signature(
         "wrapper_file_sha256": _sha256(wrapper_path),
     }
     if model.model_key == LLAVA_MODEL_KEY:
+        signature["max_candidate_frames"] = model.max_candidate_frames
+        signature["context_budget_mode"] = model.context_budget_mode
         selected_plan_paths = config.frame_plans if frame_plan_paths is None else frame_plan_paths
         if not selected_plan_paths:
             raise ValueError("LLaVA asset signature requires at least one frame plan")

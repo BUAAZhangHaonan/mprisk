@@ -445,6 +445,50 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
 
     signature = build_asset_signature(config, model)
 
+    processor_file_sha = hashlib.sha256(
+        (model_path / "processor_config.json").read_bytes()
+    ).hexdigest()
+    expected_signature = {
+        "schema": "mprisk_cache_asset_signature_v2",
+        "model_key": "model",
+        "family": "qwen_vl",
+        "dtype": "bfloat16",
+        "python_no_user_site": False,
+        "env_isolation": False,
+        "frame_protocol": "fixed_uniform_temporal_samples_v1",
+        "requested_frames": 8,
+        "video_sampling_method": "uniform_midpoint_decord_v1",
+        "runtime_library_path": str((environment / "lib").resolve()),
+        "sys_executable": "/env/bin/python",
+        "transformers": {
+            "path": "/env/transformers/__init__.py",
+            "version": "5.5.3",
+        },
+        "transformers_classes": {},
+        "auxiliary_packages": {
+            "decord": {
+                "distribution": "decord",
+                "path": "/env/decord/__init__.py",
+                "version": "0.6.0",
+            }
+        },
+        "model_path": str(model_path.resolve()),
+        "model_config_sha256": hashlib.sha256(
+            (model_path / "config.json").read_bytes()
+        ).hexdigest(),
+        "processor_contract_sha256": hashlib.sha256(
+            queue._canonical_json(
+                {"processor_config.json": processor_file_sha}
+            ).encode()
+        ).hexdigest(),
+        "processor_files": {"processor_config.json": processor_file_sha},
+        "wrapper_path": "src/mprisk/models/qwen_vl.py",
+        "wrapper_git_sha": "a" * 40,
+        "wrapper_file_sha256": hashlib.sha256(wrapper.read_bytes()).hexdigest(),
+    }
+
+    assert queue._canonical_json(signature) == queue._canonical_json(expected_signature)
+
     assert signature["sys_executable"] == "/env/bin/python"
     assert signature["schema"] == "mprisk_cache_asset_signature_v2"
     assert signature["python_no_user_site"] is False
@@ -453,6 +497,8 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     assert signature["transformers"]["version"] == "5.5.3"
     assert signature["auxiliary_packages"]["decord"]["version"] == "0.6.0"
     assert signature["requested_frames"] == 8
+    assert "max_candidate_frames" not in signature
+    assert "context_budget_mode" not in signature
     assert signature["dtype"] == "bfloat16"
     assert signature["video_sampling_method"] == "uniform_midpoint_decord_v1"
     assert signature["runtime_library_path"] == str((environment / "lib").resolve())
