@@ -7,11 +7,29 @@ import pytest
 
 import mprisk.cache.cache_smoke_matrix as smoke
 from mprisk.cache.cache_smoke_matrix import (
+    build_parser,
     _evidence_matches,
     _sha256,
     _validate_frame_contract,
     _validate_media_contract,
 )
+
+
+def test_parser_accepts_explicit_tmux_session() -> None:
+    args = build_parser().parse_args(
+        [
+            "--config",
+            "matrix.yaml",
+            "--domain",
+            "target",
+            "--model",
+            "model",
+            "--tmux-session",
+            "target-smoke-gpu1",
+            "--launch",
+        ]
+    )
+    assert args.tmux_session == "target-smoke-gpu1"
 
 
 @pytest.mark.parametrize(

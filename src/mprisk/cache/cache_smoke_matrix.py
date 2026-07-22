@@ -537,8 +537,14 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
     }
 
 
-def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> None:
-    session = f"{config.tmux_session}-smoke-{domain}"
+def launch_tmux(
+    config: MatrixConfig,
+    domain: str,
+    model_keys: list[str],
+    *,
+    session_name: str | None = None,
+) -> str:
+    session = session_name or f"{config.tmux_session}-smoke-{domain}"
     if subprocess.run(["tmux", "has-session", "-t", session], check=False).returncode == 0:
         raise RuntimeError(f"tmux session already exists: {session}")
     command = [
@@ -555,6 +561,7 @@ def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> Non
     for model_key in model_keys:
         command.extend(["--model", model_key])
     subprocess.run(["tmux", "new-session", "-d", "-s", session, *command], check=True)
+    return session
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -562,6 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--domain", default="target", choices=("source", "target"))
     parser.add_argument("--model", action="append", default=[])
+    parser.add_argument("--tmux-session")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--execute", action="store_true")
     mode.add_argument("--launch", action="store_true")
@@ -573,8 +581,13 @@ def cli(argv: Sequence[str] | None = None) -> int:
     config = load_matrix_config(args.config)
     models = set(str(value) for value in args.model) or None
     if args.launch:
-        launch_tmux(config, args.domain, sorted(models or []))
-        payload = {"status": "launched", "domain": args.domain}
+        session = launch_tmux(
+            config,
+            args.domain,
+            sorted(models or []),
+            session_name=args.tmux_session,
+        )
+        payload = {"status": "launched", "domain": args.domain, "tmux_session": session}
     else:
         payload = execute(config, args.domain, models)
     print(json.dumps(payload, indent=2, sort_keys=True))
