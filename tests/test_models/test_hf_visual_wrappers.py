@@ -12,6 +12,7 @@ from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.gemma3 import Gemma3Wrapper
 from mprisk.models.glm4v import Glm4vWrapper
 from mprisk.models.qwen2_5_vl import Qwen2_5VlWrapper
+from mprisk.models.wrapper_registry import get_wrapper
 
 
 SPECS = (
@@ -274,3 +275,9 @@ def test_visual_wrappers_reject_audio_leakage(tmp_path):
     )
     with pytest.raises(ValueError, match="Unsupported"):
         wrapper.extract_prefill(request)
+
+
+def test_new_visual_families_are_registered() -> None:
+    assert get_wrapper("gemma3") is Gemma3Wrapper
+    assert get_wrapper("glm4v") is Glm4vWrapper
+    assert get_wrapper("qwen2_5_vl") is Qwen2_5VlWrapper

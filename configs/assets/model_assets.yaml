@@ -129,7 +129,7 @@ models:
     status: available
   - key: qwen2_5_vl_7b
     display_name: Qwen2.5-VL-7B
-    family: qwen_vl
+    family: qwen2_5_vl
     hf_model_id: Qwen/Qwen2.5-VL-7B-Instruct
     local_path: /home/team/lvshuyang/Models/Qwen2.5-VL-7B-Instruct
     parameter_scale: 7B
