@@ -16,14 +16,70 @@ from mprisk.cache.cache_matrix_queue import (
     ModelSpec,
     _apply_python_isolation,
     _ledger_status,
+    _scoped_execution_paths,
     _smoke_status,
     _task_estimate,
     _write_cache_asset_signature,
     build_asset_signature,
     build_job_environment,
+    execute_matrix,
     load_matrix_config,
     normalize_manifest,
 )
+
+
+def test_scoped_execution_paths_isolate_source_gpu_lanes(tmp_path: Path) -> None:
+    config = SimpleNamespace(
+        lock_path=tmp_path / "matrix.lock",
+        runtime_record=tmp_path / "matrix.json",
+    )
+
+    lock, runtime = _scoped_execution_paths(config, stage="source", lane=1)
+
+    assert lock == tmp_path / "matrix.source.gpu1.lock"
+    assert runtime == tmp_path / "matrix.source.gpu1.json"
+
+
+def test_source_lane_execution_never_enters_target(tmp_path: Path, monkeypatch) -> None:
+    source_job = SimpleNamespace(
+        job_id="source:model",
+        domain=SimpleNamespace(domain="source"),
+        model=SimpleNamespace(gpu_lane=0),
+    )
+    target_job = SimpleNamespace(
+        job_id="target:model",
+        domain=SimpleNamespace(domain="target"),
+        model=SimpleNamespace(gpu_lane=0),
+    )
+    config = SimpleNamespace(
+        jobs=(source_job, target_job),
+        lock_path=tmp_path / "matrix.lock",
+        runtime_record=tmp_path / "matrix.json",
+    )
+    monkeypatch.setattr(
+        queue,
+        "audit_matrix",
+        lambda config: {
+            "capacity": {"safe": True},
+            "job_records": [
+                {"job_id": "source:model", "status": "ready"},
+                {"job_id": "target:model", "status": "ready"},
+            ],
+        },
+    )
+    executed: list[tuple[list[object], Path]] = []
+    monkeypatch.setattr(
+        queue,
+        "_execute_stage",
+        lambda config, jobs, runtime_record: executed.append((jobs, runtime_record)),
+    )
+
+    execute_matrix(config, stage="source", lane=0)
+
+    assert executed == [
+        ([source_job], tmp_path / "matrix.source.gpu0.json")
+    ]
+    assert not (tmp_path / "matrix.source.gpu0.lock").exists()
 
 
 def test_normalize_manifest_resolves_media_and_adds_batch_fields(tmp_path: Path) -> None:

@@ -673,25 +673,69 @@ def _capacity_status(config: MatrixConfig, jobs: list[dict[str, Any]]) -> dict[s
     }
 
 
-def execute_matrix(config: MatrixConfig) -> None:
+def execute_matrix(
+    config: MatrixConfig,
+    *,
+    stage: str = "all",
+    lane: int | None = None,
+) -> None:
+    if stage not in {"all", "source", "target"}:
+        raise ValueError(f"Unsupported cache stage: {stage!r}")
+    if lane not in {None, 0, 1}:
+        raise ValueError(f"Unsupported GPU lane: {lane!r}")
+    selected_stages = ("source", "target") if stage == "all" else (stage,)
+    selected_jobs = [
+        job
+        for job in config.jobs
+        if job.domain.domain in selected_stages
+        and (lane is None or job.model.gpu_lane == lane)
+    ]
+    if not selected_jobs:
+        raise ValueError(f"No cache jobs selected for stage={stage}, lane={lane}")
     audit = audit_matrix(config)
-    if not audit["ready_to_launch"]:
-        blockers = [
-            f"{row['job_id']}={row['status']}"
-            for row in audit["job_records"]
-            if row["status"] not in {"complete", "accepted_bundle", "ready"}
-        ]
+    selected_ids = {job.job_id for job in selected_jobs}
+    blockers = [
+        f"{row['job_id']}={row['status']}"
+        for row in audit["job_records"]
+        if row["job_id"] in selected_ids
+        and row["status"] not in {"complete", "accepted_bundle", "ready"}
+    ]
+    if blockers or not audit["capacity"]["safe"]:
+        if not audit["capacity"]["safe"]:
+            blockers.append("capacity=unsafe")
         raise RuntimeError("Cache matrix is not launchable: " + ", ".join(blockers))
-    config.lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_fd = os.open(config.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    lock_path, runtime_record = _scoped_execution_paths(
+        config, stage=stage, lane=lane
+    )
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     os.write(lock_fd, f"{os.getpid()}\n".encode())
     os.close(lock_fd)
     try:
-        for stage in ("source", "target"):
-            stage_jobs = [job for job in config.jobs if job.domain.domain == stage]
-            _execute_stage(config, stage_jobs)
+        for selected_stage in selected_stages:
+            stage_jobs = [
+                job
+                for job in selected_jobs
+                if job.domain.domain == selected_stage
+            ]
+            _execute_stage(config, stage_jobs, runtime_record=runtime_record)
     finally:
-        config.lock_path.unlink(missing_ok=True)
+        lock_path.unlink(missing_ok=True)
+
+
+def _scoped_execution_paths(
+    config: MatrixConfig, *, stage: str, lane: int | None
+) -> tuple[Path, Path]:
+    if stage == "all" and lane is None:
+        return config.lock_path, config.runtime_record
+    scope = stage + ("" if lane is None else f".gpu{lane}")
+    lock_path = config.lock_path.with_name(
+        f"{config.lock_path.stem}.{scope}{config.lock_path.suffix}"
+    )
+    runtime_record = config.runtime_record.with_name(
+        f"{config.runtime_record.stem}.{scope}{config.runtime_record.suffix}"
+    )
+    return lock_path, runtime_record
 
 
 def launch_tmux(config: MatrixConfig) -> None:
@@ -715,7 +759,13 @@ def launch_tmux(config: MatrixConfig) -> None:
     subprocess.run(["tmux", "new-session", "-d", "-s", config.tmux_session, *command], check=True)
 
 
-def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
+def _execute_stage(
+    config: MatrixConfig,
+    jobs: list[CacheJob],
+    *,
+    runtime_record: Path | None = None,
+) -> None:
+    selected_runtime_record = runtime_record or config.runtime_record
     queues = {lane: deque(job for job in jobs if job.model.gpu_lane == lane) for lane in (0, 1)}
     running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]] = {}
     while any(queues.values()) or running:
@@ -743,7 +793,7 @@ def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
                 stderr=subprocess.STDOUT,
             )
             running[lane] = (job, process, handle)
-            _write_runtime(config, jobs, running)
+            _write_runtime(selected_runtime_record, jobs, running)
         if not running:
             continue
         time.sleep(10)
@@ -754,12 +804,12 @@ def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
             handle.close()
             del running[lane]
             if return_code != 0:
-                _write_runtime(config, jobs, running)
+                _write_runtime(selected_runtime_record, jobs, running)
                 raise RuntimeError(f"Cache extraction failed: {job.job_id}, exit={return_code}")
             status = _ledger_status(job.output_root, job.domain.expected_tasks)
             if status["status"] != "complete":
                 raise RuntimeError(f"Cache extraction ended incomplete: {job.job_id}: {status}")
-            _write_runtime(config, jobs, running)
+            _write_runtime(selected_runtime_record, jobs, running)
 
 
 def _audit_job(
@@ -1468,7 +1518,7 @@ def _require_gpu_capacity(lane: int, fraction: float) -> None:
 
 
 def _write_runtime(
-    config: MatrixConfig,
+    runtime_record: Path,
     stage_jobs: list[CacheJob],
     running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]],
 ) -> None:
@@ -1484,12 +1534,14 @@ def _write_runtime(
             for job in stage_jobs
         ],
     }
-    _atomic_text(config.runtime_record, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    _atomic_text(runtime_record, json.dumps(payload, indent=2, sort_keys=True) + "\n")
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path)
+    parser.add_argument("--stage", choices=("all", "source", "target"), default="all")
+    parser.add_argument("--lane", type=int, choices=(0, 1))
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--prepare-manifests", action="store_true")
@@ -1519,8 +1571,8 @@ def cli(argv: list[str] | None = None) -> int:
         launch_tmux(config)
         payload = {"status": "launched", "tmux_session": config.tmux_session}
     else:
-        execute_matrix(config)
-        payload = {"status": "complete"}
+        execute_matrix(config, stage=args.stage, lane=args.lane)
+        payload = {"status": "complete", "stage": args.stage, "lane": args.lane}
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 
