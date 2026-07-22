@@ -1,0 +1,41 @@
+schema_name: mprisk_cross_domain_misread_matrix_v1
+run_id: cross_domain_misread_3flash1pro_20260723
+asset_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/assets/model_assets.yaml
+cache_matrix_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/cache/complete_cache_matrix_20260722.yaml
+frame_plan_validation: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/frame_plans/VALIDATION.json
+bundle_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721
+existing_source_judgment_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721/misread_labels
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cross_domain_misread_20260723
+api_url: https://api.deepseek.com/v1/chat/completions
+temperature: 0
+confidence_threshold: 0.5
+flash_model: deepseek-v4-flash
+pro_model: deepseek-v4-pro
+flash_replicates: 3
+request_timeout_seconds: 90.0
+max_concurrency: 8
+pricing:
+  deepseek-v4-flash:
+    input_usd_per_million: null
+    output_usd_per_million: null
+  deepseek-v4-pro:
+    input_usd_per_million: null
+    output_usd_per_million: null
+jobs:
+  - {job_id: target_gemma3_4b, model_key: gemma3_4b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_gemma3_12b, model_key: gemma3_12b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_glm4_6v_flash, model_key: glm4_6v_flash, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_internvl3_5_8b, model_key: internvl3_5_8b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_llava_v1_5_7b, model_key: llava_v1_5_7b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_llava_onevision_qwen2_7b, model_key: llava_onevision_qwen2_7b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_minicpm_v_2_6, model_key: minicpm_v_2_6, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_minicpm_v_4_5, model_key: minicpm_v_4_5, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_phi3_5_vision, model_key: phi3_5_vision, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_qwen2_5_vl_7b, model_key: qwen2_5_vl_7b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_qwen3_vl_8b, model_key: qwen3_vl_8b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_qwen3_5_4b, model_key: qwen3_5_4b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train, existing_judgment_path: /home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/qwen3_5_4b_chsims/judgments.jsonl}
+  - {job_id: target_qwen3_5_9b, model_key: qwen3_5_9b, domain: target, protocol: VT, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl, expected_count: 2035, dataset: ch_sims_v2, split: train}
+  - {job_id: target_gemma4_12b, model_key: gemma4_12b, domain: target, protocol: VA, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/va.jsonl, expected_count: 2190, dataset: ch_sims_v2, split: train}
+  - {job_id: target_phi4_multimodal, model_key: phi4_multimodal, domain: target, protocol: VA, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/va.jsonl, expected_count: 2190, dataset: ch_sims_v2, split: train}
+  - {job_id: target_qwen2_5_omni_7b, model_key: qwen2_5_omni_7b, domain: target, protocol: VA, manifest_path: datasets/ch_sims_v2_cross_domain/manifests/va.jsonl, expected_count: 2190, dataset: ch_sims_v2, split: train}
+  - {job_id: source_phi4_multimodal, model_key: phi4_multimodal, domain: source, protocol: VA, manifest_path: datasets/generated_3810/manifests/va.jsonl, expected_count: 1934, dataset: generated_3810, split: train}
