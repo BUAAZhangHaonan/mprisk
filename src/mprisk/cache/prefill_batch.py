@@ -88,11 +88,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model-key", default="qwen2_5_omni_7b")
     parser.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
     parser.add_argument(
-        "--family", choices=("gemma4", "internvl", "qwen3_5", "qwen_omni", "qwen_vl")
+        "--family",
+        choices=(
+            "gemma3",
+            "gemma4",
+            "glm4v",
+            "internvl",
+            "llava_onevision",
+            "llava_v15",
+            "minicpm_v",
+            "phi3_vision",
+            "qwen2_5_vl",
+            "qwen3_5",
+            "qwen_omni",
+            "qwen_vl",
+        ),
     )
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--device", default="cuda:1")
-    parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
+    parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16", "float16"))
     parser.add_argument("--attn-implementation", choices=("sdpa", "eager"))
     parser.add_argument(
         "--prefill-strategy",
@@ -150,6 +164,14 @@ def main(
             video_num_segments=args.video_num_segments,
             internvl_max_num=args.internvl_max_num,
         )
+    elif args.family in {
+        "gemma3",
+        "llava_onevision",
+        "llava_v15",
+        "minicpm_v",
+        "phi3_vision",
+    }:
+        wrapper_kwargs["video_num_segments"] = args.video_num_segments
     wrapper = factory(**wrapper_kwargs)
     output_root = args.output_root.expanduser().resolve()
     ledger = BatchLedger(output_root / "batch_state.sqlite3")

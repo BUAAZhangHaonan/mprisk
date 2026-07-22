@@ -22,6 +22,8 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
     processor_class: str
     provenance_schema: str
     contract_location: str = "text_config"
+    dtype_location: str = "contract"
+    forward_logits_to_keep: bool = True
     loaded_contract_location: str = "text_config"
     supports_thinking: bool = False
 
@@ -98,13 +100,7 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
         if track_cuda:
             torch.cuda.reset_peak_memory_stats(torch.device(self.device))
         with torch.inference_mode():
-            outputs = self.model(
-                **model_inputs,
-                use_cache=False,
-                output_hidden_states=True,
-                return_dict=True,
-                logits_to_keep=1,
-            )
+            outputs = self._forward_model(model_inputs)
         trajectory = _trajectory_from_outputs(
             outputs,
             t0_token_index=t0_token_index,
@@ -163,6 +159,19 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
         if self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
+    def _forward_model(self, model_inputs: Mapping[str, Any]) -> Any:
+        if self.model is None:
+            raise RuntimeError(f"{self.family} model is not loaded")
+        kwargs = dict(model_inputs)
+        kwargs.update(
+            use_cache=False,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+        if self.forward_logits_to_keep:
+            kwargs["logits_to_keep"] = 1
+        return self.model(**kwargs)
+
     def _validate_request(self, request: PrefillRequest) -> None:
         if request.model_key != self.model_key:
             raise ValueError(
@@ -188,12 +197,13 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
         config = payload if self.contract_location == "root" else payload.get("text_config")
         if not isinstance(config, dict):
             raise ValueError(f"Missing {self.contract_location} contract in {config_path}")
+        dtype_config = payload if self.dtype_location == "root" else config
         contract = {
             "num_hidden_layers": int(config["num_hidden_layers"]),
             "hidden_size": int(config["hidden_size"]),
             "torch_dtype": str(
-                config.get("dtype")
-                or config.get("torch_dtype")
+                dtype_config.get("dtype")
+                or dtype_config.get("torch_dtype")
                 or payload.get("dtype")
                 or payload.get("torch_dtype")
                 or ""
