@@ -25,6 +25,10 @@ def _result() -> PrefillResult:
         messages=({"role": "user", "content": [{"type": "text", "text": "task"}]},),
         media_paths={"vision": "/media/sample.mp4", "audio": "/media/sample.mp4"},
         use_audio_in_video=True,
+        runtime_contracts={
+            "context_budget_contract": {"selected_frames": 6},
+            "frame_selection_contract": {"frame_indices": [1, 3, 5, 7, 9, 11]},
+        },
     )
     return PrefillResult(
         request=request,
@@ -47,6 +51,10 @@ def test_prefill_writer_round_trips_through_full_cache_manifest(tmp_path) -> Non
     sidecar = json.loads(artifact.sidecar_path.read_text(encoding="utf-8"))
     assert sidecar["request"]["use_audio_in_video"] is True
     assert sidecar["request"]["prompt_set_key"] == "main_p8"
+    assert sidecar["request"]["runtime_contracts"] == {
+        "context_budget_contract": {"selected_frames": 6},
+        "frame_selection_contract": {"frame_indices": [1, 3, 5, 7, 9, 11]},
+    }
     assert sidecar["entry"]["prompt_id"] == "p01"
     assert sidecar["entry"]["metadata"]["t0_token_index"] == 3
     assert sidecar["entry"]["metadata"]["prefill_strategy"] == "full_prefill"

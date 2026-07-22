@@ -13,7 +13,7 @@ import traceback
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,11 @@ import numpy as np
 from safetensors.numpy import load_file
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.cache.llava_v15_frame_plan import (
+    FRAME_PLAN_SCHEMA,
+    index_frame_plan,
+    load_frame_plan,
+)
 from mprisk.cache.prefill_strategy_registry import create_prompt_kv_extractor
 from mprisk.cache.prefill_writer import (
     prefill_artifact_paths,
@@ -55,6 +60,7 @@ class BatchTask:
     prompt_text: str | None
     condition: str
     row: dict[str, Any]
+    runtime_contracts: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -84,6 +90,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--video-fps", type=float, default=1.0)
     parser.add_argument("--video-num-segments", type=int, default=8)
+    parser.add_argument("--frame-plan", type=Path)
     parser.add_argument("--internvl-max-num", type=int, default=1)
     parser.add_argument("--model-key", default="qwen2_5_omni_7b")
     parser.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
@@ -256,18 +263,47 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
     if extra:
         raise ValueError(f"Unused or reserved prompt variables: {sorted(extra)}")
     unresolved = tuple(sorted(allowed_external - set(variables)))
+    frame_plan: dict[str, Any] | None = None
+    frame_plan_by_sample: dict[str, dict[str, Any]] = {}
+    if args.family == "llava_v15":
+        if args.frame_plan is None:
+            raise ValueError("LLaVA-v1.5 requires --frame-plan")
+        frame_plan = load_frame_plan(args.frame_plan)
+        _validate_llava_frame_plan(
+            frame_plan,
+            args=args,
+            prompt_ids=prompt_ids,
+        )
+        frame_plan_by_sample = index_frame_plan(frame_plan)
+        missing = sorted(
+            str(row["sample_id"])
+            for row in rows
+            if str(row["sample_id"]) not in frame_plan_by_sample
+        )
+        if missing:
+            raise ValueError(f"Frame plan is missing samples: {missing[:5]}")
+    elif args.frame_plan is not None:
+        raise ValueError("--frame-plan is only valid for LLaVA-v1.5")
     tasks = []
     for row in rows:
         for template in templates:
             values = {"sample_text": str(row.get("text_content", "")), **variables}
             prompt_text = None if unresolved else compile_prompt(template, values)
             for condition in conditions:
+                runtime_contracts = {}
+                if frame_plan is not None:
+                    entry = frame_plan_by_sample[str(row["sample_id"])]
+                    runtime_contracts = {
+                        "context_budget_contract": entry["context_budget_contract"],
+                        "frame_selection_contract": entry["frame_selection_contract"],
+                    }
                 identity = {
                     "sample_id": row["sample_id"],
                     "prompt_id": template.prompt_id,
                     "condition": condition,
                     "protocol": args.protocol,
                     "model_key": args.model_key,
+                    "runtime_contracts": runtime_contracts,
                 }
                 task_id = hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
                 tasks.append(
@@ -279,6 +315,7 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
                         prompt_text=prompt_text,
                         condition=condition,
                         row=row,
+                        runtime_contracts=runtime_contracts,
                     )
                 )
     signature = {
@@ -302,9 +339,38 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
         "joint_audio_mode": args.joint_audio_mode,
         "video_fps": args.video_fps,
         "video_num_segments": args.video_num_segments,
+        "frame_plan_schema": None if frame_plan is None else FRAME_PLAN_SCHEMA,
+        "frame_plan_path": None
+        if args.frame_plan is None
+        else str(args.frame_plan.expanduser().resolve()),
+        "frame_plan_sha256": None
+        if args.frame_plan is None
+        else _sha256(args.frame_plan.expanduser().resolve()),
         "internvl_max_num": args.internvl_max_num,
     }
     return BatchPlan(tasks, prompt_ids, unresolved, rows, signature)
+
+
+def _validate_llava_frame_plan(
+    payload: dict[str, Any],
+    *,
+    args: argparse.Namespace,
+    prompt_ids: tuple[str, ...],
+) -> None:
+    model_path = args.model_path.expanduser().resolve()
+    if payload.get("model_key") != args.model_key:
+        raise ValueError("Frame-plan model key does not match --model-key")
+    if payload.get("model_path") != str(model_path):
+        raise ValueError("Frame-plan model path does not match --model-path")
+    if payload.get("model_config_sha256") != _sha256(model_path / "config.json"):
+        raise ValueError("Frame-plan model config SHA is stale")
+    prompt_path = args.prompt_set.expanduser().resolve()
+    if payload.get("prompt_set_sha256") != _sha256(prompt_path):
+        raise ValueError("Frame-plan prompt-set SHA is stale")
+    if payload.get("prompt_ids") != list(prompt_ids):
+        raise ValueError("Frame-plan prompt IDs do not match the batch plan")
+    if payload.get("max_candidate_frames") != args.video_num_segments:
+        raise ValueError("Frame-plan max candidate frames do not match the batch")
 
 
 class BatchLedger:
@@ -509,33 +575,41 @@ def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillReque
         raise ValueError(f"Task {task.task_id} has an unresolved prompt")
     media = task.row["media_paths"]
     if args.family == "gemma4":
-        return build_gemma4_va_request(
+        request = build_gemma4_va_request(
             sample_id=task.sample_id,
             model_key=args.model_key,
             dataset_key=str(task.row["source_dataset"]),
             split=str(task.row["split"]),
             media_paths={str(key): str(value) for key, value in media.items()},
-            text_content="" if task.row.get("text_content") is None else str(task.row["text_content"]),
+            text_content=(
+                ""
+                if task.row.get("text_content") is None
+                else str(task.row["text_content"])
+            ),
             task_prompt=task.prompt_text,
             condition=task.condition,
             prompt_set_key=task.prompt_set_key,
             prompt_id=task.prompt_id,
         )
-    return build_condition_request(
-        sample_id=task.sample_id,
-        model_key=args.model_key,
-        protocol=args.protocol,
-        condition=task.condition,
-        dataset_key=str(task.row["source_dataset"]),
-        split=str(task.row["split"]),
-        media_paths={str(key): str(value) for key, value in media.items()},
-        transcript=None if task.row.get("text_content") is None else str(task.row["text_content"]),
-        task_prompt=task.prompt_text,
-        prompt_set_key=task.prompt_set_key,
-        prompt_id=task.prompt_id,
-        joint_audio_mode=args.joint_audio_mode,
-        video_fps=args.video_fps,
-    )
+    else:
+        request = build_condition_request(
+            sample_id=task.sample_id,
+            model_key=args.model_key,
+            protocol=args.protocol,
+            condition=task.condition,
+            dataset_key=str(task.row["source_dataset"]),
+            split=str(task.row["split"]),
+            media_paths={str(key): str(value) for key, value in media.items()},
+            transcript=None
+            if task.row.get("text_content") is None
+            else str(task.row["text_content"]),
+            task_prompt=task.prompt_text,
+            prompt_set_key=task.prompt_set_key,
+            prompt_id=task.prompt_id,
+            joint_audio_mode=args.joint_audio_mode,
+            video_fps=args.video_fps,
+        )
+    return replace(request, runtime_contracts=task.runtime_contracts)
 
 
 def _run_full_prefill_tasks(
@@ -697,6 +771,7 @@ def _recover_entry(
         "messages": list(request.messages),
         "media_paths": dict(request.media_paths),
         "use_audio_in_video": request.use_audio_in_video,
+        "runtime_contracts": dict(request.runtime_contracts),
     }
     if payload.get("request") != expected_request:
         raise ValueError(f"Existing sidecar request mismatch: {paths.sidecar_path}")

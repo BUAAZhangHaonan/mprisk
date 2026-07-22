@@ -173,6 +173,39 @@ def test_plan_signature_records_family_and_prompt_identity(tmp_path) -> None:
     assert all(task.prompt_set_key == "va" for task in plan.tasks)
 
 
+def test_non_llava_batch_rejects_frame_plan(tmp_path) -> None:
+    args = _args(tmp_path, question="judge emotion")
+    args.frame_plan = tmp_path / "frame-plan.json"
+
+    with pytest.raises(ValueError, match="only valid for LLaVA"):
+        build_batch_plan(args)
+
+
+def test_llava_batch_requires_frame_plan(tmp_path) -> None:
+    args = _args(tmp_path, question="judge emotion")
+    args.family = "llava_v15"
+    args.model_key = "llava_v1_5_7b"
+    args.protocol = "vt"
+    args.frame_plan = None
+    manifest_rows = [
+        json.loads(line)
+        for line in args.manifest.read_text(encoding="utf-8").splitlines()
+    ]
+    for row in manifest_rows:
+        row["protocol"] = "vt"
+    args.manifest.write_text(
+        "".join(json.dumps(row) + "\n" for row in manifest_rows),
+        encoding="utf-8",
+    )
+    args.prompt_set.write_text(
+        args.prompt_set.read_text(encoding="utf-8").replace("protocol: va", "protocol: vt"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="requires --frame-plan"):
+        build_batch_plan(args)
+
+
 def test_phi3_vision_defaults_to_its_supported_eager_attention(tmp_path) -> None:
     args = _args(tmp_path, question="judge emotion")
     args.model_key = "phi3_5_vision"

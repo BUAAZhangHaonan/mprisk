@@ -7,7 +7,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +124,7 @@ def write_prefill_result(
             "messages": list(result.request.messages),
             "media_paths": dict(result.request.media_paths),
             "use_audio_in_video": result.request.use_audio_in_video,
+            "runtime_contracts": dict(result.request.runtime_contracts),
         },
         "provenance": dict(result.provenance),
     }
@@ -226,7 +227,7 @@ def _manifest_entry(
             "prefill_strategy": result.provenance.get("prefill_strategy"),
             "prefill_strategy_version": result.provenance.get("prefill_strategy_version"),
             "prefix_identity": result.provenance.get("prefix_identity"),
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         },
     }
 
