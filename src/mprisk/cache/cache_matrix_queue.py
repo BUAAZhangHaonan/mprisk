@@ -22,9 +22,8 @@ from mprisk.cache.llava_v15_frame_plan import (
     CONTEXT_BUDGET_MODE,
     FRAME_PLAN_SCHEMA,
     SELECTION_CONDITIONS,
-    build_frame_plan,
+    build_frame_plan_resumable,
     load_frame_plan,
-    write_frame_plan,
 )
 from mprisk.cache.llava_v15_frame_plan import (
     FRAME_PROTOCOL as LLAVA_FRAME_PROTOCOL,
@@ -472,7 +471,9 @@ def prepare_manifests(config: MatrixConfig) -> dict[str, Any]:
     return {"schema": "mprisk_cache_matrix_prepared_manifests_v1", "prepared": prepared}
 
 
-def prepare_frame_plans(config: MatrixConfig) -> dict[str, Any]:
+def prepare_frame_plans(
+    config: MatrixConfig, *, domains: tuple[str, ...] = ("source", "target")
+) -> dict[str, Any]:
     assets = index_assets(load_model_assets(config.asset_config))
     model = next(
         (item for item in config.models if item.model_key == LLAVA_MODEL_KEY),
@@ -484,20 +485,23 @@ def prepare_frame_plans(config: MatrixConfig) -> dict[str, Any]:
     if asset is None:
         raise KeyError(f"Missing model asset {model.model_key}")
     records: list[dict[str, Any]] = []
-    for domain_name in ("source", "target"):
+    if not domains or any(value not in {"source", "target"} for value in domains):
+        raise ValueError("Frame-plan domains must be source and/or target")
+    for domain_name in domains:
         domain = config.domains[(domain_name, "vt")]
         if not domain.prepared_manifest.is_file():
             raise FileNotFoundError(
                 f"Prepare normalized manifests before frame plans: {domain.prepared_manifest}"
             )
-        payload = build_frame_plan(
+        payload = build_frame_plan_resumable(
             manifest_path=domain.prepared_manifest,
             prompt_set_path=config.prompt_sets["vt"],
             model_path=asset.local_model_path,
             model_key=model.model_key,
+            output_path=config.frame_plans[domain_name],
             max_candidate_frames=model.frame_count_argument,
         )
-        path = write_frame_plan(payload, config.frame_plans[domain_name])
+        path = config.frame_plans[domain_name]
         selected = Counter(
             int(entry["context_budget_contract"]["selected_frames"])
             for entry in payload["entries"]
@@ -1456,6 +1460,9 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--prepare-manifests", action="store_true")
     mode.add_argument("--prepare-frame-plans", action="store_true")
+    mode.add_argument(
+        "--prepare-frame-plan-domain", choices=("source", "target")
+    )
     mode.add_argument("--launch", action="store_true")
     mode.add_argument("--execute", action="store_true")
     return parser
@@ -1468,6 +1475,10 @@ def cli(argv: list[str] | None = None) -> int:
         payload = prepare_manifests(config)
     elif args.prepare_frame_plans:
         payload = prepare_frame_plans(config)
+    elif args.prepare_frame_plan_domain:
+        payload = prepare_frame_plans(
+            config, domains=(args.prepare_frame_plan_domain,)
+        )
     elif args.dry_run:
         payload = audit_matrix(config)
     elif args.launch:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,8 @@ CONTEXT_BUDGET_MODE = "per_sample_shared_max_legal"
 FRAME_PROTOCOL = "per_sample_shared_uniform_temporal_samples_v1"
 SAMPLING_METHOD = "uniform_midpoint_decord_v1"
 SELECTION_CONDITIONS = ("M1", "M12")
+FRAME_PLAN_PART_SCHEMA = "mprisk_llava_v15_frame_plan_part_v1"
+FRAME_PLAN_STATE_SCHEMA = "mprisk_llava_v15_frame_plan_state_v1"
 
 
 def build_frame_plan(
@@ -101,6 +104,164 @@ def build_frame_plan(
         "image_tokens_per_frame": image_tokens_per_frame,
         "entries": entries,
     }
+
+
+def build_frame_plan_resumable(
+    *,
+    manifest_path: str | Path,
+    prompt_set_path: str | Path,
+    model_path: str | Path,
+    model_key: str,
+    output_path: str | Path,
+    max_candidate_frames: int = 8,
+) -> dict[str, Any]:
+    manifest = Path(manifest_path).expanduser().resolve()
+    prompt_path = Path(prompt_set_path).expanduser().resolve()
+    checkpoint = Path(model_path).expanduser().resolve()
+    destination = Path(output_path).expanduser().resolve()
+    if max_candidate_frames != 8:
+        raise ValueError("LLaVA-v1.5 frame planning requires max_candidate_frames=8")
+    rows = _read_jsonl(manifest)
+    sample_ids = [str(row.get("sample_id") or "") for row in rows]
+    if any(not value for value in sample_ids) or len(set(sample_ids)) != len(rows):
+        raise ValueError("Frame-plan manifest sample IDs must be non-empty and unique")
+    prompt_set = load_equiv_prompt_set(prompt_path)
+    if not prompt_set.active or prompt_set.protocol.lower() != "vt":
+        raise ValueError("LLaVA-v1.5 frame planning requires an active VT prompt set")
+    templates = prompt_set.enabled_templates()
+    prompt_ids = [template.prompt_id for template in templates]
+    if len(prompt_ids) != 8 or len(set(prompt_ids)) != 8:
+        raise ValueError("LLaVA-v1.5 frame planning requires exactly eight prompt IDs")
+    prompt_ids_sha256 = _sha256_json(prompt_ids)
+    config_path = checkpoint / "config.json"
+    config = _read_json(config_path)
+    text_config = config.get("text_config")
+    if not isinstance(text_config, dict):
+        raise ValueError("LLaVA-v1.5 checkpoint has no text_config")
+    max_position_embeddings = text_config.get("max_position_embeddings")
+    if (
+        not isinstance(max_position_embeddings, int)
+        or isinstance(max_position_embeddings, bool)
+        or max_position_embeddings <= 0
+    ):
+        raise ValueError("LLaVA-v1.5 max_position_embeddings must be positive")
+    static_contract = {
+        "schema": FRAME_PLAN_STATE_SCHEMA,
+        "frame_plan_schema": FRAME_PLAN_SCHEMA,
+        "model_key": model_key,
+        "family": "llava_v15",
+        "context_budget_mode": CONTEXT_BUDGET_MODE,
+        "frame_protocol": FRAME_PROTOCOL,
+        "sampling_method": SAMPLING_METHOD,
+        "max_candidate_frames": max_candidate_frames,
+        "max_position_embeddings": max_position_embeddings,
+        "no_truncation": True,
+        "manifest_path": str(manifest),
+        "manifest_sha256": _sha256(manifest),
+        "prompt_set_path": str(prompt_path),
+        "prompt_set_sha256": _sha256(prompt_path),
+        "prompt_set_key": prompt_set.key,
+        "prompt_ids": prompt_ids,
+        "prompt_ids_sha256": prompt_ids_sha256,
+        "model_path": str(checkpoint),
+        "model_config_sha256": _sha256(config_path),
+    }
+    planning_contract_sha256 = _sha256_json(static_contract)
+    if destination.is_file():
+        existing = load_frame_plan(destination)
+        if existing.get("planning_contract_sha256") != planning_contract_sha256:
+            raise FileExistsError(f"Existing frame plan has a stale contract: {destination}")
+        if [str(entry["sample_id"]) for entry in existing["entries"]] != sample_ids:
+            raise ValueError("Existing frame plan sample order differs from the manifest")
+        return existing
+
+    from transformers import LlavaProcessor
+
+    processor = LlavaProcessor.from_pretrained(checkpoint, local_files_only=True)
+    image_tokens_per_frame = _image_tokens_per_frame(processor)
+    parts_root = destination.with_name(destination.name + ".parts")
+    parts_root.mkdir(parents=True, exist_ok=True)
+    _write_immutable_json(
+        parts_root / "PLAN_CONTEXT.json",
+        {
+            **static_contract,
+            "planning_contract_sha256": planning_contract_sha256,
+            "processor_class": type(processor).__name__,
+            "image_tokens_per_frame": image_tokens_per_frame,
+            "sample_count": len(rows),
+        },
+    )
+    entries: list[dict[str, Any]] = []
+    reused = 0
+    for index, row in enumerate(rows, 1):
+        sample_id = str(row["sample_id"])
+        part_path = parts_root / f"{hashlib.sha256(sample_id.encode()).hexdigest()}.json"
+        if part_path.is_file():
+            part = _read_json(part_path)
+            if (
+                part.get("schema") != FRAME_PLAN_PART_SCHEMA
+                or part.get("planning_contract_sha256") != planning_contract_sha256
+                or part.get("sample_id") != sample_id
+                or not isinstance(part.get("entry"), dict)
+            ):
+                raise ValueError(f"Stale or corrupt frame-plan part: {part_path}")
+            entry = part["entry"]
+            _validate_entry(
+                entry,
+                context_limit=max_position_embeddings,
+                prompt_ids=prompt_ids,
+                prompt_ids_sha256=prompt_ids_sha256,
+            )
+            reused += 1
+        else:
+            entry = _plan_sample(
+                row=row,
+                templates=templates,
+                prompt_set_key=prompt_set.key,
+                prompt_ids=prompt_ids,
+                prompt_ids_sha256=prompt_ids_sha256,
+                processor=processor,
+                image_tokens_per_frame=image_tokens_per_frame,
+                model_key=model_key,
+                max_candidate_frames=max_candidate_frames,
+                max_position_embeddings=max_position_embeddings,
+            )
+            _write_immutable_json(
+                part_path,
+                {
+                    "schema": FRAME_PLAN_PART_SCHEMA,
+                    "planning_contract_sha256": planning_contract_sha256,
+                    "sample_id": sample_id,
+                    "entry": entry,
+                },
+            )
+        entries.append(entry)
+        _atomic_json(
+            parts_root / "PROGRESS.json",
+            {
+                "schema": "mprisk_llava_v15_frame_plan_progress_v1",
+                "planning_contract_sha256": planning_contract_sha256,
+                "completed": index,
+                "total": len(rows),
+                "reused": reused,
+                "last_sample_id": sample_id,
+                "updated_at_unix": time.time(),
+            },
+        )
+    payload = {
+        key: value for key, value in static_contract.items() if key != "schema"
+    }
+    payload.update(
+        {
+            "schema": FRAME_PLAN_SCHEMA,
+            "planning_contract_sha256": planning_contract_sha256,
+            "processor_class": type(processor).__name__,
+            "image_tokens_per_frame": image_tokens_per_frame,
+            "entries": entries,
+        }
+    )
+    write_frame_plan(payload, destination)
+    return payload
 
 
 def write_frame_plan(payload: dict[str, Any], path: str | Path) -> Path:
@@ -227,24 +388,35 @@ def _plan_sample(
             )
             request_texts[condition].append(_request_text(request.messages))
 
-    candidate_condition_max: dict[str, dict[str, int]] = {}
-    candidate_max: dict[str, int] = {}
+    batch_keys: list[tuple[int, str]] = []
+    batch_texts: list[str] = []
     for frames in range(1, max_candidate_frames + 1):
-        condition_maxima = {
-            condition: max(
-                _count_tokens(
-                    processor,
-                    text=text,
-                    frames=frames,
-                    image_tokens_per_frame=image_tokens_per_frame,
+        for condition in SELECTION_CONDITIONS:
+            for text in request_texts[condition]:
+                batch_keys.append((frames, condition))
+                batch_texts.append(
+                    _expanded_processor_text(
+                        processor,
+                        text=text,
+                        frames=frames,
+                        image_tokens_per_frame=image_tokens_per_frame,
+                    )
                 )
-                for text in request_texts[condition]
-            )
+    batch_counts = _tokenize_counts(processor, batch_texts)
+    grouped_counts: dict[tuple[int, str], list[int]] = {}
+    for key, token_count in zip(batch_keys, batch_counts, strict=True):
+        grouped_counts.setdefault(key, []).append(token_count)
+    candidate_condition_max = {
+        str(frames): {
+            condition: max(grouped_counts[(frames, condition)])
             for condition in SELECTION_CONDITIONS
         }
-        key = str(frames)
-        candidate_condition_max[key] = condition_maxima
-        candidate_max[key] = max(condition_maxima.values())
+        for frames in range(1, max_candidate_frames + 1)
+    }
+    candidate_max = {
+        key: max(condition_maxima.values())
+        for key, condition_maxima in candidate_condition_max.items()
+    }
     legal = [
         frames
         for frames in range(1, max_candidate_frames + 1)
@@ -433,6 +605,18 @@ def _size_component(value: Any, key: str) -> int | None:
 def _count_tokens(
     processor: Any, *, text: str, frames: int, image_tokens_per_frame: int
 ) -> int:
+    expanded = _expanded_processor_text(
+        processor,
+        text=text,
+        frames=frames,
+        image_tokens_per_frame=image_tokens_per_frame,
+    )
+    return _tokenize_counts(processor, [expanded])[0]
+
+
+def _expanded_processor_text(
+    processor: Any, *, text: str, frames: int, image_tokens_per_frame: int
+) -> str:
     content = [{"type": "image"} for _ in range(frames)]
     content.append({"type": "text", "text": text})
     prompt = processor.apply_chat_template(
@@ -440,21 +624,30 @@ def _count_tokens(
         tokenize=False,
         add_generation_prompt=True,
     )
-    expanded = prompt.replace(
+    return prompt.replace(
         processor.image_token,
         processor.image_token * image_tokens_per_frame,
     )
+
+
+def _tokenize_counts(processor: Any, texts: list[str]) -> list[int]:
+    if not texts:
+        raise ValueError("LLaVA-v1.5 token-count batch must not be empty")
     encoded = processor.tokenizer(
-        expanded,
+        texts,
         add_special_tokens=True,
         padding=False,
         truncation=False,
         return_attention_mask=True,
     )
     input_ids = encoded.get("input_ids")
-    if not isinstance(input_ids, list) or not input_ids:
+    if (
+        not isinstance(input_ids, list)
+        or len(input_ids) != len(texts)
+        or any(not isinstance(row, list) or not row for row in input_ids)
+    ):
         raise ValueError("LLaVA-v1.5 tokenizer returned no input IDs")
-    return len(input_ids)
+    return [len(row) for row in input_ids]
 
 
 def _request_text(messages: Any) -> str:
@@ -525,3 +718,25 @@ def _sha256_json(value: Any) -> str:
     return hashlib.sha256(
         json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
+
+
+def _write_immutable_json(path: Path, value: dict[str, Any]) -> None:
+    rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    if path.exists():
+        if not path.is_file() or path.read_text(encoding="utf-8") != rendered:
+            raise FileExistsError(f"Immutable JSON differs from current contract: {path}")
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    if temporary.exists():
+        raise FileExistsError(f"Stale JSON temporary exists: {temporary}")
+    temporary.write_text(rendered, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _atomic_json(path: Path, value: dict[str, Any]) -> None:
+    rendered = json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(rendered, encoding="utf-8")
+    os.replace(temporary, path)
