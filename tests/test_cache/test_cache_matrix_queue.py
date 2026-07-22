@@ -290,12 +290,22 @@ def test_complete_matrix_freezes_frames_and_accepts_only_internvl() -> None:
         model.frame_protocol == "fixed_uniform_temporal_samples_v1"
         for model in config.models
     )
-    assert by_key["gemma4_12b"].video_sampling_method == "uniform_linspace_pyav_v1"
+    assert by_key["gemma4_12b"].video_sampling_method == "uniform_midpoint_decord_v1"
     assert by_key["phi4_multimodal"].video_sampling_method == "uniform_midpoint_ffmpeg_v1"
     assert (
         by_key["qwen2_5_omni_7b"].video_sampling_method
-        == "uniform_nframes_qwen_omni_utils_v1"
+        == "uniform_midpoint_decord_v1"
     )
+    assert {package.module for package in by_key["gemma4_12b"].auxiliary_packages} == {
+        "av",
+        "decord",
+    }
+    assert {package.module for package in by_key["phi4_multimodal"].auxiliary_packages} == {
+        "soundfile"
+    }
+    assert {
+        package.module for package in by_key["qwen2_5_omni_7b"].auxiliary_packages
+    } == {"qwen_omni_utils", "decord"}
     assert all("--video-num-segments" not in model.extra_args for model in config.models)
     accepted = {
         (model.model_key, domain)

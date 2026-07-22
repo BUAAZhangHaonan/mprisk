@@ -225,8 +225,10 @@ models:
     trajectory_shape: [48, 3840]
     requested_frames: 8
     frame_protocol: fixed_uniform_temporal_samples_v1
-    video_sampling_method: uniform_linspace_pyav_v1
-    auxiliary_packages: [{module: av, distribution: av}]
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages:
+      - {module: av, distribution: av}
+      - {module: decord, distribution: decord}
     invalidated_domains:
       source: legacy cache used F16 or variable frames and failed the corrected media contract
       target: fixed F8 cache must be extracted under the frozen protocol
@@ -251,9 +253,10 @@ models:
     trajectory_shape: [28, 3584]
     requested_frames: 8
     frame_protocol: fixed_uniform_temporal_samples_v1
-    video_sampling_method: uniform_nframes_qwen_omni_utils_v1
+    video_sampling_method: uniform_midpoint_decord_v1
     auxiliary_packages:
       - {module: qwen_omni_utils, distribution: qwen-omni-utils}
+      - {module: decord, distribution: decord}
     invalidated_domains:
       source: legacy cache used duration-dependent FPS sampling rather than fixed F8
       target: fixed F8 cache must be extracted under the frozen protocol
