@@ -88,6 +88,8 @@ class ModelSpec:
     protocol: str
     dtype: str
     python: Path
+    python_no_user_site: bool
+    env_isolation: bool
     gpu_lane: int
     trajectory_shape: tuple[int, int]
     requested_frames: int
@@ -229,6 +231,8 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             protocol=protocol,
             dtype=_required_str(spec, "dtype"),
             python=environments[environment_key],
+            python_no_user_site=_required_bool(spec, "python_no_user_site"),
+            env_isolation=_required_bool(spec, "env_isolation"),
             gpu_lane=_nonnegative_int(spec, "gpu_lane"),
             trajectory_shape=_shape(spec.get("trajectory_shape"), "trajectory_shape"),
             requested_frames=_positive_int(spec, "requested_frames"),
@@ -253,6 +257,15 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             raise ValueError(f"Unsupported model protocol {protocol!r}")
         if model.dtype not in {"bfloat16", "float16"}:
             raise ValueError(f"Unsupported model dtype {model.dtype!r}")
+        if model.python_no_user_site != model.env_isolation:
+            raise ValueError(
+                f"{model.model_key} must keep python_no_user_site and env_isolation equal"
+            )
+        requires_isolation = model.model_key in {"gemma4_12b", "phi4_multimodal"}
+        if model.env_isolation is not requires_isolation:
+            raise ValueError(
+                f"{model.model_key} env_isolation must be {requires_isolation}"
+            )
         if model.gpu_lane not in {0, 1}:
             raise ValueError("gpu_lane must be 0 or 1")
         expected_frames = 7 if model.model_key == "llava_v1_5_7b" else 8
@@ -641,6 +654,8 @@ def _audit_job(
         "protocol": job.model.protocol,
         "gpu_lane": job.model.gpu_lane,
         "python": str(job.model.python),
+        "python_no_user_site": job.model.python_no_user_site,
+        "env_isolation": job.model.env_isolation,
         "runtime_library_path": str(model_runtime_library_path(job.model)),
         "expected_samples": job.domain.expected_samples,
         "expected_tasks": job.domain.expected_tasks,
@@ -718,6 +733,8 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "failed_tasks": 0,
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "environment_python": str(job.model.python),
+        "python_no_user_site": job.model.python_no_user_site,
+        "env_isolation": job.model.env_isolation,
         "runtime_library_path": str(model_runtime_library_path(job.model)),
         "dtype": job.model.dtype,
         "requested_frames": job.model.requested_frames,
@@ -839,6 +856,8 @@ def _check_wrapper_import(config: MatrixConfig, model: ModelSpec) -> dict[str, A
     )
     return {
         "python": str(model.python),
+        "python_no_user_site": model.python_no_user_site,
+        "env_isolation": model.env_isolation,
         "family": model.family,
         "passed": completed.returncode == 0,
         "detail": completed.stdout.strip()
@@ -952,19 +971,27 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
     )
     runtime_library_path = model_runtime_library_path(model)
     runtime = _inspect_runtime(
-        str(model.python), auxiliary, str(runtime_library_path)
+        str(model.python),
+        auxiliary,
+        str(runtime_library_path),
+        model.python_no_user_site,
+        model.env_isolation,
+        model.family,
     )
     return {
-        "schema": "mprisk_cache_asset_signature_v1",
+        "schema": "mprisk_cache_asset_signature_v2",
         "model_key": model.model_key,
         "family": model.family,
         "dtype": model.dtype,
+        "python_no_user_site": model.python_no_user_site,
+        "env_isolation": model.env_isolation,
         "frame_protocol": model.frame_protocol,
         "requested_frames": model.requested_frames,
         "video_sampling_method": model.video_sampling_method,
         "runtime_library_path": str(runtime_library_path),
         "sys_executable": runtime["sys_executable"],
         "transformers": runtime["transformers"],
+        "transformers_classes": runtime["transformers_classes"],
         "auxiliary_packages": runtime["auxiliary_packages"],
         "model_path": str(model_path),
         "model_config_sha256": _sha256(config_path),
@@ -981,29 +1008,58 @@ def _inspect_runtime(
     python: str,
     auxiliary_packages: tuple[tuple[str, str], ...],
     runtime_library_path: str,
+    python_no_user_site: bool,
+    env_isolation: bool,
+    family: str,
 ) -> dict[str, Any]:
     code = """
+import hashlib
 import importlib
 import importlib.metadata
+import inspect
 import json
+from pathlib import Path
+import site
 import sys
 
 packages = json.loads(sys.argv[1])
+family = sys.argv[2]
+expected_no_user_site = sys.argv[3] == "1"
+if expected_no_user_site and not sys.flags.no_user_site:
+    raise RuntimeError("PYTHONNOUSERSITE did not disable the user site")
 transformers = importlib.import_module("transformers")
 auxiliary = {}
 for item in packages:
     module = importlib.import_module(item["module"])
+    module_path = Path(module.__file__).resolve()
     auxiliary[item["module"]] = {
         "distribution": item["distribution"],
-        "path": str(getattr(module, "__file__", None)),
+        "path": str(module_path),
         "version": importlib.metadata.version(item["distribution"]),
     }
+transformers_classes = {}
+if family == "gemma4":
+    for name in (
+        "Gemma4UnifiedProcessor",
+        "Gemma4UnifiedConfig",
+        "Gemma4UnifiedForConditionalGeneration",
+    ):
+        value = getattr(transformers, name)
+        source_path = Path(inspect.getfile(value)).resolve()
+        transformers_classes[name] = {
+            "module": value.__module__,
+            "source_path": str(source_path),
+            "source_sha256": hashlib.sha256(source_path.read_bytes()).hexdigest(),
+        }
 print(json.dumps({
-    "sys_executable": sys.executable,
+    "sys_executable": str(Path(sys.executable).resolve()),
+    "python_no_user_site": bool(sys.flags.no_user_site),
+    "site_enable_user_site": bool(site.ENABLE_USER_SITE),
     "transformers": {
-        "path": str(transformers.__file__),
+        "path": str(Path(transformers.__file__).resolve()),
         "version": str(transformers.__version__),
     },
+    "transformers_classes": transformers_classes,
     "auxiliary_packages": auxiliary,
 }, sort_keys=True))
 """
@@ -1016,8 +1072,20 @@ print(json.dumps({
     env["LD_LIBRARY_PATH"] = runtime_library_path + (
         f":{inherited_library_path}" if inherited_library_path else ""
     )
+    _apply_python_isolation(
+        env,
+        python_no_user_site=python_no_user_site,
+        env_isolation=env_isolation,
+    )
     completed = subprocess.run(
-        [python, "-c", code, json.dumps(package_payload, sort_keys=True)],
+        [
+            python,
+            "-c",
+            code,
+            json.dumps(package_payload, sort_keys=True),
+            family,
+            "1" if python_no_user_site else "0",
+        ],
         env=env,
         check=False,
         capture_output=True,
@@ -1036,6 +1104,13 @@ print(json.dumps({
         ) from exc
     if not isinstance(value, dict):
         raise RuntimeError(f"Runtime signature inspection returned non-object for {python}")
+    if bool(value.get("python_no_user_site")) != python_no_user_site:
+        raise RuntimeError(
+            f"Runtime user-site flag mismatch for {python}: "
+            f"expected={python_no_user_site}, actual={value.get('python_no_user_site')}"
+        )
+    if python_no_user_site and value.get("site_enable_user_site") is not False:
+        raise RuntimeError(f"User site remains enabled for isolated runtime {python}")
     return value
 
 
@@ -1091,6 +1166,11 @@ def build_model_environment(
     env["LD_LIBRARY_PATH"] = str(runtime_library_path) + (
         f":{inherited_library_path}" if inherited_library_path else ""
     )
+    _apply_python_isolation(
+        env,
+        python_no_user_site=model.python_no_user_site,
+        env_isolation=model.env_isolation,
+    )
     env.update(
         {
             "CUDA_VISIBLE_DEVICES": str(lane),
@@ -1103,6 +1183,23 @@ def build_model_environment(
         }
     )
     return env
+
+
+def _apply_python_isolation(
+    env: dict[str, str], *, python_no_user_site: bool, env_isolation: bool
+) -> None:
+    if python_no_user_site != env_isolation:
+        raise ValueError("python_no_user_site and env_isolation must be equal")
+    if env_isolation:
+        env.update(
+            {
+                "PYTHONNOUSERSITE": "1",
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+            }
+        )
+    else:
+        env.pop("PYTHONNOUSERSITE", None)
 
 
 def build_job_environment(
@@ -1199,6 +1296,13 @@ def _required_str(mapping: dict[str, Any], key: str) -> str:
     value = mapping.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _required_bool(mapping: dict[str, Any], key: str) -> bool:
+    value = mapping.get(key)
+    if not isinstance(value, bool):
+        raise ValueError(f"{key} must be a boolean")
     return value
 
 

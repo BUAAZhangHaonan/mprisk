@@ -67,6 +67,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [34, 2560]
     requested_frames: 8
@@ -78,6 +80,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [48, 3840]
     requested_frames: 8
@@ -89,6 +93,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [40, 4096]
     requested_frames: 8
@@ -100,6 +106,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [36, 4096]
     requested_frames: 8
@@ -116,6 +124,8 @@ models:
     protocol: vt
     dtype: float16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [32, 4096]
     requested_frames: 7
@@ -127,6 +137,8 @@ models:
     protocol: vt
     dtype: float16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [28, 3584]
     requested_frames: 8
@@ -138,6 +150,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [28, 3584]
     requested_frames: 8
@@ -149,6 +163,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [36, 4096]
     requested_frames: 8
@@ -160,6 +176,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [32, 3072]
     requested_frames: 8
@@ -171,6 +189,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [28, 3584]
     requested_frames: 8
@@ -182,6 +202,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: qwen_vl_transformers_5_5_3
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [36, 4096]
     requested_frames: 8
@@ -196,6 +218,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 0
     trajectory_shape: [32, 2560]
     requested_frames: 8
@@ -210,6 +234,8 @@ models:
     protocol: vt
     dtype: bfloat16
     environment: mind_py311
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [32, 4096]
     requested_frames: 8
@@ -221,6 +247,8 @@ models:
     protocol: va
     dtype: bfloat16
     environment: gemma4
+    python_no_user_site: true
+    env_isolation: true
     gpu_lane: 1
     trajectory_shape: [48, 3840]
     requested_frames: 8
@@ -237,6 +265,8 @@ models:
     protocol: va
     dtype: bfloat16
     environment: phi4
+    python_no_user_site: true
+    env_isolation: true
     gpu_lane: 0
     trajectory_shape: [32, 3072]
     requested_frames: 8
@@ -249,6 +279,8 @@ models:
     protocol: va
     dtype: bfloat16
     environment: qwen_omni
+    python_no_user_site: false
+    env_isolation: false
     gpu_lane: 1
     trajectory_shape: [28, 3584]
     requested_frames: 8

@@ -14,6 +14,7 @@ from mprisk.cache.cache_matrix_queue import (
     CacheJob,
     DomainProtocol,
     ModelSpec,
+    _apply_python_isolation,
     _ledger_status,
     _smoke_status,
     _task_estimate,
@@ -138,13 +139,42 @@ def test_job_environment_prefers_selected_python_environment_lib(
     monkeypatch.setenv("LD_LIBRARY_PATH", "/system/lib")
     config = SimpleNamespace(repo_root=tmp_path, cpu_threads_per_job=8)
     job = SimpleNamespace(
-        model=SimpleNamespace(python=python, gpu_lane=1),
+        model=SimpleNamespace(
+            python=python,
+            python_no_user_site=False,
+            env_isolation=False,
+            gpu_lane=1,
+        ),
     )
 
     env = build_job_environment(config, job)
 
     assert env["LD_LIBRARY_PATH"] == f"{environment_lib.resolve()}:/system/lib"
     assert env["CUDA_VISIBLE_DEVICES"] == "1"
+    assert "PYTHONNOUSERSITE" not in env
+
+
+def test_python_isolation_is_explicit_and_fail_closed() -> None:
+    isolated = {"PYTHONNOUSERSITE": "0"}
+    _apply_python_isolation(
+        isolated, python_no_user_site=True, env_isolation=True
+    )
+    assert isolated == {
+        "PYTHONNOUSERSITE": "1",
+        "HF_HUB_OFFLINE": "1",
+        "TRANSFORMERS_OFFLINE": "1",
+    }
+
+    shared = {"PYTHONNOUSERSITE": "1"}
+    _apply_python_isolation(
+        shared, python_no_user_site=False, env_isolation=False
+    )
+    assert "PYTHONNOUSERSITE" not in shared
+
+    with pytest.raises(ValueError, match="must be equal"):
+        _apply_python_isolation(
+            {}, python_no_user_site=True, env_isolation=False
+        )
 
 
 def test_cache_asset_signature_is_required_for_resume(tmp_path: Path) -> None:
@@ -154,6 +184,8 @@ def test_cache_asset_signature_is_required_for_resume(tmp_path: Path) -> None:
         protocol="vt",
         dtype="bfloat16",
         python=tmp_path / "python",
+        python_no_user_site=False,
+        env_isolation=False,
         gpu_lane=0,
         trajectory_shape=(2, 3),
         requested_frames=8,
@@ -175,7 +207,7 @@ def test_cache_asset_signature_is_required_for_resume(tmp_path: Path) -> None:
         expected_samples=1,
     )
     job = CacheJob(domain, model, tmp_path / "cache", tmp_path / "smoke.json")
-    signature = {"schema": "mprisk_cache_asset_signature_v1", "digest": "current"}
+    signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "current"}
 
     _write_cache_asset_signature(job, signature)
     assert json.loads(job.asset_signature_evidence.read_text(encoding="utf-8")) == signature
@@ -206,6 +238,8 @@ def test_smoke_gate_requires_exact_48_task_contract(
         protocol="vt",
         dtype="bfloat16",
         python=python,
+        python_no_user_site=False,
+        env_isolation=False,
         gpu_lane=0,
         trajectory_shape=(32, 2560),
         requested_frames=8,
@@ -229,7 +263,7 @@ def test_smoke_gate_requires_exact_48_task_contract(
     smoke = tmp_path / "SMOKE_COMPLETE.json"
     job = CacheJob(domain, model, tmp_path / "out", smoke)
     config = SimpleNamespace(prompt_sets={"vt": prompt_set})
-    signature = {"schema": "mprisk_cache_asset_signature_v1", "digest": "asset"}
+    signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "asset"}
     monkeypatch.setattr(
         queue,
         "_asset_signature_status",
@@ -247,6 +281,8 @@ def test_smoke_gate_requires_exact_48_task_contract(
         "failed_tasks": 0,
         "prompt_set_sha256": hashlib.sha256(b"p8\n").hexdigest(),
         "environment_python": str(python),
+        "python_no_user_site": False,
+        "env_isolation": False,
         "runtime_library_path": str((environment / "lib").resolve()),
         "dtype": "bfloat16",
         "trajectory_shape": [32, 2560],
@@ -307,6 +343,15 @@ def test_complete_matrix_freezes_frames_and_accepts_only_internvl() -> None:
         package.module for package in by_key["qwen2_5_omni_7b"].auxiliary_packages
     } == {"qwen_omni_utils", "decord"}
     assert all("--video-num-segments" not in model.extra_args for model in config.models)
+    assert {
+        model.model_key
+        for model in config.models
+        if model.python_no_user_site and model.env_isolation
+    } == {"gemma4_12b", "phi4_multimodal"}
+    assert all(
+        model.python_no_user_site == model.env_isolation
+        for model in config.models
+    )
     accepted = {
         (model.model_key, domain)
         for model in config.models
@@ -341,9 +386,13 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     monkeypatch.setattr(
         queue,
         "_inspect_runtime",
-        lambda python, auxiliary, runtime_library_path: {
+        lambda python, auxiliary, runtime_library_path, python_no_user_site,
+        env_isolation, family: {
             "sys_executable": "/env/bin/python",
+            "python_no_user_site": False,
+            "site_enable_user_site": True,
             "transformers": {"path": "/env/transformers/__init__.py", "version": "5.5.3"},
+            "transformers_classes": {},
             "auxiliary_packages": {
                 "decord": {
                     "distribution": "decord",
@@ -371,6 +420,8 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         protocol="vt",
         dtype="bfloat16",
         python=environment / "bin" / "python",
+        python_no_user_site=False,
+        env_isolation=False,
         gpu_lane=0,
         trajectory_shape=(2, 3),
         requested_frames=8,
@@ -388,6 +439,10 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     signature = build_asset_signature(config, model)
 
     assert signature["sys_executable"] == "/env/bin/python"
+    assert signature["schema"] == "mprisk_cache_asset_signature_v2"
+    assert signature["python_no_user_site"] is False
+    assert signature["env_isolation"] is False
+    assert signature["transformers_classes"] == {}
     assert signature["transformers"]["version"] == "5.5.3"
     assert signature["auxiliary_packages"]["decord"]["version"] == "0.6.0"
     assert signature["requested_frames"] == 8

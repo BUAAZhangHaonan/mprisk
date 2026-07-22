@@ -7,11 +7,11 @@ import pytest
 
 import mprisk.cache.cache_smoke_matrix as smoke
 from mprisk.cache.cache_smoke_matrix import (
-    build_parser,
     _evidence_matches,
     _sha256,
     _validate_frame_contract,
     _validate_media_contract,
+    build_parser,
 )
 
 
@@ -198,6 +198,8 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
         family="family",
         protocol="vt",
         python=environment / "bin" / "python",
+        python_no_user_site=False,
+        env_isolation=False,
         dtype="bfloat16",
         trajectory_shape=(2, 3),
         requested_frames=8,
@@ -207,7 +209,7 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
     )
     config = SimpleNamespace(prompt_sets={"vt": prompt_set}, asset_config=asset_config)
     job = SimpleNamespace(model=model, domain=SimpleNamespace(domain="target"))
-    asset_signature = {"schema": "mprisk_cache_asset_signature_v1", "digest": "asset"}
+    asset_signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "asset"}
     monkeypatch.setattr(
         smoke, "build_asset_signature", lambda config, model: asset_signature
     )
@@ -222,6 +224,8 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
         "completed_tasks": 48,
         "failed_tasks": 0,
         "environment_python": str(model.python),
+        "python_no_user_site": False,
+        "env_isolation": False,
         "runtime_library_path": str((environment / "lib").resolve()),
         "prompt_set_sha256": _sha256(prompt_set),
         "asset_config_sha256": _sha256(asset_config),
@@ -240,6 +244,8 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
         "extra_args",
         "dtype",
         "runtime_library_path",
+        "python_no_user_site",
+        "env_isolation",
         "smoke_manifest_sha256",
         "requested_frames",
         "frame_protocol",
