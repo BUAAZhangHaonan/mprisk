@@ -7,7 +7,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -226,7 +226,7 @@ def _manifest_entry(
             "prefill_strategy": result.provenance.get("prefill_strategy"),
             "prefill_strategy_version": result.provenance.get("prefill_strategy_version"),
             "prefix_identity": result.provenance.get("prefix_identity"),
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         },
     }
 
