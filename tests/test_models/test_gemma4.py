@@ -104,6 +104,71 @@ def test_gemma4_m12_rejects_missing_audio():
         )
 
 
+@pytest.mark.parametrize(
+    ("condition", "media", "expected"),
+    [
+        (
+            "M1",
+            {
+                "videos": [np.zeros((4, 2, 2, 3), dtype=np.uint8)],
+                "video_metadata": [{"total_num_frames": 4}],
+                "audio": None,
+                "audio_waveforms": None,
+                "images": None,
+            },
+            (1, 0, "none"),
+        ),
+        (
+            "M2",
+            {
+                "videos": None,
+                "video_metadata": None,
+                "audio": ["sample.wav"],
+                "audio_waveforms": None,
+                "images": None,
+            },
+            (0, 1, "explicit_audio_path"),
+        ),
+        (
+            "M12",
+            {
+                "videos": [np.zeros((4, 2, 2, 3), dtype=np.uint8)],
+                "video_metadata": [{"total_num_frames": 4}],
+                "audio": None,
+                "audio_waveforms": [(np.ones(1600, dtype=np.float32), 16000)],
+                "images": None,
+            },
+            (1, 1, "embedded_video_waveform"),
+        ),
+    ],
+)
+def test_gemma4_processor_media_contract_is_exact(condition, media, expected):
+    contract = _validate_media_contract(condition, media)
+
+    assert contract == {
+        "schema": "mprisk_gemma4_processor_media_contract_v1",
+        "condition": condition,
+        "video_input_count": expected[0],
+        "audio_input_count": expected[1],
+        "audio_input_source": expected[2],
+        "image_input_count": 0,
+    }
+
+
+def test_gemma4_rejects_duplicate_audio_processor_inputs():
+    with pytest.raises(ValueError, match="both explicit audio paths"):
+        _validate_media_contract(
+            "M12",
+            {
+                "videos": [np.zeros((4, 2, 2, 3), dtype=np.uint8)],
+                "video_metadata": [{"total_num_frames": 4}],
+                "audio": ["sample.wav"],
+                "audio_waveforms": [(np.ones(1600, dtype=np.float32), 16000)],
+                "images": None,
+            },
+        )
+
+
 def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     processor = _Processor()
     wrapper = Gemma4Wrapper(
@@ -157,5 +222,13 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     assert len(processor.call_kwargs["audio"]) == 1
     assert len(processor.call_kwargs["videos"]) == 1
     assert result.provenance["media_keys"] == ["videos", "audio"]
+    assert result.provenance["processor_media_contract"] == {
+        "schema": "mprisk_gemma4_processor_media_contract_v1",
+        "condition": "M12",
+        "video_input_count": 1,
+        "audio_input_count": 1,
+        "audio_input_source": "embedded_video_waveform",
+        "image_input_count": 0,
+    }
     assert result.provenance["requested_frames"] == 4
     assert result.provenance["actual_frames"] == 4

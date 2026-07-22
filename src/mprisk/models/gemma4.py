@@ -180,7 +180,7 @@ class Gemma4Wrapper(BaseModelWrapper):
             actual_frames = 0
         if media["images"] is not None:
             processor_kwargs["images"] = media["images"]
-        _validate_media_contract(request.condition, media)
+        processor_media_contract = _validate_media_contract(request.condition, media)
         try:
             model_inputs = self.processor(**processor_kwargs)
         finally:
@@ -255,6 +255,7 @@ class Gemma4Wrapper(BaseModelWrapper):
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
             "media_keys": _media_keys(media),
+            "processor_media_contract": processor_media_contract,
             "video_sampling_method": (
                 "uniform_midpoint_decord_v1" if actual_frames else None
             ),
@@ -543,17 +544,60 @@ def _video_to_frames_with_audio(
     return frames, audio, 16000, metadata
 
 
-def _validate_media_contract(condition: str, media: Mapping[str, Any]) -> None:
-    has_video = bool(media.get("videos"))
-    has_audio = bool(media.get("audio")) or bool(media.get("audio_waveforms"))
-    if has_video and not media.get("video_metadata"):
-        raise ValueError("Gemma-4 video input requires source video metadata")
-    if condition == "M1" and (not has_video or has_audio):
-        raise ValueError("Gemma-4 M1 must contain video and no audio")
-    if condition == "M2" and (has_video or not has_audio):
-        raise ValueError("Gemma-4 M2 must contain audio and no video")
-    if condition == "M12" and (not has_video or not has_audio):
-        raise ValueError("Gemma-4 M12 must contain both video and audio")
+def _validate_media_contract(
+    condition: str, media: Mapping[str, Any]
+) -> dict[str, Any]:
+    videos = list(media.get("videos") or [])
+    video_metadata = list(media.get("video_metadata") or [])
+    audio_paths = list(media.get("audio") or [])
+    audio_waveforms = list(media.get("audio_waveforms") or [])
+    images = list(media.get("images") or [])
+    if audio_paths and audio_waveforms:
+        raise ValueError(
+            "Gemma-4 processor input cannot contain both explicit audio paths "
+            "and embedded-video waveforms"
+        )
+    video_count = len(videos)
+    audio_count = len(audio_paths) + len(audio_waveforms)
+    image_count = len(images)
+    if video_count != len(video_metadata):
+        raise ValueError(
+            "Gemma-4 video input count does not match source video metadata count"
+        )
+    expected = {
+        "M1": (1, 0, 0),
+        "M2": (0, 1, 0),
+        "M12": (1, 1, 0),
+    }.get(condition)
+    if expected is None:
+        raise ValueError(f"Unsupported Gemma-4 condition: {condition!r}")
+    actual = (video_count, audio_count, image_count)
+    if actual != expected:
+        if condition == "M1":
+            detail = "video and no audio"
+        elif condition == "M2":
+            detail = "audio and no video"
+        else:
+            detail = "both video and audio"
+        raise ValueError(
+            f"Gemma-4 {condition} must contain exactly {detail}; got "
+            f"video={video_count}, audio={audio_count}, image={image_count}"
+        )
+    audio_source = (
+        "embedded_video_waveform"
+        if audio_waveforms
+        else "explicit_audio_path"
+        if audio_paths
+        else "none"
+    )
+    return {
+        "schema": "mprisk_gemma4_processor_media_contract_v1",
+        "condition": condition,
+        "video_input_count": video_count,
+        "audio_input_count": audio_count,
+        "audio_input_source": audio_source,
+        "image_input_count": image_count,
+    }
 
 
 def _media_keys(media: Mapping[str, Any]) -> list[str]:
