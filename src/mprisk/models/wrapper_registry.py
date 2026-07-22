@@ -5,14 +5,18 @@ from __future__ import annotations
 from typing import TypeAlias
 
 from mprisk.models.base_wrapper import BaseModelWrapper
+from mprisk.models.gemma4 import Gemma4Wrapper
 from mprisk.models.internvl import InternVlWrapper
+from mprisk.models.qwen3_5 import Qwen3_5Wrapper
 from mprisk.models.qwen_omni import QwenOmniWrapper
 from mprisk.models.qwen_vl import QwenVlWrapper
 
 WrapperFactory: TypeAlias = type[BaseModelWrapper]
 
 REGISTRY: dict[str, WrapperFactory] = {
+    Gemma4Wrapper.family: Gemma4Wrapper,
     InternVlWrapper.family: InternVlWrapper,
+    Qwen3_5Wrapper.family: Qwen3_5Wrapper,
     QwenOmniWrapper.family: QwenOmniWrapper,
     QwenVlWrapper.family: QwenVlWrapper,
 }

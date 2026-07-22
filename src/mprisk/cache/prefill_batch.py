@@ -28,6 +28,7 @@ from mprisk.cache.prefill_writer import (
     write_prefill_result,
 )
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
+from mprisk.models.gemma4 import build_va_request as build_gemma4_va_request
 from mprisk.models.qwen_omni import build_condition_request
 from mprisk.models.wrapper_registry import get_wrapper
 from mprisk.prompts.compiler import compile_prompt
@@ -86,7 +87,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--internvl-max-num", type=int, default=1)
     parser.add_argument("--model-key", default="qwen2_5_omni_7b")
     parser.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
-    parser.add_argument("--family", choices=("qwen_omni", "qwen_vl", "internvl"))
+    parser.add_argument(
+        "--family", choices=("gemma4", "internvl", "qwen3_5", "qwen_omni", "qwen_vl")
+    )
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
@@ -475,6 +478,19 @@ def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillReque
     if task.prompt_text is None:
         raise ValueError(f"Task {task.task_id} has an unresolved prompt")
     media = task.row["media_paths"]
+    if args.family == "gemma4":
+        return build_gemma4_va_request(
+            sample_id=task.sample_id,
+            model_key=args.model_key,
+            dataset_key=str(task.row["source_dataset"]),
+            split=str(task.row["split"]),
+            media_paths={str(key): str(value) for key, value in media.items()},
+            text_content="" if task.row.get("text_content") is None else str(task.row["text_content"]),
+            task_prompt=task.prompt_text,
+            condition=task.condition,
+            prompt_set_key=task.prompt_set_key,
+            prompt_id=task.prompt_id,
+        )
     return build_condition_request(
         sample_id=task.sample_id,
         model_key=args.model_key,
