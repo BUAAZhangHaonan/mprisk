@@ -266,8 +266,8 @@ def test_smoke_gate_requires_exact_48_task_contract(
     signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "asset"}
     monkeypatch.setattr(
         queue,
-        "_asset_signature_status",
-        lambda config, model: {"passed": True, "signature": signature},
+        "build_asset_signature",
+        lambda config, model, **kwargs: signature,
     )
     payload = {
         "schema": "mprisk_cache_smoke_evidence_v2",

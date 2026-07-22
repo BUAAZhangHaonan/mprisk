@@ -77,6 +77,7 @@ class SmokePaths:
     log: Path
     evidence: Path
     failure: Path
+    frame_plan: Path
 
 
 def build_smoke_manifest(job: CacheJob, paths: SmokePaths) -> tuple[list[dict[str, Any]], str]:
@@ -102,6 +103,10 @@ def run_smoke_job(
         if _evidence_matches(config, job, existing, manifest_sha256):
             return {"job_id": job.job_id, "status": "PASS", "resumed": True}
         raise ValueError(f"Stale smoke evidence must not be reused: {paths.evidence}")
+    if job.model.uses_dynamic_context:
+        smoke_plan = load_frame_plan(paths.frame_plan)
+        if smoke_plan.get("manifest_sha256") != manifest_sha256:
+            raise ValueError("LLaVA smoke frame plan is stale for the smoke manifest")
 
     execution_gpu = job.model.gpu_lane if physical_gpu is None else physical_gpu
     _require_gpu_capacity(execution_gpu, config.max_gpu_memory_fraction)
@@ -188,15 +193,25 @@ def validate_smoke(
     token_counts: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     media_checks: Counter[str] = Counter()
     requested_frames = job.model.requested_frames
-    asset_signature = build_asset_signature(config, job.model)
+    asset_signature = build_asset_signature(
+        config,
+        job.model,
+        frame_plan_paths=(
+            {job.domain.domain: paths.frame_plan}
+            if job.model.uses_dynamic_context
+            else None
+        ),
+    )
     actual_frames: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     provenance_contracts: set[str] = set()
     dynamic_contracts: dict[str, dict[str, Any]] = {}
     dynamic_token_counts: dict[tuple[str, str], list[int]] = {}
-    frame_plan_sha256 = _sha256(job.frame_plan) if job.frame_plan is not None else None
+    frame_plan_sha256 = (
+        _sha256(paths.frame_plan) if job.model.uses_dynamic_context else None
+    )
     frame_plan_by_sample = (
-        index_frame_plan(load_frame_plan(job.frame_plan))
-        if job.frame_plan is not None
+        index_frame_plan(load_frame_plan(paths.frame_plan))
+        if job.model.uses_dynamic_context
         else {}
     )
     peak_gpu_memory = 0
@@ -361,6 +376,7 @@ def smoke_paths(job: CacheJob) -> SmokePaths:
         log=root / "runtime.log",
         evidence=job.smoke_evidence,
         failure=root / "SMOKE_FAILURE.json",
+        frame_plan=root / "frame_plan.json",
     )
 
 
@@ -395,8 +411,8 @@ def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> li
         "--video-num-segments",
         str(job.model.frame_count_argument),
     ]
-    if job.frame_plan is not None:
-        command.extend(["--frame-plan", str(job.frame_plan)])
+    if job.model.uses_dynamic_context:
+        command.extend(["--frame-plan", str(paths.frame_plan)])
     command.extend(job.model.extra_args)
     return command
 
@@ -749,11 +765,21 @@ def _evidence_matches(
         "max_candidate_frames": job.model.max_candidate_frames,
         "context_budget_mode": job.model.context_budget_mode,
         "frame_plan_sha256": (
-            _sha256(job.frame_plan) if job.frame_plan is not None else None
+            _sha256(smoke_paths(job).frame_plan)
+            if job.model.uses_dynamic_context
+            else None
         ),
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
-        "asset_signature": build_asset_signature(config, job.model),
+        "asset_signature": build_asset_signature(
+            config,
+            job.model,
+            frame_plan_paths=(
+                {job.domain.domain: smoke_paths(job).frame_plan}
+                if job.model.uses_dynamic_context
+                else None
+            ),
+        ),
     }
     return all(value.get(key) == expected_value for key, expected_value in expected.items())
 

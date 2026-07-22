@@ -829,13 +829,23 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
     if not path.is_file():
         return {"passed": False, "reason": "missing", "path": str(path)}
     payload = _read_json(path)
-    asset_signature_status = _asset_signature_status(config, job.model)
-    if not asset_signature_status["passed"]:
+    smoke_frame_plan = job.smoke_evidence.parent / "frame_plan.json"
+    try:
+        smoke_asset_signature = build_asset_signature(
+            config,
+            job.model,
+            frame_plan_paths=(
+                {job.domain.domain: smoke_frame_plan}
+                if job.model.uses_dynamic_context
+                else None
+            ),
+        )
+    except (FileNotFoundError, KeyError, OSError, RuntimeError, ValueError) as exc:
         return {
             "passed": False,
             "reason": "asset_signature_failed",
             "path": str(path),
-            "asset_signature": asset_signature_status,
+            "asset_signature": {"passed": False, "error": str(exc)},
         }
     expected = {
         "schema": SMOKE_SCHEMA,
@@ -861,7 +871,7 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         ),
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
-        "asset_signature": asset_signature_status["signature"],
+        "asset_signature": smoke_asset_signature,
     }
     mismatches = {
         key: {"expected": value, "actual": payload.get(key)}
@@ -901,7 +911,7 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "path": str(path),
         "mismatches": mismatches,
         "trajectory_shape": shape,
-        "asset_signature": asset_signature_status["signature"],
+        "asset_signature": smoke_asset_signature,
     }
 
 
@@ -1057,7 +1067,12 @@ def _write_cache_asset_signature(
     )
 
 
-def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
+def build_asset_signature(
+    config: MatrixConfig,
+    model: ModelSpec,
+    *,
+    frame_plan_paths: dict[str, Path] | None = None,
+) -> dict[str, Any]:
     assets = index_assets(load_model_assets(config.asset_config))
     asset = assets.get(model.model_key)
     if asset is None:
@@ -1144,10 +1159,12 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         "wrapper_file_sha256": _sha256(wrapper_path),
     }
     if model.model_key == LLAVA_MODEL_KEY:
+        selected_plan_paths = config.frame_plans if frame_plan_paths is None else frame_plan_paths
+        if not selected_plan_paths:
+            raise ValueError("LLaVA asset signature requires at least one frame plan")
         plans: dict[str, dict[str, Any]] = {}
         context_limits: set[int] = set()
-        for domain_name in ("source", "target"):
-            path = config.frame_plans[domain_name]
+        for domain_name, path in sorted(selected_plan_paths.items()):
             payload = load_frame_plan(path)
             if payload.get("model_key") != model.model_key:
                 raise ValueError(f"Frame plan model mismatch: {path}")
@@ -1178,6 +1195,9 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
             "selection_rule": "largest_f_with_all_p8_m1_m12_tokens_lte_context",
             "no_truncation": True,
         }
+        signature["frame_plan_scope"] = (
+            "full_matrix" if frame_plan_paths is None else "smoke_subset"
+        )
         signature["frame_plan_manifests"] = plans
     return signature
 

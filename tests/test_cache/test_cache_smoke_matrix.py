@@ -392,7 +392,9 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
     )
     asset_signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "asset"}
     monkeypatch.setattr(
-        smoke, "build_asset_signature", lambda config, model: asset_signature
+        smoke,
+        "build_asset_signature",
+        lambda config, model, **kwargs: asset_signature,
     )
     evidence = {
         "schema": "mprisk_cache_smoke_evidence_v2",
