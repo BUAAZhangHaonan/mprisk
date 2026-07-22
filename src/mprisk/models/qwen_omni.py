@@ -20,6 +20,7 @@ from mprisk.models.base_wrapper import (
     PrefillRequest,
     PrefillResult,
 )
+from mprisk.models.video_frame_utils import request_messages_with_uniform_video
 
 JointAudioMode = Literal["embedded_video", "separate_file"]
 
@@ -206,17 +207,26 @@ class QwenOmniWrapper(BaseModelWrapper):
 
         _validate_message_audio_contract(request)
         started_at = time.perf_counter()
-        messages = _messages_with_fixed_video_frames(request.messages, self.video_num_segments)
+        messages, sampling = request_messages_with_uniform_video(
+            request, requested_frames=self.video_num_segments
+        )
         prompt = self.processor.apply_chat_template(
             messages,
             tokenize=False,
             add_generation_prompt=True,
         )
-        audios, images, videos = self._process_mm_info(
-            messages,
-            use_audio_in_video=request.use_audio_in_video,
-        )
-        requested_frames = self.video_num_segments if videos else 0
+        if request.use_audio_in_video:
+            audios, _, _ = self._process_mm_info(
+                list(request.messages), use_audio_in_video=True
+            )
+            _, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        else:
+            audios, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        requested_frames = int(sampling["requested_frames"])
         actual_frames = _actual_video_frames(videos)
         if actual_frames != requested_frames:
             raise ValueError(
@@ -300,8 +310,7 @@ class QwenOmniWrapper(BaseModelWrapper):
             "weight_index_sha256": _sha256(self.model_path / "model.safetensors.index.json"),
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
-            "video_sampling_method": "uniform_nframes_qwen_omni_utils_v1" if videos else None,
-            "requested_frames": requested_frames,
+            **{key: value for key, value in sampling.items() if key != "video_metadata"},
             "actual_frames": actual_frames,
         }
         return PrefillResult(
@@ -326,14 +335,24 @@ class QwenOmniWrapper(BaseModelWrapper):
         import torch
 
         _validate_generation_audio_contract(request)
-        messages = _messages_with_fixed_video_frames(request.messages, self.video_num_segments)
+        messages, sampling = request_messages_with_uniform_video(
+            request, requested_frames=self.video_num_segments
+        )
         prompt = self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        audios, images, videos = self._process_mm_info(
-            messages, use_audio_in_video=request.use_audio_in_video
-        )
-        requested_frames = self.video_num_segments if videos else 0
+        if request.use_audio_in_video:
+            audios, _, _ = self._process_mm_info(
+                list(request.messages), use_audio_in_video=True
+            )
+            _, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        else:
+            audios, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        requested_frames = int(sampling["requested_frames"])
         actual_frames = _actual_video_frames(videos)
         if actual_frames != requested_frames:
             raise ValueError(
@@ -464,23 +483,6 @@ def _video_content(path: str | None, fps: float) -> dict[str, Any]:
     if not path:
         raise ValueError("This conditioning view requires media_paths.vision")
     return {"type": "video", "video": path, "fps": fps}
-
-
-def _messages_with_fixed_video_frames(
-    messages: tuple[Mapping[str, Any], ...],
-    requested_frames: int,
-) -> list[dict[str, Any]]:
-    prepared: list[dict[str, Any]] = []
-    for message in messages:
-        content: list[dict[str, Any]] = []
-        for raw_item in message.get("content", []):
-            item = dict(raw_item)
-            if item.get("type") == "video":
-                item.pop("fps", None)
-                item["nframes"] = requested_frames
-            content.append(item)
-        prepared.append({**dict(message), "content": content})
-    return prepared
 
 
 def _actual_video_frames(videos: Any) -> int:

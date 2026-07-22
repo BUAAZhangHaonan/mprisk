@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
+from mprisk.models.video_frame_utils import uniform_video_sample
 
 
 class Phi4MmWrapper(BaseModelWrapper):
@@ -224,6 +225,10 @@ class Phi4MmWrapper(BaseModelWrapper):
                 "video_sampling_method": media_provenance["method"],
                 "requested_frames": media_provenance["requested_frames"],
                 "actual_frames": media_provenance["actual_frames"],
+                "video_frame_indices": media_provenance["video_frame_indices"],
+                "video_source_total_frames": media_provenance[
+                    "video_source_total_frames"
+                ],
                 "peft_compatibility_patch": bool(getattr(self, "_compatibility_patch", False)),
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_bytes,
@@ -266,6 +271,7 @@ class Phi4MmWrapper(BaseModelWrapper):
         audios: list[tuple[np.ndarray, int]] = []
         vision_sources: list[str] = []
         video_sources: list[str] = []
+        video_metadata: list[dict[str, Any]] = []
         audio_sources: list[str] = []
         actual_video_frames = 0
         for message in request.messages:
@@ -286,7 +292,9 @@ class Phi4MmWrapper(BaseModelWrapper):
                     vision_sources.append(path)
                 elif item_type == "video":
                     path = _required_media_path(item.get("video"), "video")
-                    frames = _uniform_video_frames(path, self.video_num_segments)
+                    frames, metadata = uniform_video_sample(
+                        path, self.video_num_segments
+                    )
                     if len(frames) != self.video_num_segments:
                         raise ValueError(
                             f"Phi-4 requested {self.video_num_segments} video frames "
@@ -296,6 +304,7 @@ class Phi4MmWrapper(BaseModelWrapper):
                     actual_video_frames += len(frames)
                     vision_sources.append(path)
                     video_sources.append(path)
+                    video_metadata.append(metadata)
                     if request.use_audio_in_video:
                         audios.append(_decode_audio(path))
                         audio_sources.append(path)
@@ -312,12 +321,18 @@ class Phi4MmWrapper(BaseModelWrapper):
         audio_tokens = "".join(f"<|audio_{index}|>" for index in range(1, len(audios) + 1))
         prompt = f"<|user|>{image_tokens}{audio_tokens}{task_text}<|end|><|assistant|>"
         return prompt, images, audios, {
-            "method": "uniform_midpoint_ffmpeg_v1" if actual_video_frames else None,
+            "method": "uniform_midpoint_decord_v1" if actual_video_frames else None,
             "frame_count": len(images),
             "requested_frames": self.video_num_segments * len(video_sources)
             if actual_video_frames
             else 0,
             "actual_frames": actual_video_frames,
+            "video_frame_indices": [
+                row["frames_indices"] for row in video_metadata
+            ],
+            "video_source_total_frames": [
+                row["total_num_frames"] for row in video_metadata
+            ],
             "audio_count": len(audios),
             "vision_sources": vision_sources,
             "audio_sources": audio_sources,
@@ -351,43 +366,6 @@ def _load_image(path: str) -> Any:
     from PIL import Image
     with Image.open(path) as image:
         return image.convert("RGB")
-
-
-def _probe_duration(path: str) -> float:
-    completed = subprocess.run(
-        [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1", path,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    duration = float(completed.stdout.strip())
-    if not np.isfinite(duration) or duration <= 0:
-        raise ValueError(f"Invalid media duration for {path}: {duration}")
-    return duration
-
-
-def _uniform_video_frames(path: str, count: int) -> list[Any]:
-    from PIL import Image
-    duration = _probe_duration(path)
-    frames = []
-    for index in range(count):
-        timestamp = duration * (index + 0.5) / count
-        completed = subprocess.run(
-            [
-                "ffmpeg", "-nostdin", "-loglevel", "error", "-ss", f"{timestamp:.6f}",
-                "-i", path, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "png", "pipe:1",
-            ],
-            check=True,
-            capture_output=True,
-        )
-        if not completed.stdout:
-            raise RuntimeError(f"ffmpeg produced no frame for {path} at {timestamp:.6f}s")
-        with Image.open(io.BytesIO(completed.stdout)) as image:
-            frames.append(image.convert("RGB"))
-    return frames
 
 
 def _decode_audio(path: str) -> tuple[np.ndarray, int]:

@@ -116,7 +116,11 @@ def _load_video(path, *, input_size, max_num, num_segments):
     assert input_size == 448
     assert max_num == 1
     assert num_segments == 2
-    return torch.ones((2, 3, 2, 2)), [1, 1]
+    return (
+        torch.ones((2, 3, 2, 2)),
+        [1, 1],
+        {"frames_indices": [10, 90], "total_num_frames": 100, "fps": 25.0},
+    )
 
 
 def test_internvl_uses_official_video_prefix_and_explicit_language_forward(tmp_path) -> None:
@@ -159,6 +163,8 @@ def test_internvl_uses_official_video_prefix_and_explicit_language_forward(tmp_p
     assert model.language_model.call_kwargs["logits_to_keep"] == 1
     assert result.t0_token_index == result.token_count - 1
     assert result.provenance["num_patches_list"] == [1, 1]
+    assert result.provenance["video_frame_indices"] == [[10, 90]]
+    assert result.provenance["video_source_total_frames"] == [100]
 
 
 def test_internvl_text_only_condition_never_loads_visual_input(tmp_path) -> None:

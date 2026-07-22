@@ -20,6 +20,7 @@ from mprisk.models.base_wrapper import (
     PrefillRequest,
     PrefillResult,
 )
+from mprisk.models.video_frame_utils import uniform_video_sample
 
 DEFAULT_VIDEO_FRAMES: int = 8
 _FFMPEG_AVAILABLE: bool = shutil.which("ffmpeg") is not None
@@ -254,14 +255,20 @@ class Gemma4Wrapper(BaseModelWrapper):
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
             "media_keys": _media_keys(media),
-            "video_sampling_method": "uniform_linspace_pyav_v1" if actual_frames else None,
+            "video_sampling_method": (
+                "uniform_midpoint_decord_v1" if actual_frames else None
+            ),
             "requested_frames": self.video_num_segments if actual_frames else 0,
             "actual_frames": actual_frames,
             "video_frame_indices": (
-                media["video_metadata"][0]["frames_indices"] if actual_frames else []
+                [row["frames_indices"] for row in media["video_metadata"]]
+                if actual_frames
+                else []
             ),
             "video_source_total_frames": (
-                media["video_metadata"][0]["total_num_frames"] if actual_frames else 0
+                [row["total_num_frames"] for row in media["video_metadata"]]
+                if actual_frames
+                else []
             ),
         }
         return PrefillResult(
@@ -500,35 +507,9 @@ def _video_to_frames(
     *,
     max_frames: int = DEFAULT_VIDEO_FRAMES,
 ) -> tuple[Any, dict[str, Any]]:
-    """Uniformly sample RGB frames and preserve their source timestamps."""
-    import av
-    import numpy as np
-
-    container = av.open(video_path)
-    try:
-        stream = container.streams.video[0]
-        fps = float(stream.average_rate) if stream.average_rate is not None else None
-        all_frames = [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
-    finally:
-        container.close()
-    if not all_frames:
-        raise ValueError(f"Video yielded no frames: {video_path}")
-    if fps is None or fps <= 0:
-        raise ValueError(f"Video does not expose a valid frame rate: {video_path}")
-    if len(all_frames) <= max_frames:
-        indices = np.arange(len(all_frames), dtype=int)
-    else:
-        indices = np.linspace(0, len(all_frames) - 1, max_frames, dtype=int)
-    frames = np.stack([all_frames[int(index)] for index in indices])
-    metadata = {
-        "total_num_frames": len(all_frames),
-        "fps": fps,
-        "width": int(frames.shape[2]),
-        "height": int(frames.shape[1]),
-        "duration": len(all_frames) / fps,
-        "video_backend": "pyav",
-        "frames_indices": [int(index) for index in indices],
-    }
+    """Uniformly sample exactly ``max_frames`` frames with shared provenance."""
+    images, metadata = uniform_video_sample(video_path, max_frames)
+    frames = np.stack([np.asarray(image, dtype=np.uint8) for image in images])
     return frames, metadata
 
 

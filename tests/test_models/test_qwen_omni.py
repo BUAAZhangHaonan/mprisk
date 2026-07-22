@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+from PIL import Image
 
 from mprisk.models.base_wrapper import GenerationRequest
 from mprisk.models.qwen_omni import QwenOmniWrapper, build_condition_request
@@ -32,6 +33,25 @@ def _model_dir(tmp_path):
 
 def _content_types(request):
     return [item["type"] for item in request.messages[0]["content"]]
+
+
+def _patch_uniform_video(monkeypatch):
+    frames = [Image.new("RGB", (2, 2), color=index) for index in range(8)]
+    monkeypatch.setattr(
+        "mprisk.models.video_frame_utils.uniform_video_sample",
+        lambda path, count: (
+            frames,
+            {
+                "frames_indices": list(range(8)),
+                "total_num_frames": 100,
+                "fps": 25.0,
+                "width": 2,
+                "height": 2,
+                "duration": 4.0,
+                "video_backend": "test",
+            },
+        ),
+    )
 
 
 def test_build_va_conditions_prevents_audio_leakage(tmp_path) -> None:
@@ -128,7 +148,9 @@ class _FakeThinker:
         return SimpleNamespace(hidden_states=states)
 
 
-def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(tmp_path) -> None:
+def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(
+    tmp_path, monkeypatch
+) -> None:
     class Processor(_FakeProcessor):
         tokenizer = SimpleNamespace(eos_token_id=99)
 
@@ -146,13 +168,22 @@ def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(tmp_p
             return torch.tensor([[0, 10, 11, 12, 42, 99]])
 
     model = Thinker()
+    _patch_uniform_video(monkeypatch)
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"media")
+
+    def process_mm_info(messages, use_audio_in_video):
+        if use_audio_in_video:
+            return [np.zeros(16, dtype=np.float32)], None, None
+        return None, None, [torch.zeros((8, 3, 2, 2))]
+
     wrapper = QwenOmniWrapper(
         model_key="qwen2_5_omni_7b",
         model_path=_model_dir(tmp_path),
         device="cpu",
         model=model,
         processor=Processor(),
-        process_mm_info_fn=lambda messages, use_audio_in_video: (None, None, None),
+        process_mm_info_fn=process_mm_info,
         runtime_versions={"transformers": "test", "qwen-omni-utils": "test"},
     )
     request = GenerationRequest(
@@ -164,12 +195,12 @@ def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(tmp_p
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": "sample.mp4"},
+                    {"type": "video", "video": str(media)},
                     {"type": "text", "text": "Prompt"},
                 ],
             },
         ),
-        media_paths={"vision": "sample.mp4", "audio": "sample.mp4"},
+        media_paths={"vision": str(media), "audio": str(media)},
         use_audio_in_video=True,
         generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 32},
     )
@@ -233,10 +264,13 @@ def test_wrapper_extracts_last_non_padding_token_from_28_thinker_blocks(tmp_path
     assert result.provenance["talker_loaded"] is False
 
 
-def test_wrapper_requests_and_records_exactly_eight_video_frames(tmp_path) -> None:
+def test_wrapper_requests_and_records_exactly_eight_video_frames(
+    tmp_path, monkeypatch
+) -> None:
     model = _FakeThinker()
     processor = _FakeProcessor()
     process_calls = []
+    _patch_uniform_video(monkeypatch)
 
     def process_mm_info(messages, *, use_audio_in_video):
         process_calls.append(messages)
@@ -268,7 +302,7 @@ def test_wrapper_requests_and_records_exactly_eight_video_frames(tmp_path) -> No
     result = wrapper.extract_prefill(request)
 
     video_item = process_calls[0][0]["content"][0]
-    assert video_item["nframes"] == 8
+    assert len(video_item["video"]) == 8
     assert "fps" not in video_item
     assert result.provenance["requested_frames"] == 8
     assert result.provenance["actual_frames"] == 8
