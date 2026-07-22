@@ -18,6 +18,10 @@ from pathlib import Path
 from typing import Any
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.cache.context_window import (
+    audit_smoke_cache_context,
+    load_context_ceiling,
+)
 from mprisk.cache.llava_v15_frame_plan import (
     CONTEXT_BUDGET_MODE,
     FRAME_PLAN_SCHEMA,
@@ -850,6 +854,36 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
             "reason": "asset_signature_failed",
             "path": str(path),
             "asset_signature": {"passed": False, "error": str(exc)},
+        }
+    try:
+        context_ceiling = load_context_ceiling(
+            family=job.model.family,
+            python=job.model.python,
+            model_path=str(smoke_asset_signature["model_path"]),
+            expected_model_config_sha256=str(
+                smoke_asset_signature["model_config_sha256"]
+            ),
+            environment=build_job_environment(config, job),
+            cwd=config.repo_root,
+        )
+        audit_smoke_cache_context(
+            cache_root=job.smoke_evidence.parent / "cache",
+            model_key=job.model.model_key,
+            context_ceiling=context_ceiling,
+        )
+    except (
+        FileNotFoundError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        return {
+            "passed": False,
+            "reason": "context_window_validation_failed",
+            "path": str(path),
+            "context_window": {"passed": False, "error": str(exc)},
         }
     expected = {
         "schema": SMOKE_SCHEMA,

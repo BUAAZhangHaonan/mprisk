@@ -30,6 +30,10 @@ from mprisk.cache.cache_matrix_queue import (
     model_runtime_library_path,
     normalize_manifest,
 )
+from mprisk.cache.context_window import (
+    load_context_ceiling,
+    validate_sidecar_token_count,
+)
 from mprisk.cache.llava_v15_frame_plan import (
     CONTEXT_BUDGET_MODE,
     CONTEXT_BUDGET_SCHEMA,
@@ -101,6 +105,16 @@ def run_smoke_job(
     if paths.evidence.is_file():
         existing = _read_json(paths.evidence)
         if _evidence_matches(config, job, existing, manifest_sha256):
+            execution_gpu = existing.get("execution_gpu")
+            if (
+                isinstance(execution_gpu, bool)
+                or not isinstance(execution_gpu, int)
+                or execution_gpu not in {0, 1}
+            ):
+                raise ValueError("Existing smoke evidence has no valid execution_gpu")
+            validate_smoke(
+                config, job, paths, rows, manifest_sha256, execution_gpu=execution_gpu
+            )
             return {"job_id": job.job_id, "status": "PASS", "resumed": True}
         raise ValueError(f"Stale smoke evidence must not be reused: {paths.evidence}")
     if job.model.uses_dynamic_context:
@@ -202,6 +216,14 @@ def validate_smoke(
             else None
         ),
     )
+    context_ceiling = load_context_ceiling(
+        family=job.model.family,
+        python=job.model.python,
+        model_path=str(asset_signature["model_path"]),
+        expected_model_config_sha256=str(asset_signature["model_config_sha256"]),
+        environment=build_job_environment(config, job, execution_gpu),
+        cwd=config.repo_root,
+    )
     actual_frames: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     provenance_contracts: set[str] = set()
     dynamic_contracts: dict[str, dict[str, Any]] = {}
@@ -240,6 +262,13 @@ def validate_smoke(
         provenance = sidecar_payload.get("provenance")
         if not isinstance(request, dict) or not isinstance(provenance, dict):
             raise ValueError(f"Invalid sidecar contract: {sidecar}")
+        validate_sidecar_token_count(
+            model_key=job.model.model_key,
+            sidecar_path=sidecar,
+            manifest_token_count=token_count,
+            sidecar_payload=sidecar_payload,
+            context_ceiling=context_ceiling,
+        )
         media_contract, contains_video = _validate_media_contract(
             job.model.protocol,
             request,

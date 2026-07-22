@@ -262,12 +262,27 @@ def test_smoke_gate_requires_exact_48_task_contract(
     )
     smoke = tmp_path / "SMOKE_COMPLETE.json"
     job = CacheJob(domain, model, tmp_path / "out", smoke)
-    config = SimpleNamespace(prompt_sets={"vt": prompt_set})
-    signature = {"schema": "mprisk_cache_asset_signature_v2", "digest": "asset"}
+    config = SimpleNamespace(
+        prompt_sets={"vt": prompt_set},
+        repo_root=tmp_path,
+        cpu_threads_per_job=1,
+    )
+    signature = {
+        "schema": "mprisk_cache_asset_signature_v2",
+        "digest": "asset",
+        "model_path": str(tmp_path / "model"),
+        "model_config_sha256": "sha",
+    }
     monkeypatch.setattr(
         queue,
         "build_asset_signature",
         lambda config, model, **kwargs: signature,
+    )
+    monkeypatch.setattr(
+        queue, "load_context_ceiling", lambda **kwargs: 4096
+    )
+    monkeypatch.setattr(
+        queue, "audit_smoke_cache_context", lambda **kwargs: 128
     )
     payload = {
         "schema": "mprisk_cache_smoke_evidence_v2",
@@ -349,12 +364,27 @@ def test_dynamic_smoke_gate_uses_subset_plan_sha_not_full_plan_sha(
     full_plan = tmp_path / "full-plan.json"
     full_plan.write_text("full\n", encoding="utf-8")
     job = CacheJob(domain, model, tmp_path / "out", smoke, frame_plan=full_plan)
-    config = SimpleNamespace(prompt_sets={"vt": prompt_set})
-    signature = {"schema": "mprisk_cache_asset_signature_v2", "scope": "smoke"}
+    config = SimpleNamespace(
+        prompt_sets={"vt": prompt_set},
+        repo_root=tmp_path,
+        cpu_threads_per_job=1,
+    )
+    signature = {
+        "schema": "mprisk_cache_asset_signature_v2",
+        "scope": "smoke",
+        "model_path": str(tmp_path / "model"),
+        "model_config_sha256": "sha",
+    }
     monkeypatch.setattr(
         queue,
         "build_asset_signature",
         lambda config, model, **kwargs: signature,
+    )
+    monkeypatch.setattr(
+        queue, "load_context_ceiling", lambda **kwargs: 4096
+    )
+    monkeypatch.setattr(
+        queue, "audit_smoke_cache_context", lambda **kwargs: 128
     )
     payload = {
         "schema": "mprisk_cache_smoke_evidence_v2",
