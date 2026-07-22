@@ -134,15 +134,41 @@ def test_llava_video_is_exactly_eight_ordered_image_items(
     media.write_bytes(b"video")
     processor = processor_cls()
     model = _fake_model(architecture, location="text_config")
+    model_path = _model_dir(
+        tmp_path,
+        model_type=model_type,
+        architecture=architecture,
+        dtype="float16",
+        location="text_config",
+    )
+    if wrapper_cls is LlavaV15Wrapper:
+        from safetensors.torch import save_file
+
+        config = json.loads((model_path / "config.json").read_text(encoding="utf-8"))
+        config["text_config"]["model_type"] = "llama"
+        (model_path / "config.json").write_text(
+            json.dumps(config),
+            encoding="utf-8",
+        )
+        tensors = {
+            "language_model.model.embed_tokens.weight": torch.zeros((7, 3)),
+            "language_model.model.layers.0.input_layernorm.weight": torch.zeros(3),
+            "language_model.model.layers.1.input_layernorm.weight": torch.zeros(3),
+        }
+        save_file(tensors, model_path / "model-00001-of-00001.safetensors")
+        (model_path / "model.safetensors.index.json").write_text(
+            json.dumps(
+                {
+                    "weight_map": {
+                        key: "model-00001-of-00001.safetensors" for key in tensors
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
     wrapper = wrapper_cls(
         model_key=model_key,
-        model_path=_model_dir(
-            tmp_path,
-            model_type=model_type,
-            architecture=architecture,
-            dtype="float16",
-            location="text_config",
-        ),
+        model_path=model_path,
         device="cpu",
         dtype="float16",
         model=model,
