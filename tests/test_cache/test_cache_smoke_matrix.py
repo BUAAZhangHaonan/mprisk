@@ -26,10 +26,13 @@ def test_parser_accepts_explicit_tmux_session() -> None:
             "model",
             "--tmux-session",
             "target-smoke-gpu1",
+            "--physical-gpu",
+            "1",
             "--launch",
         ]
     )
     assert args.tmux_session == "target-smoke-gpu1"
+    assert args.physical_gpu == 1
 
 
 @pytest.mark.parametrize(

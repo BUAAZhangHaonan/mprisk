@@ -55,7 +55,9 @@ def build_smoke_manifest(job: CacheJob, paths: SmokePaths) -> tuple[list[dict[st
     return selected, hashlib.sha256(text.encode()).hexdigest()
 
 
-def run_smoke_job(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
+def run_smoke_job(
+    config: MatrixConfig, job: CacheJob, *, physical_gpu: int | None = None
+) -> dict[str, Any]:
     paths = smoke_paths(job)
     rows, manifest_sha256 = build_smoke_manifest(job, paths)
     if paths.evidence.is_file():
@@ -64,14 +66,15 @@ def run_smoke_job(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
             return {"job_id": job.job_id, "status": "PASS", "resumed": True}
         raise ValueError(f"Stale smoke evidence must not be reused: {paths.evidence}")
 
-    _require_gpu_capacity(job.model.gpu_lane, config.max_gpu_memory_fraction)
+    execution_gpu = job.model.gpu_lane if physical_gpu is None else physical_gpu
+    _require_gpu_capacity(execution_gpu, config.max_gpu_memory_fraction)
     command = _smoke_command(config, job, paths)
     paths.root.mkdir(parents=True, exist_ok=True)
     with paths.log.open("a", encoding="utf-8") as handle:
         completed = subprocess.run(
             command,
             cwd=config.repo_root,
-            env=build_job_environment(config, job),
+            env=build_job_environment(config, job, execution_gpu),
             stdout=handle,
             stderr=subprocess.STDOUT,
             check=False,
@@ -83,12 +86,15 @@ def run_smoke_job(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
             "job_id": job.job_id,
             "return_code": completed.returncode,
             "command": command,
+            "execution_gpu": execution_gpu,
             "log_path": str(paths.log),
         }
         _atomic_json(paths.failure, payload)
         return payload
 
-    evidence = validate_smoke(config, job, paths, rows, manifest_sha256)
+    evidence = validate_smoke(
+        config, job, paths, rows, manifest_sha256, execution_gpu=execution_gpu
+    )
     _atomic_json(paths.evidence, evidence)
     paths.failure.unlink(missing_ok=True)
     return {"job_id": job.job_id, "status": "PASS", "resumed": False}
@@ -100,6 +106,8 @@ def validate_smoke(
     paths: SmokePaths,
     rows: list[dict[str, Any]],
     manifest_sha256: str,
+    *,
+    execution_gpu: int,
 ) -> dict[str, Any]:
     summary = _read_json(paths.cache / "batch_summary.json")
     expected_tasks = 2 * 8 * len(CONDITIONS)
@@ -219,6 +227,7 @@ def validate_smoke(
         "failed_tasks": 0,
         "environment_python": str(job.model.python),
         "runtime_library_path": str(model_runtime_library_path(job.model)),
+        "execution_gpu": execution_gpu,
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "asset_config_sha256": _sha256(config.asset_config),
         "smoke_manifest_sha256": manifest_sha256,
@@ -484,7 +493,13 @@ def _evidence_matches(
     return all(value.get(key) == expected_value for key, expected_value in expected.items())
 
 
-def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> dict[str, Any]:
+def execute(
+    config: MatrixConfig,
+    domain: str,
+    model_keys: set[str] | None,
+    *,
+    physical_gpu: int | None = None,
+) -> dict[str, Any]:
     jobs = [
         job
         for job in config.jobs
@@ -495,6 +510,8 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
         missing = model_keys - {job.model.model_key for job in jobs}
         if missing:
             raise ValueError(f"Unknown model keys: {sorted(missing)}")
+    if physical_gpu is not None and physical_gpu not in {0, 1}:
+        raise ValueError("physical_gpu must be 0 or 1")
 
     def run_lane(lane: int) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
@@ -502,7 +519,7 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
             if job.model.gpu_lane != lane:
                 continue
             try:
-                results.append(run_smoke_job(config, job))
+                results.append(run_smoke_job(config, job, physical_gpu=physical_gpu))
             except Exception as exc:  # Failures are explicit and do not hide later model evidence.
                 payload = {
                     "schema": "mprisk_cache_smoke_failure_v1",
@@ -515,9 +532,14 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
                 results.append(payload)
         return results
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(run_lane, lane) for lane in (0, 1)]
-        results = [item for future in futures for item in future.result()]
+    if physical_gpu is None:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(run_lane, lane) for lane in (0, 1)]
+            results = [item for future in futures for item in future.result()]
+    else:
+        results = []
+        for lane in (0, 1):
+            results.extend(run_lane(lane))
     status = "PASS" if all(result["status"] == "PASS" for result in results) else "FAIL"
     return {
         "schema": "mprisk_cache_smoke_matrix_run_v1",
@@ -533,6 +555,7 @@ def launch_tmux(
     model_keys: list[str],
     *,
     session_name: str | None = None,
+    physical_gpu: int | None = None,
 ) -> str:
     session = session_name or f"{config.tmux_session}-smoke-{domain}"
     if subprocess.run(["tmux", "has-session", "-t", session], check=False).returncode == 0:
@@ -550,6 +573,8 @@ def launch_tmux(
     ]
     for model_key in model_keys:
         command.extend(["--model", model_key])
+    if physical_gpu is not None:
+        command.extend(["--physical-gpu", str(physical_gpu)])
     subprocess.run(["tmux", "new-session", "-d", "-s", session, *command], check=True)
     return session
 
@@ -560,6 +585,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--domain", default="target", choices=("source", "target"))
     parser.add_argument("--model", action="append", default=[])
     parser.add_argument("--tmux-session")
+    parser.add_argument("--physical-gpu", type=int, choices=(0, 1))
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--execute", action="store_true")
     mode.add_argument("--launch", action="store_true")
@@ -576,10 +602,13 @@ def cli(argv: Sequence[str] | None = None) -> int:
             args.domain,
             sorted(models or []),
             session_name=args.tmux_session,
+            physical_gpu=args.physical_gpu,
         )
         payload = {"status": "launched", "domain": args.domain, "tmux_session": session}
     else:
-        payload = execute(config, args.domain, models)
+        payload = execute(
+            config, args.domain, models, physical_gpu=args.physical_gpu
+        )
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0 if payload["status"] in {"PASS", "launched"} else 1
 
