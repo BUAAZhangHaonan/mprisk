@@ -30,6 +30,15 @@ from mprisk.cache.cache_matrix_queue import (
     model_runtime_library_path,
     normalize_manifest,
 )
+from mprisk.cache.llava_v15_frame_plan import (
+    CONTEXT_BUDGET_MODE,
+    CONTEXT_BUDGET_SCHEMA,
+    FRAME_PLAN_SCHEMA,
+    FRAME_SELECTION_SCHEMA,
+    SELECTION_CONDITIONS,
+    index_frame_plan,
+    load_frame_plan,
+)
 
 GEMMA4_PROCESSOR_MEDIA_SCHEMA = "mprisk_gemma4_processor_media_contract_v1"
 GEMMA4_PROCESSOR_MEDIA_CONTRACTS = {
@@ -182,6 +191,14 @@ def validate_smoke(
     asset_signature = build_asset_signature(config, job.model)
     actual_frames: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     provenance_contracts: set[str] = set()
+    dynamic_contracts: dict[str, dict[str, Any]] = {}
+    dynamic_token_counts: dict[tuple[str, str], list[int]] = {}
+    frame_plan_sha256 = _sha256(job.frame_plan) if job.frame_plan is not None else None
+    frame_plan_by_sample = (
+        index_frame_plan(load_frame_plan(job.frame_plan))
+        if job.frame_plan is not None
+        else {}
+    )
     peak_gpu_memory = 0
     for entry in entries:
         shape = [int(entry["layer_count"]), int(entry["hidden_dim"])]
@@ -215,12 +232,34 @@ def validate_smoke(
             provenance=provenance,
         )
         media_checks[media_contract] += 1
+        condition = str(entry["condition"])
+        sample_id = str(entry["sample_id"])
+        expected_frames = requested_frames
+        if job.model.uses_dynamic_context:
+            plan_entry = frame_plan_by_sample.get(sample_id)
+            if plan_entry is None:
+                raise ValueError(f"Frame plan has no smoke sample {sample_id}")
+            contract = _validate_llava_runtime_contract(
+                request=request,
+                provenance=provenance,
+                plan_entry=plan_entry,
+                condition=condition,
+                token_count=token_count,
+                prompt_ids=prompt_ids,
+            )
+            previous = dynamic_contracts.setdefault(sample_id, contract)
+            if previous != contract:
+                raise ValueError(f"Runtime contracts vary within sample {sample_id}")
+            dynamic_token_counts.setdefault((sample_id, condition), []).append(
+                token_count
+            )
+            expected_frames = int(contract["selected_frames"])
         actual_frames[str(entry["condition"])].append(
             _validate_frame_contract(
                 provenance,
-                condition=str(entry["condition"]),
+                condition=condition,
                 contains_video=contains_video,
-                expected_frames=requested_frames,
+                expected_frames=expected_frames,
                 expected_method=job.model.video_sampling_method,
             )
         )
@@ -249,6 +288,14 @@ def validate_smoke(
             )
         )
 
+    dynamic_evidence = None
+    if job.model.uses_dynamic_context:
+        dynamic_evidence = _validate_llava_smoke_groups(
+            rows=rows,
+            contracts=dynamic_contracts,
+            token_counts=dynamic_token_counts,
+        )
+
     return {
         "schema": SMOKE_SCHEMA,
         "status": "PASS",
@@ -275,6 +322,9 @@ def validate_smoke(
         "extra_args": list(job.model.extra_args),
         "dtype": job.model.dtype,
         "requested_frames": requested_frames,
+        "max_candidate_frames": job.model.max_candidate_frames,
+        "context_budget_mode": job.model.context_budget_mode,
+        "frame_plan_sha256": frame_plan_sha256,
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
         "asset_signature": asset_signature,
@@ -295,6 +345,7 @@ def validate_smoke(
         },
         "media_contract_counts": dict(media_checks),
         "provenance_contracts": sorted(provenance_contracts),
+        "context_budget_evidence": dynamic_evidence,
         "peak_gpu_memory_bytes": peak_gpu_memory,
         "log_path": str(paths.log),
         "cache_root": str(paths.cache),
@@ -314,7 +365,7 @@ def smoke_paths(job: CacheJob) -> SmokePaths:
 
 
 def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> list[str]:
-    return [
+    command = [
         str(job.model.python),
         str(config.job_runner),
         "--gpu-memory-fraction",
@@ -342,9 +393,12 @@ def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> li
         "48",
         "--fail-fast",
         "--video-num-segments",
-        str(job.model.requested_frames),
-        *job.model.extra_args,
+        str(job.model.frame_count_argument),
     ]
+    if job.frame_plan is not None:
+        command.extend(["--frame-plan", str(job.frame_plan)])
+    command.extend(job.model.extra_args)
+    return command
 
 
 def _require_gpu_capacity(lane: int, fraction: float) -> None:
@@ -455,6 +509,122 @@ def _validate_gemma4_processor_media_contract(
             f"expected={expected!r}, got={contract!r}"
         )
     return contract
+
+
+def _validate_llava_runtime_contract(
+    *,
+    request: dict[str, Any],
+    provenance: dict[str, Any],
+    plan_entry: dict[str, Any],
+    condition: str,
+    token_count: int,
+    prompt_ids: list[str],
+) -> dict[str, Any]:
+    runtime = request.get("runtime_contracts")
+    if not isinstance(runtime, dict) or set(runtime) != {
+        "context_budget_contract",
+        "frame_selection_contract",
+    }:
+        raise ValueError("LLaVA smoke request has no exact runtime contracts")
+    context = runtime["context_budget_contract"]
+    frames = runtime["frame_selection_contract"]
+    if context != plan_entry["context_budget_contract"]:
+        raise ValueError("LLaVA request context contract differs from frame plan")
+    if frames != plan_entry["frame_selection_contract"]:
+        raise ValueError("LLaVA request frame contract differs from frame plan")
+    if provenance.get("context_budget_contract") != context:
+        raise ValueError("LLaVA provenance context contract differs from request")
+    if provenance.get("frame_selection_contract") != frames:
+        raise ValueError("LLaVA provenance frame contract differs from request")
+    if context.get("schema") != CONTEXT_BUDGET_SCHEMA:
+        raise ValueError("LLaVA smoke context schema mismatch")
+    if frames.get("schema") != FRAME_SELECTION_SCHEMA:
+        raise ValueError("LLaVA smoke frame-selection schema mismatch")
+    if context.get("mode") != CONTEXT_BUDGET_MODE:
+        raise ValueError("LLaVA smoke context mode mismatch")
+    if context.get("prompt_ids") != prompt_ids:
+        raise ValueError("LLaVA smoke prompt IDs differ from frame plan")
+    if context.get("no_truncation") is not True:
+        raise ValueError("LLaVA smoke must prohibit truncation")
+    context_limit = int(context["max_position_embeddings"])
+    if token_count > context_limit:
+        raise ValueError(
+            f"LLaVA smoke token count {token_count} exceeds {context_limit}"
+        )
+    if condition in SELECTION_CONDITIONS:
+        provenance_indices = provenance.get("video_frame_indices")
+        if (
+            not isinstance(provenance_indices, list)
+            or len(provenance_indices) != 1
+            or provenance_indices[0] != frames["frame_indices"]
+        ):
+            raise ValueError("LLaVA smoke did not consume the planned shared indices")
+        if provenance.get("video_source_total_frames") != [
+            frames["source_total_frames"]
+        ]:
+            raise ValueError("LLaVA smoke source-frame count differs from frame plan")
+    elif condition != "M2":
+        raise ValueError(f"Unexpected LLaVA smoke condition {condition}")
+    return context
+
+
+def _validate_llava_smoke_groups(
+    *,
+    rows: list[dict[str, Any]],
+    contracts: dict[str, dict[str, Any]],
+    token_counts: dict[tuple[str, str], list[int]],
+) -> dict[str, Any]:
+    sample_ids = [str(row["sample_id"]) for row in rows]
+    if set(contracts) != set(sample_ids):
+        raise ValueError("LLaVA smoke runtime-contract sample coverage is incomplete")
+    selected_by_sample: dict[str, int] = {}
+    selected_max_by_sample: dict[str, int] = {}
+    violation_samples = 0
+    violation_conditions: Counter[str] = Counter()
+    for sample_id in sample_ids:
+        contract = contracts[sample_id]
+        selected = int(contract["selected_frames"])
+        selected_by_sample[sample_id] = selected
+        selected_max_by_sample[sample_id] = int(contract["selected_max_token_count"])
+        by_condition = contract["candidate_condition_max_token_counts"][str(selected)]
+        for condition in SELECTION_CONDITIONS:
+            values = token_counts.get((sample_id, condition), [])
+            if len(values) != 8:
+                raise ValueError(
+                    f"LLaVA smoke requires P8 token counts for {sample_id}/{condition}"
+                )
+            if max(values) != int(by_condition[condition]):
+                raise ValueError(
+                    f"LLaVA planner/runtime token mismatch for {sample_id}/{condition}"
+                )
+        if selected < int(contract["max_candidate_frames"]):
+            next_counts = contract["candidate_condition_max_token_counts"][
+                str(selected + 1)
+            ]
+            violating = [
+                condition
+                for condition in SELECTION_CONDITIONS
+                if int(next_counts[condition])
+                > int(contract["max_position_embeddings"])
+            ]
+            if not violating:
+                raise ValueError(f"LLaVA selected F is not maximal for {sample_id}")
+            violation_samples += 1
+            violation_conditions.update(violating)
+    distribution = Counter(selected_by_sample.values())
+    return {
+        "schema": "mprisk_llava_v15_context_budget_smoke_evidence_v1",
+        "frame_plan_schema": FRAME_PLAN_SCHEMA,
+        "sample_selected_frames": selected_by_sample,
+        "selected_frame_distribution": {
+            str(key): value for key, value in sorted(distribution.items())
+        },
+        "selected_max_token_count": selected_max_by_sample,
+        "candidate_plus_one_violation_samples": violation_samples,
+        "candidate_plus_one_violation_conditions": dict(violation_conditions),
+        "all_token_counts_within_context": True,
+        "no_truncation": True,
+    }
 
 
 def _validate_frame_contract(
@@ -576,6 +746,11 @@ def _evidence_matches(
         "extra_args": list(job.model.extra_args),
         "dtype": job.model.dtype,
         "requested_frames": job.model.requested_frames,
+        "max_candidate_frames": job.model.max_candidate_frames,
+        "context_budget_mode": job.model.context_budget_mode,
+        "frame_plan_sha256": (
+            _sha256(job.frame_plan) if job.frame_plan is not None else None
+        ),
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
         "asset_signature": build_asset_signature(config, job.model),

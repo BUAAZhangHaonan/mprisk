@@ -18,12 +18,24 @@ from pathlib import Path
 from typing import Any
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.cache.llava_v15_frame_plan import (
+    CONTEXT_BUDGET_MODE,
+    FRAME_PLAN_SCHEMA,
+    SELECTION_CONDITIONS,
+    build_frame_plan,
+    load_frame_plan,
+    write_frame_plan,
+)
+from mprisk.cache.llava_v15_frame_plan import (
+    FRAME_PROTOCOL as LLAVA_FRAME_PROTOCOL,
+)
 from mprisk.config.loader import load_yaml
 
 SCHEMA = "mprisk_complete_cache_matrix_v2"
 SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v2"
 CONDITIONS = ("M1", "M2", "M12")
 FRAME_PROTOCOL = "fixed_uniform_temporal_samples_v1"
+LLAVA_MODEL_KEY = "llava_v1_5_7b"
 WRAPPER_FILES = {
     "gemma3": "src/mprisk/models/gemma3.py",
     "gemma4": "src/mprisk/models/gemma4.py",
@@ -92,13 +104,30 @@ class ModelSpec:
     env_isolation: bool
     gpu_lane: int
     trajectory_shape: tuple[int, int]
-    requested_frames: int
+    requested_frames: int | None
     frame_protocol: str
     video_sampling_method: str
     auxiliary_packages: tuple[AuxiliaryPackage, ...]
     extra_args: tuple[str, ...]
     invalidated_domains: dict[str, str]
     accepted_bundle_domains: dict[str, dict[str, Any]]
+    max_candidate_frames: int | None = None
+    context_budget_mode: str | None = None
+
+    @property
+    def frame_count_argument(self) -> int:
+        value = (
+            self.max_candidate_frames
+            if self.context_budget_mode is not None
+            else self.requested_frames
+        )
+        if value is None:
+            raise ValueError(f"{self.model_key} has no frame-count argument")
+        return value
+
+    @property
+    def uses_dynamic_context(self) -> bool:
+        return self.context_budget_mode is not None
 
 
 @dataclass(frozen=True)
@@ -107,6 +136,7 @@ class CacheJob:
     model: ModelSpec
     output_root: Path
     smoke_evidence: Path
+    frame_plan: Path | None = None
 
     @property
     def job_id(self) -> str:
@@ -128,6 +158,7 @@ class MatrixConfig:
     extract_script: Path
     job_runner: Path
     prompt_sets: dict[str, Path]
+    frame_plans: dict[str, Path]
     domains: dict[tuple[str, str], DomainProtocol]
     models: tuple[ModelSpec, ...]
     jobs: tuple[CacheJob, ...]
@@ -166,6 +197,12 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
     }
     if set(prompt_sets) != {"vt", "va"}:
         raise ValueError("prompt_sets must define exactly vt and va")
+    frame_plans = {
+        str(key): resolve(str(value))
+        for key, value in _required_mapping(raw, "frame_plans").items()
+    }
+    if set(frame_plans) != {"source", "target"}:
+        raise ValueError("frame_plans must define exactly source and target")
 
     domains: dict[tuple[str, str], DomainProtocol] = {}
     for domain_name, domain_raw in _required_mapping(raw, "domains").items():
@@ -225,6 +262,23 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             auxiliary_packages
         ):
             raise ValueError("auxiliary_packages modules must be unique per model")
+        is_llava_v15 = _required_str(spec, "model_key") == LLAVA_MODEL_KEY
+        if is_llava_v15:
+            if "requested_frames" in spec:
+                raise ValueError(
+                    "LLaVA-v1.5 uses max_candidate_frames, not requested_frames"
+                )
+            requested_frames = None
+            max_candidate_frames = _positive_int(spec, "max_candidate_frames")
+            context_budget_mode = _required_str(spec, "context_budget_mode")
+        else:
+            if "max_candidate_frames" in spec or "context_budget_mode" in spec:
+                raise ValueError(
+                    "Dynamic context fields are only valid for LLaVA-v1.5"
+                )
+            requested_frames = _positive_int(spec, "requested_frames")
+            max_candidate_frames = None
+            context_budget_mode = None
         model = ModelSpec(
             model_key=_required_str(spec, "model_key"),
             family=_required_str(spec, "family"),
@@ -235,7 +289,9 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             env_isolation=_required_bool(spec, "env_isolation"),
             gpu_lane=_nonnegative_int(spec, "gpu_lane"),
             trajectory_shape=_shape(spec.get("trajectory_shape"), "trajectory_shape"),
-            requested_frames=_positive_int(spec, "requested_frames"),
+            requested_frames=requested_frames,
+            max_candidate_frames=max_candidate_frames,
+            context_budget_mode=context_budget_mode,
             frame_protocol=_required_str(spec, "frame_protocol"),
             video_sampling_method=_required_str(spec, "video_sampling_method"),
             auxiliary_packages=auxiliary_packages,
@@ -268,12 +324,20 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             )
         if model.gpu_lane not in {0, 1}:
             raise ValueError("gpu_lane must be 0 or 1")
-        expected_frames = 7 if model.model_key == "llava_v1_5_7b" else 8
-        if model.requested_frames != expected_frames:
+        if model.model_key == LLAVA_MODEL_KEY:
+            if (
+                model.max_candidate_frames != 8
+                or model.context_budget_mode != CONTEXT_BUDGET_MODE
+                or model.frame_protocol != LLAVA_FRAME_PROTOCOL
+            ):
+                raise ValueError(
+                    "LLaVA-v1.5 requires dynamic F1..8 shared context planning"
+                )
+        elif model.requested_frames != 8:
             raise ValueError(
-                f"{model.model_key} requires F{expected_frames}, got F{model.requested_frames}"
+                f"{model.model_key} requires F8, got F{model.requested_frames}"
             )
-        if model.frame_protocol != FRAME_PROTOCOL:
+        if model.model_key != LLAVA_MODEL_KEY and model.frame_protocol != FRAME_PROTOCOL:
             raise ValueError(
                 f"{model.model_key} must use frame_protocol={FRAME_PROTOCOL!r}"
             )
@@ -297,6 +361,11 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
                     / domain_name
                     / model.model_key
                     / "SMOKE_COMPLETE.json",
+                    frame_plan=(
+                        frame_plans[domain_name]
+                        if model.model_key == LLAVA_MODEL_KEY
+                        else None
+                    ),
                 )
             )
     execution = _required_mapping(raw, "execution")
@@ -316,6 +385,7 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
         extract_script=resolve(_required_str(raw, "extract_script")),
         job_runner=resolve(_required_str(raw, "job_runner")),
         prompt_sets=prompt_sets,
+        frame_plans=frame_plans,
         domains=domains,
         models=tuple(models),
         jobs=tuple(jobs),
@@ -400,6 +470,50 @@ def prepare_manifests(config: MatrixConfig) -> dict[str, Any]:
             }
         )
     return {"schema": "mprisk_cache_matrix_prepared_manifests_v1", "prepared": prepared}
+
+
+def prepare_frame_plans(config: MatrixConfig) -> dict[str, Any]:
+    assets = index_assets(load_model_assets(config.asset_config))
+    model = next(
+        (item for item in config.models if item.model_key == LLAVA_MODEL_KEY),
+        None,
+    )
+    if model is None:
+        raise KeyError(f"Missing matrix model {LLAVA_MODEL_KEY}")
+    asset = assets.get(model.model_key)
+    if asset is None:
+        raise KeyError(f"Missing model asset {model.model_key}")
+    records: list[dict[str, Any]] = []
+    for domain_name in ("source", "target"):
+        domain = config.domains[(domain_name, "vt")]
+        if not domain.prepared_manifest.is_file():
+            raise FileNotFoundError(
+                f"Prepare normalized manifests before frame plans: {domain.prepared_manifest}"
+            )
+        payload = build_frame_plan(
+            manifest_path=domain.prepared_manifest,
+            prompt_set_path=config.prompt_sets["vt"],
+            model_path=asset.local_model_path,
+            model_key=model.model_key,
+            max_candidate_frames=model.frame_count_argument,
+        )
+        path = write_frame_plan(payload, config.frame_plans[domain_name])
+        selected = Counter(
+            int(entry["context_budget_contract"]["selected_frames"])
+            for entry in payload["entries"]
+        )
+        records.append(
+            {
+                "domain": domain_name,
+                "path": str(path),
+                "sha256": _sha256(path),
+                "samples": len(payload["entries"]),
+                "selected_frame_counts": {
+                    str(key): value for key, value in sorted(selected.items())
+                },
+            }
+        )
+    return {"schema": "mprisk_llava_v15_frame_plan_preparation_v1", "plans": records}
 
 
 def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
@@ -661,6 +775,8 @@ def _audit_job(
         "expected_tasks": job.domain.expected_tasks,
         "trajectory_shape": list(job.model.trajectory_shape),
         "requested_frames": job.model.requested_frames,
+        "max_candidate_frames": job.model.max_candidate_frames,
+        "context_budget_mode": job.model.context_budget_mode,
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
         "output_root": str(job.output_root),
@@ -738,6 +854,11 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "runtime_library_path": str(model_runtime_library_path(job.model)),
         "dtype": job.model.dtype,
         "requested_frames": job.model.requested_frames,
+        "max_candidate_frames": job.model.max_candidate_frames,
+        "context_budget_mode": job.model.context_budget_mode,
+        "frame_plan_sha256": (
+            _sha256(job.frame_plan) if job.frame_plan is not None else None
+        ),
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
         "asset_signature": asset_signature_status["signature"],
@@ -756,6 +877,25 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
     prompt_ids = payload.get("prompt_ids")
     if not isinstance(prompt_ids, list) or len(prompt_ids) != 8 or len(set(prompt_ids)) != 8:
         mismatches["prompt_ids"] = {"expected": "8 unique IDs", "actual": prompt_ids}
+    budget_evidence = payload.get("context_budget_evidence")
+    if job.model.uses_dynamic_context:
+        if (
+            not isinstance(budget_evidence, dict)
+            or budget_evidence.get("schema")
+            != "mprisk_llava_v15_context_budget_smoke_evidence_v1"
+            or budget_evidence.get("frame_plan_schema") != FRAME_PLAN_SCHEMA
+            or budget_evidence.get("all_token_counts_within_context") is not True
+            or budget_evidence.get("no_truncation") is not True
+        ):
+            mismatches["context_budget_evidence"] = {
+                "expected": "validated dynamic LLaVA context evidence",
+                "actual": budget_evidence,
+            }
+    elif budget_evidence is not None:
+        mismatches["context_budget_evidence"] = {
+            "expected": None,
+            "actual": budget_evidence,
+        }
     return {
         "passed": not mismatches,
         "path": str(path),
@@ -978,7 +1118,7 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         model.env_isolation,
         model.family,
     )
-    return {
+    signature = {
         "schema": "mprisk_cache_asset_signature_v2",
         "model_key": model.model_key,
         "family": model.family,
@@ -987,6 +1127,8 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         "env_isolation": model.env_isolation,
         "frame_protocol": model.frame_protocol,
         "requested_frames": model.requested_frames,
+        "max_candidate_frames": model.max_candidate_frames,
+        "context_budget_mode": model.context_budget_mode,
         "video_sampling_method": model.video_sampling_method,
         "runtime_library_path": str(runtime_library_path),
         "sys_executable": runtime["sys_executable"],
@@ -1001,6 +1143,43 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         "wrapper_git_sha": wrapper_git_sha,
         "wrapper_file_sha256": _sha256(wrapper_path),
     }
+    if model.model_key == LLAVA_MODEL_KEY:
+        plans: dict[str, dict[str, Any]] = {}
+        context_limits: set[int] = set()
+        for domain_name in ("source", "target"):
+            path = config.frame_plans[domain_name]
+            payload = load_frame_plan(path)
+            if payload.get("model_key") != model.model_key:
+                raise ValueError(f"Frame plan model mismatch: {path}")
+            if Path(str(payload.get("model_path"))).resolve() != model_path:
+                raise ValueError(f"Frame plan checkpoint mismatch: {path}")
+            if payload.get("model_config_sha256") != _sha256(config_path):
+                raise ValueError(f"Frame plan checkpoint config is stale: {path}")
+            if payload.get("prompt_set_sha256") != _sha256(config.prompt_sets["vt"]):
+                raise ValueError(f"Frame plan prompt set is stale: {path}")
+            if payload.get("max_candidate_frames") != model.max_candidate_frames:
+                raise ValueError(f"Frame plan candidate limit mismatch: {path}")
+            context_limits.add(int(payload["max_position_embeddings"]))
+            plans[domain_name] = {
+                "path": str(path),
+                "sha256": _sha256(path),
+                "schema": payload["schema"],
+                "manifest_sha256": payload["manifest_sha256"],
+                "entries": len(payload["entries"]),
+            }
+        if len(context_limits) != 1:
+            raise ValueError("LLaVA frame plans disagree on checkpoint context limit")
+        signature["context_budget_algorithm"] = {
+            "schema": FRAME_PLAN_SCHEMA,
+            "mode": CONTEXT_BUDGET_MODE,
+            "max_position_embeddings": context_limits.pop(),
+            "max_candidate_frames": model.max_candidate_frames,
+            "selection_conditions": list(SELECTION_CONDITIONS),
+            "selection_rule": "largest_f_with_all_p8_m1_m12_tokens_lte_context",
+            "no_truncation": True,
+        }
+        signature["frame_plan_manifests"] = plans
+    return signature
 
 
 @cache
@@ -1115,7 +1294,7 @@ print(json.dumps({
 
 
 def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
-    return [
+    command = [
         str(job.model.python),
         str(config.job_runner),
         "--gpu-memory-fraction",
@@ -1142,9 +1321,12 @@ def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
         "--materialize-every",
         "100",
         "--video-num-segments",
-        str(job.model.requested_frames),
-        *job.model.extra_args,
+        str(job.model.frame_count_argument),
     ]
+    if job.frame_plan is not None:
+        command.extend(["--frame-plan", str(job.frame_plan)])
+    command.extend(job.model.extra_args)
+    return command
 
 
 def model_runtime_library_path(model: ModelSpec) -> Path:
@@ -1253,6 +1435,7 @@ def build_parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--prepare-manifests", action="store_true")
+    mode.add_argument("--prepare-frame-plans", action="store_true")
     mode.add_argument("--launch", action="store_true")
     mode.add_argument("--execute", action="store_true")
     return parser
@@ -1263,6 +1446,8 @@ def cli(argv: list[str] | None = None) -> int:
     config = load_matrix_config(args.config)
     if args.prepare_manifests:
         payload = prepare_manifests(config)
+    elif args.prepare_frame_plans:
+        payload = prepare_frame_plans(config)
     elif args.dry_run:
         payload = audit_matrix(config)
     elif args.launch:

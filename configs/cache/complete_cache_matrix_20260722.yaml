@@ -9,6 +9,9 @@ output_root: outputs/cache_matrix_20260722
 smoke_root: outputs/cache_smoke_matrix_20260722
 runtime_record: outputs/run_records/cache_matrix_20260722.json
 lock_path: outputs/runtime_locks/cache_matrix_20260722.lock
+frame_plans:
+  source: outputs/cache_matrix_20260722/frame_plans/source_llava_v1_5_7b.json
+  target: outputs/cache_matrix_20260722/frame_plans/target_llava_v1_5_7b.json
 
 prompt_sets:
   vt: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
@@ -128,8 +131,9 @@ models:
     env_isolation: false
     gpu_lane: 0
     trajectory_shape: [32, 4096]
-    requested_frames: 7
-    frame_protocol: fixed_uniform_temporal_samples_v1
+    max_candidate_frames: 8
+    context_budget_mode: per_sample_shared_max_legal
+    frame_protocol: per_sample_shared_uniform_temporal_samples_v1
     video_sampling_method: uniform_midpoint_decord_v1
     auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: llava_onevision_qwen2_7b

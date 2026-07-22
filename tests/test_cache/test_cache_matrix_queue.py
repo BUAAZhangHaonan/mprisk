@@ -302,14 +302,19 @@ def test_smoke_gate_requires_exact_48_task_contract(
     assert "completed_tasks" in result["mismatches"]
 
 
-def test_complete_matrix_freezes_frames_and_accepts_only_internvl() -> None:
+def test_complete_matrix_uses_dynamic_llava_context_and_accepts_only_internvl() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     config = load_matrix_config(
         repo_root / "configs/cache/complete_cache_matrix_20260722.yaml"
     )
 
     by_key = {model.model_key: model for model in config.models}
-    assert by_key["llava_v1_5_7b"].requested_frames == 7
+    llava = by_key["llava_v1_5_7b"]
+    assert llava.requested_frames is None
+    assert llava.max_candidate_frames == 8
+    assert llava.context_budget_mode == "per_sample_shared_max_legal"
+    assert llava.frame_count_argument == 8
+    assert llava.frame_protocol == "per_sample_shared_uniform_temporal_samples_v1"
     assert by_key["llava_v1_5_7b"].dtype == "float16"
     assert by_key["llava_onevision_qwen2_7b"].dtype == "float16"
     assert all(
@@ -325,7 +330,9 @@ def test_complete_matrix_freezes_frames_and_accepts_only_internvl() -> None:
     assert all(
         model.frame_protocol == "fixed_uniform_temporal_samples_v1"
         for model in config.models
+        if model.model_key != "llava_v1_5_7b"
     )
+    assert set(config.frame_plans) == {"source", "target"}
     assert by_key["gemma4_12b"].video_sampling_method == "uniform_midpoint_decord_v1"
     assert by_key["phi4_multimodal"].video_sampling_method == "uniform_midpoint_ffmpeg_v1"
     assert (

@@ -140,3 +140,25 @@ def test_frame_plan_requires_overflow_at_selected_plus_one() -> None:
         contract["candidate_condition_max_token_counts"]["8"][condition] = 4096
     with pytest.raises(ValueError, match="not maximal"):
         validate_frame_plan(payload)
+
+
+@pytest.mark.parametrize("selected", [6, 7])
+def test_frame_plan_accepts_observed_source_and_target_frame_counts(selected) -> None:
+    payload = _payload()
+    contract = payload["entries"][0]["context_budget_contract"]
+    for frames in range(selected + 1, 9):
+        for condition in ("M1", "M12"):
+            contract["candidate_condition_max_token_counts"][str(frames)][
+                condition
+            ] = 4200 + frames
+        contract["candidate_max_token_counts"][str(frames)] = 4200 + frames
+    contract["selected_frames"] = selected
+    contract["selected_max_token_count"] = contract["candidate_max_token_counts"][
+        str(selected)
+    ]
+    frames = payload["entries"][0]["frame_selection_contract"]
+    frames["selected_frames"] = selected
+    frames["frame_indices"] = _uniform_midpoint_indices(80, selected)
+    frames["frame_indices_sha256"] = _sha(frames["frame_indices"])
+
+    validate_frame_plan(payload)
