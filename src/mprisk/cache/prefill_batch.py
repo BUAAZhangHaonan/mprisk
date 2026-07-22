@@ -166,10 +166,16 @@ def main(
         )
     elif args.family in {
         "gemma3",
+        "gemma4",
+        "glm4v",
         "llava_onevision",
         "llava_v15",
         "minicpm_v",
         "phi3_vision",
+        "qwen2_5_vl",
+        "qwen3_5",
+        "qwen_omni",
+        "qwen_vl",
     }:
         wrapper_kwargs["video_num_segments"] = args.video_num_segments
     wrapper = factory(**wrapper_kwargs)

@@ -50,6 +50,13 @@ class LlavaV15Wrapper(_LlavaFrameWrapper):
     processor_class = "LlavaProcessor"
     provenance_schema = "mprisk_llava_v15_prefill_provenance_v1"
 
+    def __init__(self, *, video_num_segments: int = 7, **kwargs: Any) -> None:
+        if int(video_num_segments) > 7:
+            raise ValueError(
+                "LLaVA-v1.5 supports at most 7 sampled frames under its 4096-token context"
+            )
+        super().__init__(video_num_segments=video_num_segments, **kwargs)
+
     def _load_contract(self) -> dict[str, Any]:
         """Derive the legacy Vicuna language contract from checkpoint tensors.
 

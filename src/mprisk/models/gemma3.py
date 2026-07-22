@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any
 
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.hf_visual_prefill import HfVisualPrefillWrapper
+from mprisk.models.video_frame_utils import required_media_path, uniform_video_sample
 
 
 class Gemma3Wrapper(HfVisualPrefillWrapper):
@@ -45,6 +45,7 @@ class Gemma3Wrapper(HfVisualPrefillWrapper):
         messages: list[dict[str, Any]] = []
         images: list[Image.Image] = []
         video_sources: list[str] = []
+        video_metadata: list[dict[str, Any]] = []
         for message in request.messages:
             content: list[dict[str, Any]] = []
             for item in message.get("content", []):
@@ -54,16 +55,19 @@ class Gemma3Wrapper(HfVisualPrefillWrapper):
                 if item_type == "text":
                     content.append({"type": "text", "text": str(item.get("text", ""))})
                 elif item_type == "image":
-                    path = _required_path(item.get("image"), "image")
+                    path = required_media_path(item.get("image"), "image")
                     with Image.open(path) as image:
                         images.append(image.convert("RGB"))
                     content.append({"type": "image"})
                 elif item_type == "video":
-                    path = _required_path(item.get("video"), "video")
-                    frames = _uniform_video_frames(path, self.video_num_segments)
+                    path = required_media_path(item.get("video"), "video")
+                    frames, metadata = uniform_video_sample(
+                        path, self.video_num_segments
+                    )
                     images.extend(frames)
                     content.extend({"type": "image"} for _ in frames)
                     video_sources.append(path)
+                    video_metadata.append(metadata)
                 else:
                     raise ValueError(f"Unsupported Gemma-3 content type: {item_type!r}")
             messages.append({"role": str(message.get("role")), "content": content})
@@ -83,26 +87,14 @@ class Gemma3Wrapper(HfVisualPrefillWrapper):
             "video_frame_count": len(images),
             "video_num_segments": self.video_num_segments,
             "video_sources": video_sources,
+            "requested_frames": self.video_num_segments * len(video_sources),
+            "actual_frames": sum(
+                len(row["frames_indices"]) for row in video_metadata
+            ),
+            "video_frame_indices": [
+                row["frames_indices"] for row in video_metadata
+            ],
+            "video_source_total_frames": [
+                row["total_num_frames"] for row in video_metadata
+            ],
         }
-
-
-def _required_path(value: Any, label: str) -> str:
-    if not isinstance(value, str) or not value:
-        raise ValueError(f"Gemma-3 {label} requires a local path")
-    path = Path(value).expanduser().resolve()
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    return str(path)
-
-
-def _uniform_video_frames(path: str, count: int) -> list[Any]:
-    import decord
-    from PIL import Image
-
-    reader = decord.VideoReader(path, ctx=decord.cpu(0), num_threads=1)
-    length = len(reader)
-    if length <= 0:
-        raise ValueError(f"Video has no frames: {path}")
-    indices = [min(length - 1, int((index + 0.5) * length / count)) for index in range(count)]
-    array = reader.get_batch(indices).asnumpy()
-    return [Image.fromarray(frame).convert("RGB") for frame in array]

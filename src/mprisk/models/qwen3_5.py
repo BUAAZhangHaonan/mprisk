@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
+from mprisk.models.video_frame_utils import (
+    request_messages_with_uniform_video,
+    validate_video_grid_frames,
+)
 
 
 class Qwen3_5Wrapper(BaseModelWrapper):
@@ -28,6 +32,7 @@ class Qwen3_5Wrapper(BaseModelWrapper):
         attn_implementation: str = "sdpa",
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        video_num_segments: int = 8,
         model: Any | None = None,
         processor: Any | None = None,
         runtime_versions: Mapping[str, str] | None = None,
@@ -40,6 +45,9 @@ class Qwen3_5Wrapper(BaseModelWrapper):
         self.attn_implementation = attn_implementation
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.video_num_segments = int(video_num_segments)
+        if not 1 <= self.video_num_segments <= 64:
+            raise ValueError("Qwen3.5 video_num_segments must be in [1, 64]")
         self._contract = _load_model_contract(self.model_path)
         if dtype != self._contract["torch_dtype"]:
             raise ValueError(
@@ -107,13 +115,28 @@ class Qwen3_5Wrapper(BaseModelWrapper):
             "return_tensors": "pt",
             "enable_thinking": False,
         }
-        video_fps = _request_video_fps(request)
-        if video_fps is not None:
-            template_kwargs["processor_kwargs"] = {"videos_kwargs": {"fps": video_fps}}
+        messages, sampling = request_messages_with_uniform_video(
+            request, requested_frames=self.video_num_segments
+        )
+        if sampling["requested_frames"]:
+            template_kwargs["processor_kwargs"] = {
+                "videos_kwargs": {
+                    "do_sample_frames": False,
+                    "video_metadata": sampling["video_metadata"],
+                }
+            }
         model_inputs = self.processor.apply_chat_template(
-            [dict(message) for message in request.messages],
+            messages,
             **template_kwargs,
         )
+        if sampling["requested_frames"]:
+            sampling["actual_frames"] = validate_video_grid_frames(
+                model_inputs,
+                processor=self.processor,
+                requested_frames=int(sampling["requested_frames"]),
+                family=self.family,
+            )
+        sampling.pop("video_metadata")
         model_inputs = _move_inputs_to_device(model_inputs, self.device)
         attention_mask = _require_attention_mask(model_inputs)
         token_count, t0_token_index = _token_position(attention_mask)
@@ -169,7 +192,7 @@ class Qwen3_5Wrapper(BaseModelWrapper):
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_bytes,
                 "visual_input_types": _visual_input_types(request),
-                "video_fps": video_fps,
+                **sampling,
             },
         )
 

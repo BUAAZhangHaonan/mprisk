@@ -41,8 +41,8 @@ class InternVlWrapper(BaseModelWrapper):
         runtime_versions: Mapping[str, str] | None = None,
         **_: Any,
     ) -> None:
-        if video_num_segments <= 0:
-            raise ValueError("video_num_segments must be positive")
+        if not 1 <= video_num_segments <= 64:
+            raise ValueError("video_num_segments must be in [1, 64]")
         if internvl_max_num <= 0:
             raise ValueError("internvl_max_num must be positive")
         self.model_key = model_key
@@ -121,7 +121,9 @@ class InternVlWrapper(BaseModelWrapper):
         import torch
 
         started_at = time.perf_counter()
-        question, pixel_values, num_patches_list = self._prepare_question(request)
+        question, pixel_values, num_patches_list, sampling = self._prepare_question(
+            request
+        )
         query = self._render_query(question, num_patches_list)
         model_inputs = self.tokenizer(query, return_tensors="pt")
         model_inputs = _move_inputs_to_device(model_inputs, self.device)
@@ -211,6 +213,7 @@ class InternVlWrapper(BaseModelWrapper):
                 "num_patches_list": num_patches_list,
                 "language_forward_explicit": True,
                 "chat_called": False,
+                **sampling,
             },
         )
 
@@ -225,7 +228,9 @@ class InternVlWrapper(BaseModelWrapper):
         if self.device.startswith("cuda") and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
-    def _prepare_question(self, request: PrefillRequest) -> tuple[str, Any | None, list[int]]:
+    def _prepare_question(
+        self, request: PrefillRequest
+    ) -> tuple[str, Any | None, list[int], dict[str, Any]]:
         import torch
 
         text_parts: list[str] = []
@@ -233,6 +238,8 @@ class InternVlWrapper(BaseModelWrapper):
         num_patches_list: list[int] = []
         visual_prefixes: list[str] = []
         image_index = 0
+        video_sources: list[str] = []
+        actual_video_frames = 0
         for message in request.messages:
             for item in message.get("content", []):
                 if not isinstance(item, Mapping):
@@ -250,6 +257,13 @@ class InternVlWrapper(BaseModelWrapper):
                     )
                     pixel_batches.append(pixels)
                     num_patches_list.extend(int(value) for value in patch_counts)
+                    if len(patch_counts) != self.video_num_segments:
+                        raise ValueError(
+                            f"InternVL requested {self.video_num_segments} video frames "
+                            f"but decoder returned {len(patch_counts)}"
+                        )
+                    video_sources.append(path)
+                    actual_video_frames += len(patch_counts)
                     visual_prefixes.extend(
                         f"Frame{index + 1}: <image>\n" for index in range(len(patch_counts))
                     )
@@ -272,7 +286,19 @@ class InternVlWrapper(BaseModelWrapper):
         pixel_values = torch.cat(pixel_batches, dim=0) if pixel_batches else None
         if pixel_values is not None and int(pixel_values.shape[0]) != sum(num_patches_list):
             raise ValueError("InternVL dynamic patch counts do not match pixel tensor")
-        return "".join(visual_prefixes) + text, pixel_values, num_patches_list
+        return (
+            "".join(visual_prefixes) + text,
+            pixel_values,
+            num_patches_list,
+            {
+                "video_sampling_method": (
+                    "uniform_midpoint_decord_v1" if video_sources else None
+                ),
+                "video_sources": video_sources,
+                "requested_frames": self.video_num_segments * len(video_sources),
+                "actual_frames": actual_video_frames,
+            },
+        )
 
     def _render_query(self, question: str, num_patches_list: list[int]) -> str:
         if self.model is None:

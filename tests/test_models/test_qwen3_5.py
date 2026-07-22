@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+from PIL import Image
 
 from mprisk.models.qwen3_5 import Qwen3_5Wrapper
 
@@ -33,12 +34,16 @@ def _model_dir(tmp_path):
 class _Processor:
     def __init__(self):
         self.kwargs = None
+        self.messages = None
+        self.video_processor = SimpleNamespace(temporal_patch_size=2)
 
     def apply_chat_template(self, messages, **kwargs):
+        self.messages = messages
         self.kwargs = kwargs
         return {
             "input_ids": torch.tensor([[0, 10, 11, 12]]),
             "attention_mask": torch.tensor([[0, 1, 1, 1]]),
+            "video_grid_thw": torch.tensor([[4, 2, 2]]),
         }
 
 
@@ -59,7 +64,7 @@ class _Model:
         )
 
 
-def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path):
+def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path, monkeypatch):
     from mprisk.models.base_wrapper import PrefillRequest
 
     model = _Model()
@@ -71,6 +76,24 @@ def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path):
         model=model,
         processor=processor,
         runtime_versions={"transformers": "test"},
+    )
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"media")
+    frames = [Image.new("RGB", (2, 2), color=index) for index in range(8)]
+    monkeypatch.setattr(
+        "mprisk.models.video_frame_utils.uniform_video_sample",
+        lambda path, count: (
+            frames,
+            {
+                "frames_indices": list(range(8)),
+                "total_num_frames": 100,
+                "fps": 25.0,
+                "width": 2,
+                "height": 2,
+                "duration": 4.0,
+                "video_backend": "test",
+            },
+        ),
     )
     request = PrefillRequest(
         sample_id="sample-1",
@@ -85,12 +108,12 @@ def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path):
             {
                 "role": "user",
                 "content": [
-                    {"type": "video", "video": "sample.mp4", "fps": 1.0},
+                    {"type": "video", "video": str(media), "fps": 1.0},
                     {"type": "text", "text": "Describe the emotion."},
                 ],
             },
         ),
-        media_paths={"vision": "sample.mp4"},
+        media_paths={"vision": str(media)},
         use_audio_in_video=False,
     )
 
@@ -102,9 +125,11 @@ def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path):
     assert result.t0_token_index == 3
     assert processor.kwargs["enable_thinking"] is False
     assert processor.kwargs["add_generation_prompt"] is True
-    assert processor.kwargs["processor_kwargs"] == {
-        "videos_kwargs": {"fps": 1.0}
-    }
+    videos_kwargs = processor.kwargs["processor_kwargs"]["videos_kwargs"]
+    assert videos_kwargs["do_sample_frames"] is False
+    assert len(processor.messages[0]["content"][0]["video"]) == 8
     assert model.call_kwargs["use_cache"] is False
     assert model.call_kwargs["logits_to_keep"] == 1
     assert result.provenance["hidden_state_index_offset"] == 1
+    assert result.provenance["requested_frames"] == 8
+    assert result.provenance["actual_frames"] == 8

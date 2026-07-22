@@ -211,7 +211,13 @@ def test_gemma3_converts_video_to_ordered_image_placeholders(tmp_path, monkeypat
     media = tmp_path / "sample.mp4"
     media.write_bytes(b"video")
     frames = [Image.new("RGB", (2, 2), color=index) for index in range(3)]
-    monkeypatch.setattr("mprisk.models.gemma3._uniform_video_frames", lambda p, n: frames)
+    monkeypatch.setattr(
+        "mprisk.models.gemma3.uniform_video_sample",
+        lambda p, n: (
+            frames,
+            {"frames_indices": [10, 50, 90], "total_num_frames": 100},
+        ),
+    )
     processor = Gemma3Processor()
     model = Gemma3ForConditionalGeneration()
     wrapper = Gemma3Wrapper(
@@ -243,6 +249,8 @@ def test_gemma3_converts_video_to_ordered_image_placeholders(tmp_path, monkeypat
     assert len(processor.images[0]) == 3
     assert result.provenance["video_num_segments"] == 3
     assert result.provenance["video_frame_count"] == 3
+    assert result.provenance["requested_frames"] == 3
+    assert result.provenance["actual_frames"] == 3
 
 
 def test_visual_wrappers_reject_audio_leakage(tmp_path):

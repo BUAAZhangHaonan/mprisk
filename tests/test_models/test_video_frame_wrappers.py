@@ -13,6 +13,7 @@ from mprisk.models.llava import LlavaOneVisionWrapper, LlavaV15Wrapper
 from mprisk.models.minicpm_v import MiniCpmVWrapper
 from mprisk.models.phi3_vision import Phi3VisionWrapper
 from mprisk.models.wrapper_registry import get_wrapper
+from mprisk.models.video_frame_utils import validate_video_grid_frames
 
 
 def _model_dir(tmp_path, *, model_type, architecture, dtype, location="root"):
@@ -98,7 +99,7 @@ class LlavaOnevisionProcessor(LlavaProcessor):
 
 
 @pytest.mark.parametrize(
-    "wrapper_cls,model_key,model_type,architecture,processor_cls",
+    "wrapper_cls,model_key,model_type,architecture,processor_cls,frame_count",
     [
         (
             LlavaV15Wrapper,
@@ -106,6 +107,7 @@ class LlavaOnevisionProcessor(LlavaProcessor):
             "llava",
             "LlavaForConditionalGeneration",
             LlavaProcessor,
+            7,
         ),
         (
             LlavaOneVisionWrapper,
@@ -113,10 +115,11 @@ class LlavaOnevisionProcessor(LlavaProcessor):
             "llava_onevision",
             "LlavaOnevisionForConditionalGeneration",
             LlavaOnevisionProcessor,
+            8,
         ),
     ],
 )
-def test_llava_video_is_exactly_eight_ordered_image_items(
+def test_llava_video_uses_family_limit_and_preserves_frame_order(
     tmp_path,
     monkeypatch,
     wrapper_cls,
@@ -124,11 +127,18 @@ def test_llava_video_is_exactly_eight_ordered_image_items(
     model_type,
     architecture,
     processor_cls,
+    frame_count,
 ):
-    frames = [Image.new("RGB", (2, 2), color=index) for index in range(8)]
+    frames = [Image.new("RGB", (2, 2), color=index) for index in range(frame_count)]
     monkeypatch.setattr(
-        "mprisk.models.video_frame_utils.uniform_video_frames",
-        lambda path, count: frames,
+        "mprisk.models.video_frame_utils.uniform_video_sample",
+        lambda path, count: (
+            frames,
+            {
+                "frames_indices": list(range(frame_count)),
+                "total_num_frames": 100,
+            },
+        ),
     )
     media = tmp_path / "sample.mp4"
     media.write_bytes(b"video")
@@ -181,11 +191,13 @@ def test_llava_video_is_exactly_eight_ordered_image_items(
     assert result.trajectory.shape == (2, 3)
     np.testing.assert_allclose(result.trajectory[:, 0], [1.0, 2.0])
     assert [item["type"] for item in processor.messages[0]["content"]] == [
-        *(["image"] * 8),
+        *(["image"] * frame_count),
         "text",
     ]
-    assert len(processor.call_kwargs["images"]) == 8
-    assert result.provenance["video_frame_count"] == 8
+    assert len(processor.call_kwargs["images"]) == frame_count
+    assert result.provenance["video_frame_count"] == frame_count
+    assert result.provenance["requested_frames"] == frame_count
+    assert result.provenance["actual_frames"] == frame_count
 
 
 class _MiniTokenizer:
@@ -264,8 +276,11 @@ class Phi3VProcessor:
 def test_phi35_prompt_numbers_all_video_frames(tmp_path, monkeypatch):
     frames = [Image.new("RGB", (2, 2), color=index) for index in range(8)]
     monkeypatch.setattr(
-        "mprisk.models.video_frame_utils.uniform_video_frames",
-        lambda path, count: frames,
+        "mprisk.models.video_frame_utils.uniform_video_sample",
+        lambda path, count: (
+            frames,
+            {"frames_indices": list(range(8)), "total_num_frames": 100},
+        ),
     )
     media = tmp_path / "sample.mp4"
     media.write_bytes(b"video")
@@ -300,3 +315,16 @@ def test_video_frame_families_are_registered():
     assert get_wrapper("llava_onevision") is LlavaOneVisionWrapper
     assert get_wrapper("minicpm_v") is MiniCpmVWrapper
     assert get_wrapper("phi3_vision") is Phi3VisionWrapper
+
+
+def test_video_grid_validation_fails_closed_on_processor_resampling():
+    processor = SimpleNamespace(
+        video_processor=SimpleNamespace(temporal_patch_size=2)
+    )
+    with pytest.raises(ValueError, match="requested 8.*retained 6"):
+        validate_video_grid_frames(
+            {"video_grid_thw": torch.tensor([[3, 2, 2]])},
+            processor=processor,
+            requested_frames=8,
+            family="test_family",
+        )
