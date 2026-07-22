@@ -1,15 +1,20 @@
 # mprisk
 
-`mprisk` is the paper engineering repository for multimodal pre-generation risk analysis.
+`mprisk` is the paper engineering repository for measuring multimodal pre-generation state
+structure.
 
-The project studies misjudgment risk before generation in multimodal affective conflict settings. It keeps the paper, appendix, response letter, data manifests, hidden-state cache contracts, state measures, baselines, and figure exports in one traceable repository.
+The project studies how multimodal affective conflict is organized in a model's internal state
+before the first generated token, and how those state structures are associated with subsequent
+affective Misreads. It keeps data manifests, hidden-state cache contracts, representation
+learning, state measurement, behavioral evaluation, and paper exports in one traceable repository.
 
 ## Scope
 
-- Analyze Conflict, Ambiguous, and Aligned multimodal samples.
+- Learn Conflict/Aligned relation representations without using Misread labels.
 - Compare `M1`, `M2`, and `M12` pre-generation states at `t0`.
 - Represent state as a full-layer prefill trajectory, not a single hidden-state point.
 - Compute `S`, `D`, and `R` state measures and assign four state patterns.
+- Evaluate associations with Misread only after freezing the learned representation.
 - Compare pre-generation analysis against behavior, uncertainty, classifier, and post-hoc baselines.
 - Export paper-ready figures, tables, appendix material, and response-letter evidence.
 
@@ -19,6 +24,7 @@ The project studies misjudgment risk before generation in multimodal affective c
 - `docs/`: project protocol, pipeline, model panel, figure map, and response-letter map.
 - `data/`: data source notes, annotations, processed manifests, prompt banks, and mini smoke data.
 - `outputs/`: generated caches, scores, baselines, evaluations, reports, and paper exports.
+  See `docs/REPOSITORY_STRUCTURE.md` for active, immutable, and generated artifact boundaries.
 - `src/mprisk/`: Python package for data, models, cache, representation, state, baselines, evaluation, policy, and visualization.
 - `scripts/`: command-line entry points for the paper pipeline.
 - `tests/`: smoke tests and contract tests.
@@ -32,7 +38,6 @@ Use existing model environments for large-model deployment and cache extraction:
 
 - `mind-py311`: main model extraction environment.
 - `mind-gemma4-py311`: separate Gemma 4 environment.
-- `mind-molmo-py311`: separate Molmo environment.
 
 The `mprisk` environment is intentionally not required to run every large model. It reads the cache and manifest outputs produced by the model environments.
 

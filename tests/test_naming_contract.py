@@ -240,3 +240,31 @@ def test_gt_description_task_contract_is_not_vendor_scoped() -> None:
     assert "def get_provider" in registry_source
     assert '"deepseek"' in registry_source
     assert not (ROOT / "src/mprisk/ground_truth/deepseek_gt.py").exists()
+
+
+def test_active_project_summary_describes_state_measurement_not_a_risk_detector() -> None:
+    active_summary_paths = (
+        "README.md",
+        "docs/PROJECT_OVERVIEW.md",
+        "docs/RESPONSE_LETTER_MAP.md",
+        "pyproject.toml",
+        "src/mprisk/__init__.py",
+    )
+    combined = "\n".join(
+        (ROOT / relative).read_text(encoding="utf-8") for relative in active_summary_paths
+    )
+    forbidden_claims = (
+        "pre-generation misjudgment risk analysis",
+        "pre-generation risk analysis",
+        "show a risk signal before",
+    )
+    for claim in forbidden_claims:
+        assert claim not in combined
+    assert "pre-generation state" in combined
+    assert "Misread" in combined
+
+
+def test_repository_structure_documents_fail_closed_wrapper_boundary() -> None:
+    text = (ROOT / "docs/REPOSITORY_STRUCTURE.md").read_text(encoding="utf-8")
+    assert "must not be registered" in text
+    assert "Unsupported families fail explicitly" in text

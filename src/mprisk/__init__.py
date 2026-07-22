@@ -1,4 +1,4 @@
-"""Multimodal pre-generation risk analysis package."""
+"""Multimodal pre-generation state measurement package."""
 
 __all__ = ["__version__"]
 
