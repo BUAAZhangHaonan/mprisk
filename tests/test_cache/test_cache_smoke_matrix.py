@@ -7,11 +7,29 @@ import pytest
 
 import mprisk.cache.cache_smoke_matrix as smoke
 from mprisk.cache.cache_smoke_matrix import (
+    build_parser,
     _evidence_matches,
     _sha256,
     _validate_frame_contract,
     _validate_media_contract,
 )
+
+
+def test_parser_accepts_explicit_tmux_session() -> None:
+    args = build_parser().parse_args(
+        [
+            "--config",
+            "matrix.yaml",
+            "--domain",
+            "target",
+            "--model",
+            "model",
+            "--tmux-session",
+            "target-smoke-gpu1",
+            "--launch",
+        ]
+    )
+    assert args.tmux_session == "target-smoke-gpu1"
 
 
 @pytest.mark.parametrize(
@@ -169,12 +187,15 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
     asset_config.write_text("assets", encoding="utf-8")
     smoke_manifest = tmp_path / "smoke.jsonl"
     smoke_manifest.write_text("{}\n", encoding="utf-8")
+    environment = tmp_path / "env"
+    (environment / "bin").mkdir(parents=True)
+    (environment / "lib").mkdir()
     model = SimpleNamespace(
         model_key="model",
         family="family",
         protocol="vt",
+        python=environment / "bin" / "python",
         dtype="bfloat16",
-        python=tmp_path / "python",
         trajectory_shape=(2, 3),
         requested_frames=8,
         frame_protocol="fixed_uniform_temporal_samples_v1",
@@ -198,6 +219,7 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
         "completed_tasks": 48,
         "failed_tasks": 0,
         "environment_python": str(model.python),
+        "runtime_library_path": str((environment / "lib").resolve()),
         "prompt_set_sha256": _sha256(prompt_set),
         "asset_config_sha256": _sha256(asset_config),
         "smoke_manifest_sha256": _sha256(smoke_manifest),
@@ -214,6 +236,7 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) ->
         "asset_config_sha256",
         "extra_args",
         "dtype",
+        "runtime_library_path",
         "smoke_manifest_sha256",
         "requested_frames",
         "frame_protocol",

@@ -603,7 +603,7 @@ def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
             process = subprocess.Popen(
                 _job_command(config, job),
                 cwd=config.repo_root,
-                env=_job_environment(config, job, lane),
+                env=build_job_environment(config, job, lane),
                 stdout=handle,
                 stderr=subprocess.STDOUT,
             )
@@ -641,6 +641,7 @@ def _audit_job(
         "protocol": job.model.protocol,
         "gpu_lane": job.model.gpu_lane,
         "python": str(job.model.python),
+        "runtime_library_path": str(model_runtime_library_path(job.model)),
         "expected_samples": job.domain.expected_samples,
         "expected_tasks": job.domain.expected_tasks,
         "trajectory_shape": list(job.model.trajectory_shape),
@@ -717,6 +718,8 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "failed_tasks": 0,
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "environment_python": str(job.model.python),
+        "runtime_library_path": str(model_runtime_library_path(job.model)),
+        "dtype": job.model.dtype,
         "requested_frames": job.model.requested_frames,
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
@@ -819,8 +822,7 @@ def _validate_accepted_bundle(
 
 
 def _check_wrapper_import(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
-    env = dict(os.environ)
-    env["PYTHONPATH"] = str(config.repo_root / "src")
+    env = build_model_environment(config, model, model.gpu_lane)
     code = (
         "from mprisk.models.wrapper_registry import get_wrapper; "
         f"w=get_wrapper({model.family!r}); "
@@ -948,7 +950,10 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
     auxiliary = tuple(
         (package.module, package.distribution) for package in model.auxiliary_packages
     )
-    runtime = _inspect_runtime(str(model.python), auxiliary)
+    runtime_library_path = model_runtime_library_path(model)
+    runtime = _inspect_runtime(
+        str(model.python), auxiliary, str(runtime_library_path)
+    )
     return {
         "schema": "mprisk_cache_asset_signature_v1",
         "model_key": model.model_key,
@@ -957,6 +962,7 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         "frame_protocol": model.frame_protocol,
         "requested_frames": model.requested_frames,
         "video_sampling_method": model.video_sampling_method,
+        "runtime_library_path": str(runtime_library_path),
         "sys_executable": runtime["sys_executable"],
         "transformers": runtime["transformers"],
         "auxiliary_packages": runtime["auxiliary_packages"],
@@ -972,7 +978,9 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
 
 @cache
 def _inspect_runtime(
-    python: str, auxiliary_packages: tuple[tuple[str, str], ...]
+    python: str,
+    auxiliary_packages: tuple[tuple[str, str], ...],
+    runtime_library_path: str,
 ) -> dict[str, Any]:
     code = """
 import importlib
@@ -1003,8 +1011,14 @@ print(json.dumps({
         {"module": module, "distribution": distribution}
         for module, distribution in auxiliary_packages
     ]
+    env = dict(os.environ)
+    inherited_library_path = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = runtime_library_path + (
+        f":{inherited_library_path}" if inherited_library_path else ""
+    )
     completed = subprocess.run(
         [python, "-c", code, json.dumps(package_payload, sort_keys=True)],
+        env=env,
         check=False,
         capture_output=True,
         text=True,
@@ -1058,8 +1072,25 @@ def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
     ]
 
 
-def _job_environment(config: MatrixConfig, job: CacheJob, lane: int) -> dict[str, str]:
+def model_runtime_library_path(model: ModelSpec) -> Path:
+    environment_lib = model.python.parent.parent / "lib"
+    if not environment_lib.is_dir():
+        raise FileNotFoundError(
+            "Selected Python environment has no runtime library directory: "
+            f"{environment_lib}"
+        )
+    return environment_lib.resolve()
+
+
+def build_model_environment(
+    config: MatrixConfig, model: ModelSpec, lane: int
+) -> dict[str, str]:
     env = dict(os.environ)
+    runtime_library_path = model_runtime_library_path(model)
+    inherited_library_path = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = str(runtime_library_path) + (
+        f":{inherited_library_path}" if inherited_library_path else ""
+    )
     env.update(
         {
             "CUDA_VISIBLE_DEVICES": str(lane),
@@ -1072,6 +1103,13 @@ def _job_environment(config: MatrixConfig, job: CacheJob, lane: int) -> dict[str
         }
     )
     return env
+
+
+def build_job_environment(
+    config: MatrixConfig, job: CacheJob, lane: int | None = None
+) -> dict[str, str]:
+    selected_lane = job.model.gpu_lane if lane is None else lane
+    return build_model_environment(config, job.model, selected_lane)
 
 
 def _require_gpu_capacity(lane: int, fraction: float) -> None:

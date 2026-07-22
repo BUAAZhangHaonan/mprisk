@@ -25,7 +25,9 @@ from mprisk.cache.cache_matrix_queue import (
     CacheJob,
     MatrixConfig,
     build_asset_signature,
+    build_job_environment,
     load_matrix_config,
+    model_runtime_library_path,
     normalize_manifest,
 )
 
@@ -69,7 +71,7 @@ def run_smoke_job(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         completed = subprocess.run(
             command,
             cwd=config.repo_root,
-            env=_job_environment(config, job),
+            env=build_job_environment(config, job),
             stdout=handle,
             stderr=subprocess.STDOUT,
             check=False,
@@ -216,6 +218,7 @@ def validate_smoke(
         "completed_tasks": expected_tasks,
         "failed_tasks": 0,
         "environment_python": str(job.model.python),
+        "runtime_library_path": str(model_runtime_library_path(job.model)),
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "asset_config_sha256": _sha256(config.asset_config),
         "smoke_manifest_sha256": manifest_sha256,
@@ -297,22 +300,6 @@ def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> li
         str(job.model.requested_frames),
         *job.model.extra_args,
     ]
-
-
-def _job_environment(config: MatrixConfig, job: CacheJob) -> dict[str, str]:
-    env = dict(os.environ)
-    env.update(
-        {
-            "CUDA_VISIBLE_DEVICES": str(job.model.gpu_lane),
-            "PYTHONPATH": str(config.repo_root / "src"),
-            "OMP_NUM_THREADS": str(config.cpu_threads_per_job),
-            "MKL_NUM_THREADS": str(config.cpu_threads_per_job),
-            "OPENBLAS_NUM_THREADS": str(config.cpu_threads_per_job),
-            "NUMEXPR_NUM_THREADS": str(config.cpu_threads_per_job),
-            "TOKENIZERS_PARALLELISM": "false",
-        }
-    )
-    return env
 
 
 def _require_gpu_capacity(lane: int, fraction: float) -> None:
@@ -482,6 +469,7 @@ def _evidence_matches(
         "completed_tasks": 48,
         "failed_tasks": 0,
         "environment_python": str(job.model.python),
+        "runtime_library_path": str(model_runtime_library_path(job.model)),
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "asset_config_sha256": _sha256(config.asset_config),
         "smoke_manifest_sha256": manifest_sha256,
@@ -539,8 +527,14 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
     }
 
 
-def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> None:
-    session = f"{config.tmux_session}-smoke-{domain}"
+def launch_tmux(
+    config: MatrixConfig,
+    domain: str,
+    model_keys: list[str],
+    *,
+    session_name: str | None = None,
+) -> str:
+    session = session_name or f"{config.tmux_session}-smoke-{domain}"
     if subprocess.run(["tmux", "has-session", "-t", session], check=False).returncode == 0:
         raise RuntimeError(f"tmux session already exists: {session}")
     command = [
@@ -557,6 +551,7 @@ def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> Non
     for model_key in model_keys:
         command.extend(["--model", model_key])
     subprocess.run(["tmux", "new-session", "-d", "-s", session, *command], check=True)
+    return session
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -564,6 +559,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--domain", default="target", choices=("source", "target"))
     parser.add_argument("--model", action="append", default=[])
+    parser.add_argument("--tmux-session")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--execute", action="store_true")
     mode.add_argument("--launch", action="store_true")
@@ -575,8 +571,13 @@ def cli(argv: Sequence[str] | None = None) -> int:
     config = load_matrix_config(args.config)
     models = set(str(value) for value in args.model) or None
     if args.launch:
-        launch_tmux(config, args.domain, sorted(models or []))
-        payload = {"status": "launched", "domain": args.domain}
+        session = launch_tmux(
+            config,
+            args.domain,
+            sorted(models or []),
+            session_name=args.tmux_session,
+        )
+        payload = {"status": "launched", "domain": args.domain, "tmux_session": session}
     else:
         payload = execute(config, args.domain, models)
     print(json.dumps(payload, indent=2, sort_keys=True))

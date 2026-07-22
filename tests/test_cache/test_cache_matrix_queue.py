@@ -19,6 +19,7 @@ from mprisk.cache.cache_matrix_queue import (
     _task_estimate,
     _write_cache_asset_signature,
     build_asset_signature,
+    build_job_environment,
     load_matrix_config,
     normalize_manifest,
 )
@@ -127,6 +128,25 @@ def test_task_estimate_separates_accepted_and_remaining() -> None:
     }
 
 
+def test_job_environment_prefers_selected_python_environment_lib(
+    tmp_path: Path, monkeypatch
+) -> None:
+    environment = tmp_path / "env"
+    environment_lib = environment / "lib"
+    environment_lib.mkdir(parents=True)
+    python = environment / "bin" / "python"
+    monkeypatch.setenv("LD_LIBRARY_PATH", "/system/lib")
+    config = SimpleNamespace(repo_root=tmp_path, cpu_threads_per_job=8)
+    job = SimpleNamespace(
+        model=SimpleNamespace(python=python, gpu_lane=1),
+    )
+
+    env = build_job_environment(config, job)
+
+    assert env["LD_LIBRARY_PATH"] == f"{environment_lib.resolve()}:/system/lib"
+    assert env["CUDA_VISIBLE_DEVICES"] == "1"
+
+
 def test_cache_asset_signature_is_required_for_resume(tmp_path: Path) -> None:
     model = ModelSpec(
         model_key="model",
@@ -175,7 +195,10 @@ def test_smoke_gate_requires_exact_48_task_contract(
 ) -> None:
     prompt_set = tmp_path / "p8.yaml"
     prompt_set.write_text("p8\n", encoding="utf-8")
-    python = tmp_path / "python"
+    environment = tmp_path / "env"
+    (environment / "bin").mkdir(parents=True)
+    (environment / "lib").mkdir()
+    python = environment / "bin" / "python"
     python.write_text("", encoding="utf-8")
     model = ModelSpec(
         model_key="model",
@@ -224,6 +247,8 @@ def test_smoke_gate_requires_exact_48_task_contract(
         "failed_tasks": 0,
         "prompt_set_sha256": hashlib.sha256(b"p8\n").hexdigest(),
         "environment_python": str(python),
+        "runtime_library_path": str((environment / "lib").resolve()),
+        "dtype": "bfloat16",
         "trajectory_shape": [32, 2560],
         "requested_frames": 8,
         "frame_protocol": "fixed_uniform_temporal_samples_v1",
@@ -306,7 +331,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     monkeypatch.setattr(
         queue,
         "_inspect_runtime",
-        lambda python, auxiliary: {
+        lambda python, auxiliary, runtime_library_path: {
             "sys_executable": "/env/bin/python",
             "transformers": {"path": "/env/transformers/__init__.py", "version": "5.5.3"},
             "auxiliary_packages": {
@@ -327,12 +352,15 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         raise AssertionError(command)
 
     monkeypatch.setattr(queue.subprocess, "run", fake_run)
+    environment = tmp_path / "configured"
+    (environment / "bin").mkdir(parents=True)
+    (environment / "lib").mkdir()
     model = ModelSpec(
         model_key="model",
         family="qwen_vl",
         protocol="vt",
         dtype="bfloat16",
-        python=Path("/configured/bin/python"),
+        python=environment / "bin" / "python",
         gpu_lane=0,
         trajectory_shape=(2, 3),
         requested_frames=8,
@@ -355,6 +383,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     assert signature["requested_frames"] == 8
     assert signature["dtype"] == "bfloat16"
     assert signature["video_sampling_method"] == "uniform_midpoint_decord_v1"
+    assert signature["runtime_library_path"] == str((environment / "lib").resolve())
     assert signature["wrapper_git_sha"] == "a" * 40
     assert len(signature["model_config_sha256"]) == 64
     assert len(signature["processor_contract_sha256"]) == 64
