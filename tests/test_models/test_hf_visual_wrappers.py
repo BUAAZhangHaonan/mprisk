@@ -131,6 +131,8 @@ def test_native_visual_wrappers_extract_all_blocks_at_t0(
 ):
     processor = _fake_template_processor(processor_class)
     model = _fake_model(architecture, location=location, layers=layers, hidden=hidden)
+    if wrapper_cls is Qwen2_5VlWrapper:
+        model.config = SimpleNamespace(text_config=model.config)
     wrapper = wrapper_cls(
         model_key=model_key,
         model_path=_model_dir(

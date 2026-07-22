@@ -22,6 +22,7 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
     processor_class: str
     provenance_schema: str
     contract_location: str = "text_config"
+    loaded_contract_location: str = "text_config"
     supports_thinking: bool = False
 
     def __init__(
@@ -206,7 +207,7 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
         if self.model is None:
             raise RuntimeError("Model is not loaded")
         config = getattr(self.model, "config", None)
-        if self.contract_location != "root":
+        if self.loaded_contract_location != "root":
             config = getattr(config, "text_config", None)
         if config is None:
             raise ValueError(f"Loaded {self.family} model has no language config")

@@ -19,6 +19,7 @@ class Qwen2_5VlWrapper(HfVisualPrefillWrapper):
     processor_class = "Qwen2_5_VLProcessor"
     provenance_schema = "mprisk_qwen2_5_vl_prefill_provenance_v1"
     contract_location = "root"
+    loaded_contract_location = "text_config"
 
     def _load_dependencies(self) -> tuple[Any, Any]:
         import torch
