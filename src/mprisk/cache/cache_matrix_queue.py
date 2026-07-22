@@ -74,6 +74,10 @@ FORBIDDEN_BUDGET_ARGS = frozenset(
 )
 
 
+class GPUCapacityBusy(RuntimeError):
+    """The selected GPU is currently occupied by another compute process."""
+
+
 @dataclass(frozen=True)
 class DomainProtocol:
     domain: str
@@ -678,6 +682,7 @@ def execute_matrix(
     *,
     stage: str = "all",
     lane: int | None = None,
+    wait_for_gpu: bool = False,
 ) -> None:
     if stage not in {"all", "source", "target"}:
         raise ValueError(f"Unsupported cache stage: {stage!r}")
@@ -718,7 +723,12 @@ def execute_matrix(
                 for job in selected_jobs
                 if job.domain.domain == selected_stage
             ]
-            _execute_stage(config, stage_jobs, runtime_record=runtime_record)
+            _execute_stage(
+                config,
+                stage_jobs,
+                runtime_record=runtime_record,
+                wait_for_gpu=wait_for_gpu,
+            )
     finally:
         lock_path.unlink(missing_ok=True)
 
@@ -764,6 +774,7 @@ def _execute_stage(
     jobs: list[CacheJob],
     *,
     runtime_record: Path | None = None,
+    wait_for_gpu: bool = False,
 ) -> None:
     selected_runtime_record = runtime_record or config.runtime_record
     queues = {lane: deque(job for job in jobs if job.model.gpu_lane == lane) for lane in (0, 1)}
@@ -778,7 +789,10 @@ def _execute_stage(
                 continue
             if status["status"] != "ready":
                 raise RuntimeError(f"Job became unready: {job.job_id}: {status['status']}")
-            _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
+            if wait_for_gpu:
+                _wait_for_gpu_capacity(lane, config.max_gpu_memory_fraction)
+            else:
+                _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
             _write_cache_asset_signature(
                 job, build_asset_signature(config, job.model)
             )
@@ -1514,7 +1528,58 @@ def _require_gpu_capacity(lane: int, fraction: float) -> None:
     )
     used, total = (float(value.strip()) for value in completed.stdout.split(","))
     if used / total >= fraction:
-        raise RuntimeError(f"GPU {lane} memory is already {used / total:.1%} utilized")
+        raise GPUCapacityBusy(
+            f"GPU {lane} memory is already {used / total:.1%} utilized"
+        )
+    gpu_uuid = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-gpu=uuid",
+            "--format=csv,noheader",
+            "-i",
+            str(lane),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    compute = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-compute-apps=gpu_uuid,pid,used_memory",
+            "--format=csv,noheader,nounits",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    foreign_processes = []
+    for line in compute.splitlines():
+        parts = [value.strip() for value in line.split(",")]
+        if len(parts) == 3 and parts[0] == gpu_uuid:
+            foreign_processes.append(
+                {"pid": int(parts[1]), "used_memory_mib": int(parts[2])}
+            )
+    if foreign_processes:
+        raise GPUCapacityBusy(
+            f"GPU {lane} has active compute processes: {foreign_processes}"
+        )
+
+
+def _wait_for_gpu_capacity(
+    lane: int,
+    fraction: float,
+    *,
+    poll_interval_seconds: float = 30.0,
+) -> None:
+    while True:
+        try:
+            _require_gpu_capacity(lane, fraction)
+        except GPUCapacityBusy as exc:
+            print(f"Waiting for GPU {lane} capacity: {exc}", flush=True)
+            time.sleep(poll_interval_seconds)
+            continue
+        return
 
 
 def _write_runtime(
@@ -1542,6 +1607,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--stage", choices=("all", "source", "target"), default="all")
     parser.add_argument("--lane", type=int, choices=(0, 1))
+    parser.add_argument("--wait-for-gpu", action="store_true")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dry-run", action="store_true")
     mode.add_argument("--prepare-manifests", action="store_true")
@@ -1571,8 +1637,18 @@ def cli(argv: list[str] | None = None) -> int:
         launch_tmux(config)
         payload = {"status": "launched", "tmux_session": config.tmux_session}
     else:
-        execute_matrix(config, stage=args.stage, lane=args.lane)
-        payload = {"status": "complete", "stage": args.stage, "lane": args.lane}
+        execute_matrix(
+            config,
+            stage=args.stage,
+            lane=args.lane,
+            wait_for_gpu=args.wait_for_gpu,
+        )
+        payload = {
+            "status": "complete",
+            "stage": args.stage,
+            "lane": args.lane,
+            "wait_for_gpu": args.wait_for_gpu,
+        }
     print(json.dumps(payload, indent=2, sort_keys=True))
     return 0
 

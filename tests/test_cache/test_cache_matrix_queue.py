@@ -13,12 +13,14 @@ from mprisk.cache.cache_matrix_queue import (
     AuxiliaryPackage,
     CacheJob,
     DomainProtocol,
+    GPUCapacityBusy,
     ModelSpec,
     _apply_python_isolation,
     _ledger_status,
     _scoped_execution_paths,
     _smoke_status,
     _task_estimate,
+    _wait_for_gpu_capacity,
     _write_cache_asset_signature,
     build_asset_signature,
     build_job_environment,
@@ -71,7 +73,9 @@ def test_source_lane_execution_never_enters_target(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(
         queue,
         "_execute_stage",
-        lambda config, jobs, runtime_record: executed.append((jobs, runtime_record)),
+        lambda config, jobs, **kwargs: executed.append(
+            (jobs, kwargs["runtime_record"])
+        ),
     )
 
     execute_matrix(config, stage="source", lane=0)
@@ -80,6 +84,23 @@ def test_source_lane_execution_never_enters_target(tmp_path: Path, monkeypatch) 
         ([source_job], tmp_path / "matrix.source.gpu0.json")
     ]
     assert not (tmp_path / "matrix.source.gpu0.lock").exists()
+
+
+def test_wait_for_gpu_capacity_retries_only_busy_state(monkeypatch) -> None:
+    attempts = iter([GPUCapacityBusy("occupied"), None])
+    sleeps: list[float] = []
+
+    def require(lane, fraction):
+        result = next(attempts)
+        if result is not None:
+            raise result
+
+    monkeypatch.setattr(queue, "_require_gpu_capacity", require)
+    monkeypatch.setattr(queue.time, "sleep", sleeps.append)
+
+    _wait_for_gpu_capacity(1, 0.88, poll_interval_seconds=5.0)
+
+    assert sleeps == [5.0]
 
 
 def test_normalize_manifest_resolves_media_and_adds_batch_fields(tmp_path: Path) -> None:
