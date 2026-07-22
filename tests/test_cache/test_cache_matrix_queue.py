@@ -132,6 +132,7 @@ def test_cache_asset_signature_is_required_for_resume(tmp_path: Path) -> None:
         model_key="model",
         family="qwen_vl",
         protocol="vt",
+        dtype="bfloat16",
         python=tmp_path / "python",
         gpu_lane=0,
         trajectory_shape=(2, 3),
@@ -180,6 +181,7 @@ def test_smoke_gate_requires_exact_48_task_contract(
         model_key="model",
         family="family",
         protocol="vt",
+        dtype="bfloat16",
         python=python,
         gpu_lane=0,
         trajectory_shape=(32, 2560),
@@ -247,6 +249,13 @@ def test_complete_matrix_freezes_frames_and_accepts_only_internvl() -> None:
 
     by_key = {model.model_key: model for model in config.models}
     assert by_key["llava_v1_5_7b"].requested_frames == 7
+    assert by_key["llava_v1_5_7b"].dtype == "float16"
+    assert by_key["llava_onevision_qwen2_7b"].dtype == "float16"
+    assert all(
+        model.dtype == "bfloat16"
+        for model in config.models
+        if model.family not in {"llava_v15", "llava_onevision"}
+    )
     assert {
         model.requested_frames
         for model in config.models
@@ -322,6 +331,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         model_key="model",
         family="qwen_vl",
         protocol="vt",
+        dtype="bfloat16",
         python=Path("/configured/bin/python"),
         gpu_lane=0,
         trajectory_shape=(2, 3),
@@ -343,6 +353,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     assert signature["transformers"]["version"] == "5.5.3"
     assert signature["auxiliary_packages"]["decord"]["version"] == "0.6.0"
     assert signature["requested_frames"] == 8
+    assert signature["dtype"] == "bfloat16"
     assert signature["video_sampling_method"] == "uniform_midpoint_decord_v1"
     assert signature["wrapper_git_sha"] == "a" * 40
     assert len(signature["model_config_sha256"]) == 64

@@ -86,6 +86,7 @@ class ModelSpec:
     model_key: str
     family: str
     protocol: str
+    dtype: str
     python: Path
     gpu_lane: int
     trajectory_shape: tuple[int, int]
@@ -226,6 +227,7 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             model_key=_required_str(spec, "model_key"),
             family=_required_str(spec, "family"),
             protocol=protocol,
+            dtype=_required_str(spec, "dtype"),
             python=environments[environment_key],
             gpu_lane=_nonnegative_int(spec, "gpu_lane"),
             trajectory_shape=_shape(spec.get("trajectory_shape"), "trajectory_shape"),
@@ -249,6 +251,8 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
         )
         if protocol not in {"vt", "va"}:
             raise ValueError(f"Unsupported model protocol {protocol!r}")
+        if model.dtype not in {"bfloat16", "float16"}:
+            raise ValueError(f"Unsupported model dtype {model.dtype!r}")
         if model.gpu_lane not in {0, 1}:
             raise ValueError("gpu_lane must be 0 or 1")
         expected_frames = 7 if model.model_key == "llava_v1_5_7b" else 8
@@ -949,6 +953,7 @@ def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, A
         "schema": "mprisk_cache_asset_signature_v1",
         "model_key": model.model_key,
         "family": model.family,
+        "dtype": model.dtype,
         "frame_protocol": model.frame_protocol,
         "requested_frames": model.requested_frames,
         "video_sampling_method": model.video_sampling_method,
@@ -1040,7 +1045,7 @@ def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
         "--device",
         "cuda:0",
         "--dtype",
-        "bfloat16",
+        job.model.dtype,
         "--prefill-strategy",
         "full_prefill",
         "--output-root",

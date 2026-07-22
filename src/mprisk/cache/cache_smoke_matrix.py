@@ -225,6 +225,7 @@ def validate_smoke(
         "conditions": dict(conditions),
         "trajectory_shape": list(job.model.trajectory_shape),
         "extra_args": list(job.model.extra_args),
+        "dtype": job.model.dtype,
         "requested_frames": requested_frames,
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
@@ -284,7 +285,7 @@ def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> li
         "--device",
         "cuda:0",
         "--dtype",
-        "bfloat16",
+        job.model.dtype,
         "--prefill-strategy",
         "full_prefill",
         "--output-root",
@@ -486,6 +487,7 @@ def _evidence_matches(
         "smoke_manifest_sha256": manifest_sha256,
         "trajectory_shape": list(job.model.trajectory_shape),
         "extra_args": list(job.model.extra_args),
+        "dtype": job.model.dtype,
         "requested_frames": job.model.requested_frames,
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
@@ -537,14 +539,8 @@ def execute(config: MatrixConfig, domain: str, model_keys: set[str] | None) -> d
     }
 
 
-def launch_tmux(
-    config: MatrixConfig,
-    domain: str,
-    model_keys: list[str],
-    *,
-    session_name: str | None = None,
-) -> str:
-    session = session_name or f"{config.tmux_session}-smoke-{domain}"
+def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> None:
+    session = f"{config.tmux_session}-smoke-{domain}"
     if subprocess.run(["tmux", "has-session", "-t", session], check=False).returncode == 0:
         raise RuntimeError(f"tmux session already exists: {session}")
     command = [
@@ -561,7 +557,6 @@ def launch_tmux(
     for model_key in model_keys:
         command.extend(["--model", model_key])
     subprocess.run(["tmux", "new-session", "-d", "-s", session, *command], check=True)
-    return session
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -569,7 +564,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--domain", default="target", choices=("source", "target"))
     parser.add_argument("--model", action="append", default=[])
-    parser.add_argument("--tmux-session")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--execute", action="store_true")
     mode.add_argument("--launch", action="store_true")
@@ -581,13 +575,8 @@ def cli(argv: Sequence[str] | None = None) -> int:
     config = load_matrix_config(args.config)
     models = set(str(value) for value in args.model) or None
     if args.launch:
-        session = launch_tmux(
-            config,
-            args.domain,
-            sorted(models or []),
-            session_name=args.tmux_session,
-        )
-        payload = {"status": "launched", "domain": args.domain, "tmux_session": session}
+        launch_tmux(config, args.domain, sorted(models or []))
+        payload = {"status": "launched", "domain": args.domain}
     else:
         payload = execute(config, args.domain, models)
     print(json.dumps(payload, indent=2, sort_keys=True))
