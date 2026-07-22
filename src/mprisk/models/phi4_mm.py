@@ -15,13 +15,13 @@ import json
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
-from mprisk.models.video_frame_utils import uniform_video_sample
 
 
 class Phi4MmWrapper(BaseModelWrapper):
@@ -292,7 +292,7 @@ class Phi4MmWrapper(BaseModelWrapper):
                     vision_sources.append(path)
                 elif item_type == "video":
                     path = _required_media_path(item.get("video"), "video")
-                    frames, metadata = uniform_video_sample(
+                    frames, metadata = _uniform_video_sample_ffmpeg(
                         path, self.video_num_segments
                     )
                     if len(frames) != self.video_num_segments:
@@ -321,7 +321,7 @@ class Phi4MmWrapper(BaseModelWrapper):
         audio_tokens = "".join(f"<|audio_{index}|>" for index in range(1, len(audios) + 1))
         prompt = f"<|user|>{image_tokens}{audio_tokens}{task_text}<|end|><|assistant|>"
         return prompt, images, audios, {
-            "method": "uniform_midpoint_decord_v1" if actual_video_frames else None,
+            "method": "uniform_midpoint_ffmpeg_v1" if actual_video_frames else None,
             "frame_count": len(images),
             "requested_frames": self.video_num_segments * len(video_sources)
             if actual_video_frames
@@ -366,6 +366,93 @@ def _load_image(path: str) -> Any:
     from PIL import Image
     with Image.open(path) as image:
         return image.convert("RGB")
+
+
+def _uniform_video_sample_ffmpeg(
+    path: str, count: int
+) -> tuple[list[Any], dict[str, Any]]:
+    """Decode exact midpoint frame indices with Phi-4's ffmpeg backend."""
+    from PIL import Image
+
+    probe = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-count_frames",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,avg_frame_rate,nb_read_frames",
+            "-of",
+            "json",
+            path,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(probe.stdout)
+    streams = payload.get("streams")
+    if not isinstance(streams, list) or len(streams) != 1:
+        raise ValueError(f"Expected one video stream in {path}")
+    stream = streams[0]
+    width = int(stream["width"])
+    height = int(stream["height"])
+    total_frames = int(stream["nb_read_frames"])
+    fps = float(Fraction(str(stream["avg_frame_rate"])))
+    if width <= 0 or height <= 0 or total_frames < count or fps <= 0:
+        raise ValueError(
+            f"Invalid ffprobe video contract for {path}: "
+            f"{width=} {height=} {total_frames=} {fps=}"
+        )
+    indices = [
+        min(total_frames - 1, int((index + 0.5) * total_frames / count))
+        for index in range(count)
+    ]
+    if indices != sorted(set(indices)):
+        raise ValueError(f"Midpoint frame indices are not unique: {indices}")
+    select = "+".join(f"eq(n\\,{index})" for index in indices)
+    decoded = subprocess.run(
+        [
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-noautorotate",
+            "-i",
+            path,
+            "-vf",
+            f"select={select}",
+            "-vsync",
+            "0",
+            "-f",
+            "rawvideo",
+            "-pix_fmt",
+            "rgb24",
+            "pipe:1",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    expected_bytes = count * height * width * 3
+    if len(decoded.stdout) != expected_bytes:
+        raise ValueError(
+            f"ffmpeg returned {len(decoded.stdout)} bytes; expected {expected_bytes}"
+        )
+    array = np.frombuffer(decoded.stdout, dtype=np.uint8).reshape(
+        count, height, width, 3
+    )
+    frames = [Image.fromarray(frame.copy()).convert("RGB") for frame in array]
+    return frames, {
+        "total_num_frames": total_frames,
+        "fps": fps,
+        "width": width,
+        "height": height,
+        "duration": total_frames / fps,
+        "video_backend": "ffmpeg",
+        "frames_indices": indices,
+    }
 
 
 def _decode_audio(path: str) -> tuple[np.ndarray, int]:
