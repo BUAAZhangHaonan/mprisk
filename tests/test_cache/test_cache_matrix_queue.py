@@ -302,6 +302,100 @@ def test_smoke_gate_requires_exact_48_task_contract(
     assert "completed_tasks" in result["mismatches"]
 
 
+def test_dynamic_smoke_gate_uses_subset_plan_sha_not_full_plan_sha(
+    tmp_path: Path, monkeypatch
+) -> None:
+    prompt_set = tmp_path / "p8.yaml"
+    prompt_set.write_text("p8\n", encoding="utf-8")
+    environment = tmp_path / "env"
+    (environment / "bin").mkdir(parents=True)
+    (environment / "lib").mkdir()
+    python = environment / "bin" / "python"
+    python.write_text("", encoding="utf-8")
+    model = ModelSpec(
+        model_key="llava_v1_5_7b",
+        family="llava_v15",
+        protocol="vt",
+        dtype="float16",
+        python=python,
+        python_no_user_site=False,
+        env_isolation=False,
+        gpu_lane=0,
+        trajectory_shape=(32, 4096),
+        requested_frames=None,
+        frame_protocol="per_sample_shared_uniform_temporal_samples_v1",
+        video_sampling_method="uniform_midpoint_decord_v1",
+        auxiliary_packages=(AuxiliaryPackage("decord", "decord"),),
+        extra_args=(),
+        invalidated_domains={},
+        accepted_bundle_domains={},
+        max_candidate_frames=8,
+        context_budget_mode="per_sample_shared_max_legal",
+    )
+    domain = DomainProtocol(
+        domain="source",
+        protocol="vt",
+        source_manifest=tmp_path / "source.jsonl",
+        prepared_manifest=tmp_path / "prepared.jsonl",
+        media_root=tmp_path,
+        source_dataset="source",
+        split="all",
+        expected_samples=1,
+    )
+    smoke = tmp_path / "smoke" / "SMOKE_COMPLETE.json"
+    smoke.parent.mkdir()
+    subset_plan = smoke.parent / "frame_plan.json"
+    subset_plan.write_text("subset\n", encoding="utf-8")
+    full_plan = tmp_path / "full-plan.json"
+    full_plan.write_text("full\n", encoding="utf-8")
+    job = CacheJob(domain, model, tmp_path / "out", smoke, frame_plan=full_plan)
+    config = SimpleNamespace(prompt_sets={"vt": prompt_set})
+    signature = {"schema": "mprisk_cache_asset_signature_v2", "scope": "smoke"}
+    monkeypatch.setattr(
+        queue,
+        "build_asset_signature",
+        lambda config, model, **kwargs: signature,
+    )
+    payload = {
+        "schema": "mprisk_cache_smoke_evidence_v2",
+        "status": "PASS",
+        "model_key": model.model_key,
+        "family": model.family,
+        "protocol": "vt",
+        "domain": "source",
+        "expected_tasks": 48,
+        "completed_tasks": 48,
+        "failed_tasks": 0,
+        "prompt_set_sha256": hashlib.sha256(b"p8\n").hexdigest(),
+        "environment_python": str(python),
+        "python_no_user_site": False,
+        "env_isolation": False,
+        "runtime_library_path": str((environment / "lib").resolve()),
+        "dtype": "float16",
+        "trajectory_shape": [32, 4096],
+        "requested_frames": None,
+        "max_candidate_frames": 8,
+        "context_budget_mode": "per_sample_shared_max_legal",
+        "frame_plan_sha256": hashlib.sha256(b"subset\n").hexdigest(),
+        "frame_protocol": model.frame_protocol,
+        "video_sampling_method": model.video_sampling_method,
+        "asset_signature": signature,
+        "prompt_ids": [f"p{i}" for i in range(8)],
+        "context_budget_evidence": {
+            "schema": "mprisk_llava_v15_context_budget_smoke_evidence_v1",
+            "frame_plan_schema": "mprisk_llava_v15_frame_plan_v1",
+            "all_token_counts_within_context": True,
+            "no_truncation": True,
+        },
+    }
+    smoke.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert _smoke_status(config, job)["passed"] is True
+    payload["frame_plan_sha256"] = hashlib.sha256(b"full\n").hexdigest()
+    smoke.write_text(json.dumps(payload), encoding="utf-8")
+    assert _smoke_status(config, job)["passed"] is False
+
+
 def test_complete_matrix_uses_dynamic_llava_context_and_accepts_only_internvl() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     config = load_matrix_config(

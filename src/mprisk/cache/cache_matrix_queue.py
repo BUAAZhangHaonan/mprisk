@@ -871,7 +871,7 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "max_candidate_frames": job.model.max_candidate_frames,
         "context_budget_mode": job.model.context_budget_mode,
         "frame_plan_sha256": (
-            _sha256(job.frame_plan) if job.frame_plan is not None else None
+            _sha256(smoke_frame_plan) if job.model.uses_dynamic_context else None
         ),
         "frame_protocol": job.model.frame_protocol,
         "video_sampling_method": job.model.video_sampling_method,
