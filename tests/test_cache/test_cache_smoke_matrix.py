@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import mprisk.cache.cache_smoke_matrix as smoke
 from mprisk.cache.cache_smoke_matrix import (
     _evidence_matches,
-    _requested_frames,
     _sha256,
     _validate_frame_contract,
     _validate_media_contract,
@@ -75,39 +75,21 @@ def test_validate_media_contract_rejects_wrong_message_media(tmp_path: Path) -> 
         )
 
 
-@pytest.mark.parametrize(
-    ("args", "expected"),
-    [(("--video-num-segments", "8"), 8), (("--video-num-segments", "7"), 7)],
-)
-def test_requested_frames(args: tuple[str, ...], expected: int) -> None:
-    assert _requested_frames(args) == expected
-
-
-@pytest.mark.parametrize(
-    "args",
-    [
-        (),
-        ("--video-num-segments",),
-        ("--video-num-segments", "0"),
-        ("--video-num-segments", "x"),
-    ],
-)
-def test_requested_frames_rejects_invalid_contract(args: tuple[str, ...]) -> None:
-    with pytest.raises(ValueError):
-        _requested_frames(args)
-
-
 def test_validate_frame_contract_requires_exact_actual_frames() -> None:
     provenance = {
         "requested_frames": 8,
         "actual_frames": 8,
         "video_sampling_method": "uniform_midpoint_decord_v1",
-        "video_frame_indices": [1, 3, 5, 7, 9, 11, 13, 15],
-        "video_source_total_frames": 16,
+        "video_frame_indices": [[1, 3, 5, 7, 9, 11, 13, 15]],
+        "video_source_total_frames": [16],
     }
     assert (
         _validate_frame_contract(
-            provenance, condition="M1", contains_video=True, expected_frames=8
+            provenance,
+            condition="M1",
+            contains_video=True,
+            expected_frames=8,
+            expected_method="uniform_midpoint_decord_v1",
         )
         == 8
     )
@@ -117,12 +99,13 @@ def test_validate_frame_contract_requires_exact_actual_frames() -> None:
                 "requested_frames": 8,
                 "actual_frames": 7,
                 "video_sampling_method": "uniform_midpoint_decord_v1",
-                "video_frame_indices": [1, 3, 5, 7, 9, 11, 13],
-                "video_source_total_frames": 16,
+                "video_frame_indices": [[1, 3, 5, 7, 9, 11, 13]],
+                "video_source_total_frames": [16],
             },
             condition="M12",
             contains_video=True,
             expected_frames=8,
+            expected_method="uniform_midpoint_decord_v1",
         )
     assert (
         _validate_frame_contract(
@@ -130,6 +113,7 @@ def test_validate_frame_contract_requires_exact_actual_frames() -> None:
             condition="M2",
             contains_video=False,
             expected_frames=8,
+            expected_method="uniform_midpoint_decord_v1",
         )
         == 0
     )
@@ -140,22 +124,47 @@ def test_validate_frame_contract_rejects_nonuniform_or_duplicate_indices() -> No
         "requested_frames": 8,
         "actual_frames": 8,
         "video_sampling_method": "processor_default",
-        "video_frame_indices": [1, 3, 5, 7, 9, 11, 13, 15],
-        "video_source_total_frames": 16,
+        "video_frame_indices": [[1, 3, 5, 7, 9, 11, 13, 15]],
+        "video_source_total_frames": [16],
     }
-    with pytest.raises(ValueError, match="unsupported video_sampling_method"):
+    with pytest.raises(ValueError, match="expected video_sampling_method"):
         _validate_frame_contract(
-            provenance, condition="M1", contains_video=True, expected_frames=8
+            provenance,
+            condition="M1",
+            contains_video=True,
+            expected_frames=8,
+            expected_method="uniform_midpoint_decord_v1",
         )
     provenance["video_sampling_method"] = "uniform_midpoint_decord_v1"
-    provenance["video_frame_indices"] = [1, 1, 3, 5, 7, 9, 11, 13]
+    provenance["video_frame_indices"] = [[1, 1, 3, 5, 7, 9, 11, 13]]
     with pytest.raises(ValueError, match="invalid video_frame_indices"):
         _validate_frame_contract(
-            provenance, condition="M12", contains_video=True, expected_frames=8
+            provenance,
+            condition="M12",
+            contains_video=True,
+            expected_frames=8,
+            expected_method="uniform_midpoint_decord_v1",
         )
 
 
-def test_evidence_matches_all_runtime_signatures(tmp_path: Path) -> None:
+def test_validate_frame_contract_accepts_backend_without_index_evidence() -> None:
+    assert (
+        _validate_frame_contract(
+            {
+                "requested_frames": 8,
+                "actual_frames": 8,
+                "video_sampling_method": "uniform_nframes_qwen_omni_utils_v1",
+            },
+            condition="M12",
+            contains_video=True,
+            expected_frames=8,
+            expected_method="uniform_nframes_qwen_omni_utils_v1",
+        )
+        == 8
+    )
+
+
+def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) -> None:
     prompt_set = tmp_path / "prompt.yaml"
     prompt_set.write_text("prompt", encoding="utf-8")
     asset_config = tmp_path / "assets.yaml"
@@ -168,12 +177,19 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path) -> None:
         protocol="vt",
         python=tmp_path / "python",
         trajectory_shape=(2, 3),
-        extra_args=("--video-num-segments", "8"),
+        requested_frames=8,
+        frame_protocol="fixed_uniform_temporal_samples_v1",
+        video_sampling_method="uniform_midpoint_decord_v1",
+        extra_args=(),
     )
     config = SimpleNamespace(prompt_sets={"vt": prompt_set}, asset_config=asset_config)
     job = SimpleNamespace(model=model, domain=SimpleNamespace(domain="target"))
+    asset_signature = {"schema": "mprisk_cache_asset_signature_v1", "digest": "asset"}
+    monkeypatch.setattr(
+        smoke, "build_asset_signature", lambda config, model: asset_signature
+    )
     evidence = {
-        "schema": "mprisk_cache_smoke_evidence_v1",
+        "schema": "mprisk_cache_smoke_evidence_v2",
         "status": "PASS",
         "model_key": "model",
         "family": "family",
@@ -187,8 +203,11 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path) -> None:
         "asset_config_sha256": _sha256(asset_config),
         "smoke_manifest_sha256": _sha256(smoke_manifest),
         "trajectory_shape": [2, 3],
-        "extra_args": ["--video-num-segments", "8"],
+        "extra_args": [],
         "requested_frames": 8,
+        "frame_protocol": "fixed_uniform_temporal_samples_v1",
+        "video_sampling_method": "uniform_midpoint_decord_v1",
+        "asset_signature": asset_signature,
     }
     assert _evidence_matches(config, job, evidence, _sha256(smoke_manifest))
     for key in (
@@ -196,6 +215,9 @@ def test_evidence_matches_all_runtime_signatures(tmp_path: Path) -> None:
         "extra_args",
         "smoke_manifest_sha256",
         "requested_frames",
+        "frame_protocol",
+        "video_sampling_method",
+        "asset_signature",
     ):
         stale = dict(evidence)
         stale[key] = None

@@ -13,15 +13,50 @@ import sys
 import time
 from collections import Counter, deque
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.config.loader import load_yaml
 
-SCHEMA = "mprisk_complete_cache_matrix_v1"
-SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v1"
+SCHEMA = "mprisk_complete_cache_matrix_v2"
+SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v2"
 CONDITIONS = ("M1", "M2", "M12")
+FRAME_PROTOCOL = "fixed_uniform_temporal_samples_v1"
+WRAPPER_FILES = {
+    "gemma3": "src/mprisk/models/gemma3.py",
+    "gemma4": "src/mprisk/models/gemma4.py",
+    "glm4v": "src/mprisk/models/glm4v.py",
+    "internvl": "src/mprisk/models/internvl.py",
+    "llava_v15": "src/mprisk/models/llava.py",
+    "llava_onevision": "src/mprisk/models/llava.py",
+    "minicpm_v": "src/mprisk/models/minicpm_v.py",
+    "phi3_vision": "src/mprisk/models/phi3_vision.py",
+    "phi4_multimodal": "src/mprisk/models/phi4_mm.py",
+    "qwen2_5_vl": "src/mprisk/models/qwen2_5_vl.py",
+    "qwen3_5": "src/mprisk/models/qwen3_5.py",
+    "qwen_omni": "src/mprisk/models/qwen_omni.py",
+    "qwen_vl": "src/mprisk/models/qwen_vl.py",
+}
+PROCESSOR_CONTRACT_FILES = (
+    "processor_config.json",
+    "preprocessor_config.json",
+    "video_preprocessor_config.json",
+    "audio_processor_config.json",
+    "tokenizer_config.json",
+    "chat_template.json",
+    "chat_template.jinja",
+)
+FORBIDDEN_BUDGET_ARGS = frozenset(
+    {
+        "--max-length",
+        "--max-seq-length",
+        "--max-tokens",
+        "--truncate",
+        "--truncation",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -41,6 +76,12 @@ class DomainProtocol:
 
 
 @dataclass(frozen=True)
+class AuxiliaryPackage:
+    module: str
+    distribution: str
+
+
+@dataclass(frozen=True)
 class ModelSpec:
     model_key: str
     family: str
@@ -48,6 +89,10 @@ class ModelSpec:
     python: Path
     gpu_lane: int
     trajectory_shape: tuple[int, int]
+    requested_frames: int
+    frame_protocol: str
+    video_sampling_method: str
+    auxiliary_packages: tuple[AuxiliaryPackage, ...]
     extra_args: tuple[str, ...]
     invalidated_domains: dict[str, str]
     accepted_bundle_domains: dict[str, dict[str, Any]]
@@ -63,6 +108,10 @@ class CacheJob:
     @property
     def job_id(self) -> str:
         return f"{self.domain.domain}:{self.model.model_key}"
+
+    @property
+    def asset_signature_evidence(self) -> Path:
+        return self.output_root / "ASSET_SIGNATURE.json"
 
 
 @dataclass(frozen=True)
@@ -148,6 +197,31 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
         if environment_key not in environments:
             raise ValueError(f"Unknown environment {environment_key!r}")
         protocol = _required_str(spec, "protocol").lower()
+        extra_args = tuple(str(value) for value in spec.get("extra_args", []))
+        if "--video-num-segments" in extra_args:
+            raise ValueError(
+                "models[].requested_frames is the only frame-count contract; "
+                "do not duplicate it in extra_args"
+            )
+        forbidden = sorted(FORBIDDEN_BUDGET_ARGS.intersection(extra_args))
+        if forbidden:
+            raise ValueError(
+                "Shared token budgets or truncation are forbidden by the cache protocol: "
+                + ", ".join(forbidden)
+            )
+        auxiliary_packages = tuple(
+            AuxiliaryPackage(
+                module=_required_str(_mapping(value, "auxiliary_packages[]"), "module"),
+                distribution=_required_str(
+                    _mapping(value, "auxiliary_packages[]"), "distribution"
+                ),
+            )
+            for value in _required_list(spec, "auxiliary_packages")
+        )
+        if len({package.module for package in auxiliary_packages}) != len(
+            auxiliary_packages
+        ):
+            raise ValueError("auxiliary_packages modules must be unique per model")
         model = ModelSpec(
             model_key=_required_str(spec, "model_key"),
             family=_required_str(spec, "family"),
@@ -155,7 +229,11 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             python=environments[environment_key],
             gpu_lane=_nonnegative_int(spec, "gpu_lane"),
             trajectory_shape=_shape(spec.get("trajectory_shape"), "trajectory_shape"),
-            extra_args=tuple(str(value) for value in spec.get("extra_args", [])),
+            requested_frames=_positive_int(spec, "requested_frames"),
+            frame_protocol=_required_str(spec, "frame_protocol"),
+            video_sampling_method=_required_str(spec, "video_sampling_method"),
+            auxiliary_packages=auxiliary_packages,
+            extra_args=extra_args,
             invalidated_domains={
                 str(key): str(value)
                 for key, value in _mapping(
@@ -173,6 +251,15 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
             raise ValueError(f"Unsupported model protocol {protocol!r}")
         if model.gpu_lane not in {0, 1}:
             raise ValueError("gpu_lane must be 0 or 1")
+        expected_frames = 7 if model.model_key == "llava_v1_5_7b" else 8
+        if model.requested_frames != expected_frames:
+            raise ValueError(
+                f"{model.model_key} requires F{expected_frames}, got F{model.requested_frames}"
+            )
+        if model.frame_protocol != FRAME_PROTOCOL:
+            raise ValueError(
+                f"{model.model_key} must use frame_protocol={FRAME_PROTOCOL!r}"
+            )
         models.append(model)
     if len(models) != 16 or len({model.model_key for model in models}) != 16:
         raise ValueError("Complete matrix requires exactly 16 unique models")
@@ -316,6 +403,7 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
         }
 
     environment_checks: dict[str, dict[str, Any]] = {}
+    asset_signature_checks: dict[str, dict[str, Any]] = {}
     for model in config.models:
         asset = assets.get(model.model_key)
         if asset is None:
@@ -331,14 +419,25 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
         check_key = f"{model.python}:{model.family}"
         if check_key not in environment_checks:
             environment_checks[check_key] = _check_wrapper_import(config, model)
+        asset_signature_checks[model.model_key] = _asset_signature_status(config, model)
 
-    jobs = [_audit_job(config, job, manifest_status) for job in config.jobs]
+    jobs = [
+        _audit_job(
+            config,
+            job,
+            manifest_status,
+            asset_signature_checks[job.model.model_key],
+        )
+        for job in config.jobs
+    ]
     counts = Counter(str(job["status"]) for job in jobs)
     pending = [job for job in jobs if job["status"] not in {"complete", "accepted_bundle"}]
     capacity = _capacity_status(config, jobs)
+    task_estimate = _task_estimate(jobs)
     ready = (
         all(job["status"] == "ready" for job in pending)
         and all(check["passed"] for check in environment_checks.values())
+        and all(check["passed"] for check in asset_signature_checks.values())
         and capacity["safe"]
     )
     return {
@@ -352,9 +451,38 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
             f"{domain}:{protocol}": status for (domain, protocol), status in manifest_status.items()
         },
         "environment_checks": list(environment_checks.values()),
+        "asset_signature_checks": asset_signature_checks,
         "capacity": capacity,
+        "task_estimate": task_estimate,
         "job_status_counts": dict(counts),
         "job_records": jobs,
+    }
+
+
+def _task_estimate(jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    total_tasks = sum(int(job["expected_tasks"]) for job in jobs)
+    completed_or_accepted_tasks = 0
+    remaining_tasks = 0
+    remaining_by_domain: Counter[str] = Counter()
+    remaining_by_protocol: Counter[str] = Counter()
+    for job in jobs:
+        expected = int(job["expected_tasks"])
+        if job["status"] in {"complete", "accepted_bundle"}:
+            completed_or_accepted_tasks += expected
+            continue
+        missing = int(job.get("ledger", {}).get("missing", expected))
+        completed_or_accepted_tasks += expected - missing
+        remaining_tasks += missing
+        remaining_by_domain[str(job["domain"])] += missing
+        remaining_by_protocol[str(job["protocol"])] += missing
+    if completed_or_accepted_tasks + remaining_tasks != total_tasks:
+        raise ValueError("Cache task estimate does not partition the complete matrix")
+    return {
+        "total_tasks": total_tasks,
+        "completed_or_accepted_tasks": completed_or_accepted_tasks,
+        "remaining_tasks": remaining_tasks,
+        "remaining_by_domain": dict(remaining_by_domain),
+        "remaining_by_protocol": dict(remaining_by_protocol),
     }
 
 
@@ -462,6 +590,9 @@ def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
             if status["status"] != "ready":
                 raise RuntimeError(f"Job became unready: {job.job_id}: {status['status']}")
             _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
+            _write_cache_asset_signature(
+                job, build_asset_signature(config, job.model)
+            )
             log_path = job.output_root / "runtime.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
             handle = log_path.open("a", encoding="utf-8")
@@ -496,6 +627,7 @@ def _audit_job(
     config: MatrixConfig,
     job: CacheJob,
     manifest_status: dict[tuple[str, str], dict[str, Any]],
+    asset_signature_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     record: dict[str, Any] = {
         "job_id": job.job_id,
@@ -508,22 +640,39 @@ def _audit_job(
         "expected_samples": job.domain.expected_samples,
         "expected_tasks": job.domain.expected_tasks,
         "trajectory_shape": list(job.model.trajectory_shape),
+        "requested_frames": job.model.requested_frames,
+        "frame_protocol": job.model.frame_protocol,
+        "video_sampling_method": job.model.video_sampling_method,
         "output_root": str(job.output_root),
     }
     invalidation = job.model.invalidated_domains.get(job.domain.domain)
     if invalidation:
         record["invalidation_reason"] = invalidation
+    if asset_signature_status is None:
+        asset_signature_status = _asset_signature_status(config, job.model)
+    record["asset_signature"] = asset_signature_status
     ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
+    accepted = job.model.accepted_bundle_domains.get(job.domain.domain)
+    if accepted and not invalidation:
+        _validate_accepted_bundle(config, job, accepted)
+        record.update(status="accepted_bundle", accepted_bundle=accepted)
+        return record
+    if not asset_signature_status["passed"]:
+        record.update(status="blocked_asset_signature", ledger=ledger)
+        return record
+    if ledger["status"] != "absent":
+        cache_signature = _cache_asset_signature_status(
+            job, asset_signature_status["signature"]
+        )
+        record["cache_asset_signature"] = cache_signature
+        if not cache_signature["passed"]:
+            record.update(status="blocked_cache_asset_signature", ledger=ledger)
+            return record
     if ledger["status"] == "complete":
         record.update(status="complete", ledger=ledger)
         return record
     if ledger["status"] in {"failed", "invalid"}:
         record.update(status=ledger["status"], ledger=ledger)
-        return record
-    accepted = job.model.accepted_bundle_domains.get(job.domain.domain)
-    if accepted and not invalidation:
-        _validate_accepted_bundle(config, job, accepted)
-        record.update(status="accepted_bundle", accepted_bundle=accepted)
         return record
     prepared = job.domain.prepared_manifest.is_file()
     if manifest_status:
@@ -544,6 +693,14 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
     if not path.is_file():
         return {"passed": False, "reason": "missing", "path": str(path)}
     payload = _read_json(path)
+    asset_signature_status = _asset_signature_status(config, job.model)
+    if not asset_signature_status["passed"]:
+        return {
+            "passed": False,
+            "reason": "asset_signature_failed",
+            "path": str(path),
+            "asset_signature": asset_signature_status,
+        }
     expected = {
         "schema": SMOKE_SCHEMA,
         "status": "PASS",
@@ -556,6 +713,10 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "failed_tasks": 0,
         "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
         "environment_python": str(job.model.python),
+        "requested_frames": job.model.requested_frames,
+        "frame_protocol": job.model.frame_protocol,
+        "video_sampling_method": job.model.video_sampling_method,
+        "asset_signature": asset_signature_status["signature"],
     }
     mismatches = {
         key: {"expected": value, "actual": payload.get(key)}
@@ -576,6 +737,7 @@ def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
         "path": str(path),
         "mismatches": mismatches,
         "trajectory_shape": shape,
+        "asset_signature": asset_signature_status["signature"],
     }
 
 
@@ -679,6 +841,185 @@ def _check_wrapper_import(config: MatrixConfig, model: ModelSpec) -> dict[str, A
     }
 
 
+def _asset_signature_status(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
+    try:
+        signature = build_asset_signature(config, model)
+    except (FileNotFoundError, KeyError, OSError, RuntimeError, ValueError) as exc:
+        return {
+            "passed": False,
+            "error_type": type(exc).__name__,
+            "error_message": str(exc),
+        }
+    return {"passed": True, "signature": signature}
+
+
+def _cache_asset_signature_status(
+    job: CacheJob, expected_signature: dict[str, Any]
+) -> dict[str, Any]:
+    path = job.asset_signature_evidence
+    if not path.is_file():
+        return {"passed": False, "reason": "missing", "path": str(path)}
+    try:
+        actual = _read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return {
+            "passed": False,
+            "reason": "invalid",
+            "path": str(path),
+            "error": str(exc),
+        }
+    return {
+        "passed": actual == expected_signature,
+        "reason": "match" if actual == expected_signature else "mismatch",
+        "path": str(path),
+    }
+
+
+def _write_cache_asset_signature(
+    job: CacheJob, signature: dict[str, Any]
+) -> None:
+    status = _ledger_status(job.output_root, job.domain.expected_tasks)
+    if status["status"] != "absent":
+        existing = _cache_asset_signature_status(job, signature)
+        if not existing["passed"]:
+            raise RuntimeError(
+                f"Refusing to resume {job.job_id} with stale asset signature: {existing}"
+            )
+        return
+    _atomic_text(
+        job.asset_signature_evidence,
+        json.dumps(signature, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+
+
+def build_asset_signature(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
+    assets = index_assets(load_model_assets(config.asset_config))
+    asset = assets.get(model.model_key)
+    if asset is None:
+        raise KeyError(f"Missing asset {model.model_key}")
+    model_path = asset.local_model_path.resolve()
+    config_path = model_path / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(config_path)
+    processor_files = {
+        name: _sha256(model_path / name)
+        for name in PROCESSOR_CONTRACT_FILES
+        if (model_path / name).is_file()
+    }
+    if not processor_files:
+        raise FileNotFoundError(
+            f"No processor contract files found under model asset {model_path}"
+        )
+    processor_contract_sha256 = hashlib.sha256(
+        _canonical_json(processor_files).encode()
+    ).hexdigest()
+
+    wrapper_relative = WRAPPER_FILES.get(model.family)
+    if wrapper_relative is None:
+        raise KeyError(f"No wrapper file registered for family {model.family!r}")
+    wrapper_path = config.repo_root / wrapper_relative
+    if not wrapper_path.is_file():
+        raise FileNotFoundError(wrapper_path)
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain", "--", wrapper_relative],
+        cwd=config.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if dirty:
+        raise RuntimeError(
+            f"Wrapper must be committed before smoke evidence is valid: {wrapper_relative}"
+        )
+    wrapper_git_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", wrapper_relative],
+        cwd=config.repo_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    if len(wrapper_git_sha) != 40:
+        raise RuntimeError(f"Wrapper git SHA is unavailable: {wrapper_relative}")
+
+    auxiliary = tuple(
+        (package.module, package.distribution) for package in model.auxiliary_packages
+    )
+    runtime = _inspect_runtime(str(model.python), auxiliary)
+    return {
+        "schema": "mprisk_cache_asset_signature_v1",
+        "model_key": model.model_key,
+        "family": model.family,
+        "frame_protocol": model.frame_protocol,
+        "requested_frames": model.requested_frames,
+        "video_sampling_method": model.video_sampling_method,
+        "sys_executable": runtime["sys_executable"],
+        "transformers": runtime["transformers"],
+        "auxiliary_packages": runtime["auxiliary_packages"],
+        "model_path": str(model_path),
+        "model_config_sha256": _sha256(config_path),
+        "processor_contract_sha256": processor_contract_sha256,
+        "processor_files": processor_files,
+        "wrapper_path": wrapper_relative,
+        "wrapper_git_sha": wrapper_git_sha,
+        "wrapper_file_sha256": _sha256(wrapper_path),
+    }
+
+
+@cache
+def _inspect_runtime(
+    python: str, auxiliary_packages: tuple[tuple[str, str], ...]
+) -> dict[str, Any]:
+    code = """
+import importlib
+import importlib.metadata
+import json
+import sys
+
+packages = json.loads(sys.argv[1])
+transformers = importlib.import_module("transformers")
+auxiliary = {}
+for item in packages:
+    module = importlib.import_module(item["module"])
+    auxiliary[item["module"]] = {
+        "distribution": item["distribution"],
+        "path": str(getattr(module, "__file__", None)),
+        "version": importlib.metadata.version(item["distribution"]),
+    }
+print(json.dumps({
+    "sys_executable": sys.executable,
+    "transformers": {
+        "path": str(transformers.__file__),
+        "version": str(transformers.__version__),
+    },
+    "auxiliary_packages": auxiliary,
+}, sort_keys=True))
+"""
+    package_payload = [
+        {"module": module, "distribution": distribution}
+        for module, distribution in auxiliary_packages
+    ]
+    completed = subprocess.run(
+        [python, "-c", code, json.dumps(package_payload, sort_keys=True)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            f"Runtime signature inspection failed for {python}: {completed.stderr.strip()}"
+        )
+    try:
+        value = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Runtime signature inspection returned invalid JSON for {python}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise RuntimeError(f"Runtime signature inspection returned non-object for {python}")
+    return value
+
+
 def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
     return [
         str(job.model.python),
@@ -706,6 +1047,8 @@ def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
         str(job.output_root),
         "--materialize-every",
         "100",
+        "--video-num-segments",
+        str(job.model.requested_frames),
         *job.model.extra_args,
     ]
 

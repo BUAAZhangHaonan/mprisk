@@ -1,4 +1,4 @@
-schema: mprisk_complete_cache_matrix_v1
+schema: mprisk_complete_cache_matrix_v2
 bundle_root: outputs/deliveries/taffc_complete_bundle_20260721
 bundle_validation_report: outputs/deliveries/taffc_complete_bundle_20260721/validation_report.json
 bundle_inventory: outputs/deliveries/taffc_complete_bundle_20260721/inventory.json
@@ -68,27 +68,41 @@ models:
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [34, 2560]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: gemma3_12b
     family: gemma3
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [48, 3840]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: glm4_6v_flash
     family: glm4v
     protocol: vt
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [40, 4096]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: internvl3_5_8b
     family: internvl
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [36, 4096]
-    extra_args: [--video-num-segments, "8", --internvl-max-num, "1"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
+    extra_args: [--internvl-max-num, "1"]
     accepted_bundle_domains:
       source:
         inventory_pointer: caches.generated_set.internvl3_5_8b
@@ -99,92 +113,131 @@ models:
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [32, 4096]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 7
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: llava_onevision_qwen2_7b
     family: llava_onevision
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [28, 3584]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: minicpm_v_2_6
     family: minicpm_v
     protocol: vt
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [28, 3584]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: minicpm_v_4_5
     family: minicpm_v
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [36, 4096]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: phi3_5_vision
     family: phi3_vision
     protocol: vt
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [32, 3072]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: qwen2_5_vl_7b
     family: qwen2_5_vl
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [28, 3584]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: qwen3_vl_8b
     family: qwen_vl
     protocol: vt
     environment: qwen_vl_transformers_5_5_3
     gpu_lane: 0
     trajectory_shape: [36, 4096]
-    accepted_bundle_domains:
-      source:
-        inventory_pointer: caches.generated_set.qwen3_vl_8b
-        index_path: caches/generated_set/qwen3_vl_8b/index/manifest.package.json
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
+    invalidated_domains:
+      source: legacy cache used duration-dependent FPS sampling rather than fixed F8
+      target: fixed F8 cache must be extracted under the frozen protocol
   - model_key: qwen3_5_4b
     family: qwen3_5
     protocol: vt
     environment: mind_py311
     gpu_lane: 0
     trajectory_shape: [32, 2560]
-    accepted_bundle_domains:
-      source:
-        inventory_pointer: caches.generated_set.qwen3_5_4b
-        index_path: caches/generated_set/qwen3_5_4b/index/manifest.package.jsonl
-      target:
-        inventory_pointer: caches.natural_set.ch_sims_v2.qwen3_5_4b
-        index_path: caches/natural_set/ch_sims_v2/qwen3_5_4b/index/manifest.package.jsonl
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
+    invalidated_domains:
+      source: legacy cache used duration-dependent FPS sampling rather than fixed F8
+      target: legacy cache used duration-dependent FPS sampling rather than fixed F8
   - model_key: qwen3_5_9b
     family: qwen3_5
     protocol: vt
     environment: mind_py311
     gpu_lane: 1
     trajectory_shape: [32, 4096]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_decord_v1
+    auxiliary_packages: [{module: decord, distribution: decord}]
   - model_key: gemma4_12b
     family: gemma4
     protocol: va
     environment: gemma4
     gpu_lane: 1
     trajectory_shape: [48, 3840]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_linspace_pyav_v1
+    auxiliary_packages: [{module: av, distribution: av}]
     invalidated_domains:
-      source: legacy cache failed the corrected Gemma4 media-contract audit
+      source: legacy cache used F16 or variable frames and failed the corrected media contract
+      target: fixed F8 cache must be extracted under the frozen protocol
   - model_key: phi4_multimodal
     family: phi4_multimodal
     protocol: va
     environment: phi4
     gpu_lane: 0
     trajectory_shape: [32, 3072]
-    extra_args: [--video-num-segments, "8"]
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_midpoint_ffmpeg_v1
+    auxiliary_packages:
+      - {module: soundfile, distribution: soundfile}
   - model_key: qwen2_5_omni_7b
     family: qwen_omni
     protocol: va
     environment: qwen_omni
     gpu_lane: 1
     trajectory_shape: [28, 3584]
-    accepted_bundle_domains:
-      source:
-        inventory_pointer: caches.generated_set.qwen2_5_omni_7b
-        index_path: caches/generated_set/qwen2_5_omni_7b/index/manifest.package.json
+    requested_frames: 8
+    frame_protocol: fixed_uniform_temporal_samples_v1
+    video_sampling_method: uniform_nframes_qwen_omni_utils_v1
+    auxiliary_packages:
+      - {module: qwen_omni_utils, distribution: qwen-omni-utils}
+    invalidated_domains:
+      source: legacy cache used duration-dependent FPS sampling rather than fixed F8
+      target: fixed F8 cache must be extracted under the frozen protocol
