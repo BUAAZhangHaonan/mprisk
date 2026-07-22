@@ -41,7 +41,7 @@ WRAPPER_FILES = {
     "glm4v": "src/mprisk/models/glm4v.py",
     "internvl": "src/mprisk/models/internvl.py",
     "llava_v15": "src/mprisk/models/llava.py",
-    "llava_onevision": "src/mprisk/models/llava.py",
+    "llava_onevision": "src/mprisk/models/llava_onevision.py",
     "minicpm_v": "src/mprisk/models/minicpm_v.py",
     "phi3_vision": "src/mprisk/models/phi3_vision.py",
     "phi4_multimodal": "src/mprisk/models/phi4_mm.py",

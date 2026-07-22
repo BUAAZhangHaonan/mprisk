@@ -11,12 +11,12 @@ from PIL import Image
 
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.llava import (
-    LlavaOneVisionWrapper,
     LlavaV15Wrapper,
     _llava_v15_runtime_contracts,
     _validate_llava_v15_processor_tokens,
     _validate_llava_v15_sampled_frames,
 )
+from mprisk.models.llava_onevision import LlavaOneVisionWrapper
 from mprisk.models.minicpm_v import MiniCpmVWrapper
 from mprisk.models.phi3_vision import Phi3VisionWrapper
 from mprisk.models.video_frame_utils import validate_video_grid_frames
@@ -174,10 +174,6 @@ class LlavaProcessor:
         }
 
 
-class LlavaOnevisionProcessor(LlavaProcessor):
-    pass
-
-
 @pytest.mark.parametrize(
     "wrapper_cls,model_key,model_type,architecture,processor_cls,frame_count",
     [
@@ -188,14 +184,6 @@ class LlavaOnevisionProcessor(LlavaProcessor):
             "LlavaForConditionalGeneration",
             LlavaProcessor,
             7,
-        ),
-        (
-            LlavaOneVisionWrapper,
-            "llava_onevision_qwen2_7b",
-            "llava_onevision",
-            "LlavaOnevisionForConditionalGeneration",
-            LlavaOnevisionProcessor,
-            8,
         ),
     ],
 )

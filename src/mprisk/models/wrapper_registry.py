@@ -9,7 +9,8 @@ from mprisk.models.gemma3 import Gemma3Wrapper
 from mprisk.models.gemma4 import Gemma4Wrapper
 from mprisk.models.glm4v import Glm4vWrapper
 from mprisk.models.internvl import InternVlWrapper
-from mprisk.models.llava import LlavaOneVisionWrapper, LlavaV15Wrapper
+from mprisk.models.llava import LlavaV15Wrapper
+from mprisk.models.llava_onevision import LlavaOneVisionWrapper
 from mprisk.models.minicpm_v import MiniCpmVWrapper
 from mprisk.models.phi3_vision import Phi3VisionWrapper
 from mprisk.models.phi4_mm import Phi4MmWrapper
