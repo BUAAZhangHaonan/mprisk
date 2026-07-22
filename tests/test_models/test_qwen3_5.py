@@ -102,6 +102,9 @@ def test_qwen3_5_extracts_all_blocks_and_disables_thinking(tmp_path):
     assert result.t0_token_index == 3
     assert processor.kwargs["enable_thinking"] is False
     assert processor.kwargs["add_generation_prompt"] is True
+    assert processor.kwargs["processor_kwargs"] == {
+        "videos_kwargs": {"fps": 1.0}
+    }
     assert model.call_kwargs["use_cache"] is False
     assert model.call_kwargs["logits_to_keep"] == 1
     assert result.provenance["hidden_state_index_offset"] == 1

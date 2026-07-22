@@ -109,7 +109,7 @@ class Qwen3_5Wrapper(BaseModelWrapper):
         }
         video_fps = _request_video_fps(request)
         if video_fps is not None:
-            template_kwargs["fps"] = video_fps
+            template_kwargs["processor_kwargs"] = {"videos_kwargs": {"fps": video_fps}}
         model_inputs = self.processor.apply_chat_template(
             [dict(message) for message in request.messages],
             **template_kwargs,
