@@ -401,8 +401,6 @@ def _validate_frame_contract(
                 f"{condition} expected video_sampling_method={expected_method!r}; "
                 f"got {method!r}"
             )
-        if indices_by_video is None and source_totals is None:
-            return actual
         if indices_by_video is None or source_totals is None:
             raise ValueError(
                 f"{condition} must provide both frame indices and source frame totals"

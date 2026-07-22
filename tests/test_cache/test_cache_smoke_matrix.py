@@ -147,8 +147,8 @@ def test_validate_frame_contract_rejects_nonuniform_or_duplicate_indices() -> No
         )
 
 
-def test_validate_frame_contract_accepts_backend_without_index_evidence() -> None:
-    assert (
+def test_validate_frame_contract_rejects_backend_without_index_evidence() -> None:
+    with pytest.raises(ValueError, match="must provide both frame indices"):
         _validate_frame_contract(
             {
                 "requested_frames": 8,
@@ -160,8 +160,6 @@ def test_validate_frame_contract_accepts_backend_without_index_evidence() -> Non
             expected_frames=8,
             expected_method="uniform_nframes_qwen_omni_utils_v1",
         )
-        == 8
-    )
 
 
 def test_evidence_matches_all_runtime_signatures(tmp_path: Path, monkeypatch) -> None:
