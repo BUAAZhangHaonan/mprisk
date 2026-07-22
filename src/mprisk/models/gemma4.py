@@ -159,6 +159,7 @@ class Gemma4Wrapper(BaseModelWrapper):
         if media["videos"] is not None:
             processor_kwargs["videos"] = media["videos"]
             processor_kwargs["video_metadata"] = media["video_metadata"]
+            processor_kwargs["do_sample_frames"] = False
             # We pre-decode via PyAV and pass numpy frame stacks, so tell the
             # video processor exactly how many frames we have to avoid the
             # default 32-frame sampler exceeding the supplied frame count.
