@@ -1,0 +1,872 @@
+"""Fail-closed orchestration for the complete source/target cache matrix."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
+import sys
+import time
+from collections import Counter, deque
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.config.loader import load_yaml
+
+SCHEMA = "mprisk_complete_cache_matrix_v1"
+SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v1"
+CONDITIONS = ("M1", "M2", "M12")
+
+
+@dataclass(frozen=True)
+class DomainProtocol:
+    domain: str
+    protocol: str
+    source_manifest: Path
+    prepared_manifest: Path
+    media_root: Path
+    source_dataset: str
+    split: str
+    expected_samples: int
+
+    @property
+    def expected_tasks(self) -> int:
+        return self.expected_samples * 8 * len(CONDITIONS)
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    model_key: str
+    family: str
+    protocol: str
+    python: Path
+    gpu_lane: int
+    trajectory_shape: tuple[int, int]
+    extra_args: tuple[str, ...]
+    invalidated_domains: dict[str, str]
+    accepted_bundle_domains: dict[str, dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class CacheJob:
+    domain: DomainProtocol
+    model: ModelSpec
+    output_root: Path
+    smoke_evidence: Path
+
+    @property
+    def job_id(self) -> str:
+        return f"{self.domain.domain}:{self.model.model_key}"
+
+
+@dataclass(frozen=True)
+class MatrixConfig:
+    source_path: Path
+    repo_root: Path
+    bundle_root: Path
+    bundle_validation_report: Path
+    bundle_inventory: Path
+    asset_config: Path
+    extract_script: Path
+    job_runner: Path
+    prompt_sets: dict[str, Path]
+    domains: dict[tuple[str, str], DomainProtocol]
+    models: tuple[ModelSpec, ...]
+    jobs: tuple[CacheJob, ...]
+    output_root: Path
+    runtime_record: Path
+    lock_path: Path
+    tmux_session: str
+    max_gpu_memory_fraction: float
+    cpu_threads_per_job: int
+    max_projected_filesystem_utilization: float
+
+
+def load_matrix_config(path: str | Path) -> MatrixConfig:
+    source_path = Path(path).expanduser().resolve()
+    raw = load_yaml(source_path)
+    if raw.get("schema") != SCHEMA:
+        raise ValueError(f"Matrix schema must be {SCHEMA}")
+    repo_root = source_path.parents[2]
+
+    def resolve(value: str, *, base: Path = repo_root) -> Path:
+        candidate = Path(value).expanduser()
+        return (base / candidate).resolve() if not candidate.is_absolute() else candidate.resolve()
+
+    def environment_path(value: str) -> Path:
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            candidate = repo_root / candidate
+        # Do not resolve the bin/python symlink: its original path selects the venv.
+        return Path(os.path.abspath(candidate))
+
+    bundle_root = resolve(_required_str(raw, "bundle_root"))
+    output_root = resolve(_required_str(raw, "output_root"))
+    prompt_sets = {
+        str(key).lower(): resolve(str(value))
+        for key, value in _required_mapping(raw, "prompt_sets").items()
+    }
+    if set(prompt_sets) != {"vt", "va"}:
+        raise ValueError("prompt_sets must define exactly vt and va")
+
+    domains: dict[tuple[str, str], DomainProtocol] = {}
+    for domain_name, domain_raw in _required_mapping(raw, "domains").items():
+        domain_map = _mapping(domain_raw, f"domains.{domain_name}")
+        for protocol, protocol_raw in _required_mapping(domain_map, "protocols").items():
+            protocol_key = str(protocol).lower()
+            if protocol_key not in {"vt", "va"}:
+                raise ValueError(f"Unsupported protocol {protocol!r}")
+            spec = _mapping(protocol_raw, f"domains.{domain_name}.protocols.{protocol}")
+            key = (str(domain_name), protocol_key)
+            if key in domains:
+                raise ValueError(f"Duplicate domain/protocol {key}")
+            domains[key] = DomainProtocol(
+                domain=str(domain_name),
+                protocol=protocol_key,
+                source_manifest=resolve(_required_str(spec, "source_manifest")),
+                prepared_manifest=resolve(_required_str(spec, "prepared_manifest")),
+                media_root=resolve(_required_str(spec, "media_root")),
+                source_dataset=_required_str(spec, "source_dataset"),
+                split=_required_str(spec, "split"),
+                expected_samples=_positive_int(spec, "expected_samples"),
+            )
+
+    environments = {
+        str(key): environment_path(str(value))
+        for key, value in _required_mapping(raw, "environments").items()
+    }
+    models: list[ModelSpec] = []
+    for item in _required_list(raw, "models"):
+        spec = _mapping(item, "models[]")
+        environment_key = _required_str(spec, "environment")
+        if environment_key not in environments:
+            raise ValueError(f"Unknown environment {environment_key!r}")
+        protocol = _required_str(spec, "protocol").lower()
+        model = ModelSpec(
+            model_key=_required_str(spec, "model_key"),
+            family=_required_str(spec, "family"),
+            protocol=protocol,
+            python=environments[environment_key],
+            gpu_lane=_nonnegative_int(spec, "gpu_lane"),
+            trajectory_shape=_shape(spec.get("trajectory_shape"), "trajectory_shape"),
+            extra_args=tuple(str(value) for value in spec.get("extra_args", [])),
+            invalidated_domains={
+                str(key): str(value)
+                for key, value in _mapping(
+                    spec.get("invalidated_domains", {}), "invalidated_domains"
+                ).items()
+            },
+            accepted_bundle_domains={
+                str(key): _mapping(value, f"accepted_bundle_domains.{key}")
+                for key, value in _mapping(
+                    spec.get("accepted_bundle_domains", {}), "accepted_bundle_domains"
+                ).items()
+            },
+        )
+        if protocol not in {"vt", "va"}:
+            raise ValueError(f"Unsupported model protocol {protocol!r}")
+        if model.gpu_lane not in {0, 1}:
+            raise ValueError("gpu_lane must be 0 or 1")
+        models.append(model)
+    if len(models) != 16 or len({model.model_key for model in models}) != 16:
+        raise ValueError("Complete matrix requires exactly 16 unique models")
+    if Counter(model.protocol for model in models) != {"vt": 13, "va": 3}:
+        raise ValueError("Complete matrix requires 13 VT and 3 VA models")
+
+    jobs: list[CacheJob] = []
+    smoke_root = resolve(_required_str(raw, "smoke_root"))
+    for domain_name in ("source", "target"):
+        for model in models:
+            domain = domains[(domain_name, model.protocol)]
+            jobs.append(
+                CacheJob(
+                    domain=domain,
+                    model=model,
+                    output_root=output_root / domain_name / model.model_key,
+                    smoke_evidence=smoke_root
+                    / domain_name
+                    / model.model_key
+                    / "SMOKE_COMPLETE.json",
+                )
+            )
+    execution = _required_mapping(raw, "execution")
+    memory_fraction = float(execution.get("max_gpu_memory_fraction", 0.88))
+    if not 0 < memory_fraction < 0.90:
+        raise ValueError("max_gpu_memory_fraction must be positive and below 0.90")
+    filesystem_limit = float(execution.get("max_projected_filesystem_utilization", 0.90))
+    if not 0 < filesystem_limit <= 0.90:
+        raise ValueError("max_projected_filesystem_utilization must be in (0, 0.90]")
+    return MatrixConfig(
+        source_path=source_path,
+        repo_root=repo_root,
+        bundle_root=bundle_root,
+        bundle_validation_report=resolve(_required_str(raw, "bundle_validation_report")),
+        bundle_inventory=resolve(_required_str(raw, "bundle_inventory")),
+        asset_config=resolve(_required_str(raw, "asset_config")),
+        extract_script=resolve(_required_str(raw, "extract_script")),
+        job_runner=resolve(_required_str(raw, "job_runner")),
+        prompt_sets=prompt_sets,
+        domains=domains,
+        models=tuple(models),
+        jobs=tuple(jobs),
+        output_root=output_root,
+        runtime_record=resolve(_required_str(raw, "runtime_record")),
+        lock_path=resolve(_required_str(raw, "lock_path")),
+        tmux_session=_required_str(execution, "tmux_session"),
+        max_gpu_memory_fraction=memory_fraction,
+        cpu_threads_per_job=_positive_int(execution, "cpu_threads_per_job"),
+        max_projected_filesystem_utilization=filesystem_limit,
+    )
+
+
+def normalize_manifest(domain: DomainProtocol) -> tuple[list[dict[str, Any]], str]:
+    if not domain.source_manifest.is_file():
+        raise FileNotFoundError(domain.source_manifest)
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    with domain.source_manifest.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, 1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"Manifest line {line_number} is not an object")
+            protocol = str(row.get("protocol", "")).lower()
+            if protocol != domain.protocol:
+                raise ValueError(f"Manifest line {line_number} is not {domain.protocol}")
+            sample_id = str(row.get("sample_id", ""))
+            if not sample_id or sample_id in seen:
+                raise ValueError(f"Invalid or duplicate sample_id at line {line_number}")
+            seen.add(sample_id)
+            media = row.get("media_paths")
+            if not isinstance(media, dict) or not media:
+                raise ValueError(f"Invalid media_paths for {sample_id}")
+            normalized_media: dict[str, str] = {}
+            for key, value in media.items():
+                path = Path(str(value)).expanduser()
+                if not path.is_absolute():
+                    path = domain.media_root / path
+                path = path.resolve()
+                if not path.is_file():
+                    raise FileNotFoundError(f"Missing media for {sample_id}: {path}")
+                normalized_media[str(key)] = str(path)
+            normalized = dict(row)
+            normalized.update(
+                {
+                    "protocol": domain.protocol.upper(),
+                    "media_paths": normalized_media,
+                    "source_dataset": str(row.get("source_dataset") or domain.source_dataset),
+                    "split": str(row.get("split") or domain.split),
+                    "sample_type": str(row.get("sample_type") or ""),
+                    "use_in_main": bool(row.get("use_in_main", True)),
+                    "annotation_count": int(row.get("annotation_count", 0)),
+                }
+            )
+            if normalized["sample_type"] not in {"Aligned", "Conflict"}:
+                raise ValueError(f"Invalid sample_type for {sample_id}")
+            rows.append(normalized)
+    if len(rows) != domain.expected_samples:
+        raise ValueError(
+            f"{domain.domain}/{domain.protocol} expected "
+            f"{domain.expected_samples} rows, got {len(rows)}"
+        )
+    text = "".join(_canonical_json(row) + "\n" for row in rows)
+    return rows, hashlib.sha256(text.encode()).hexdigest()
+
+
+def prepare_manifests(config: MatrixConfig) -> dict[str, Any]:
+    prepared: list[dict[str, Any]] = []
+    for domain in config.domains.values():
+        rows, digest = normalize_manifest(domain)
+        text = "".join(_canonical_json(row) + "\n" for row in rows)
+        _atomic_text(domain.prepared_manifest, text)
+        prepared.append(
+            {
+                "domain": domain.domain,
+                "protocol": domain.protocol,
+                "rows": len(rows),
+                "sha256": digest,
+                "path": str(domain.prepared_manifest),
+            }
+        )
+    return {"schema": "mprisk_cache_matrix_prepared_manifests_v1", "prepared": prepared}
+
+
+def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
+    _validate_bundle(config)
+    assets = index_assets(load_model_assets(config.asset_config))
+    manifest_status: dict[tuple[str, str], dict[str, Any]] = {}
+    for key, domain in config.domains.items():
+        rows, digest = normalize_manifest(domain)
+        prepared_ok = False
+        if domain.prepared_manifest.is_file():
+            prepared_ok = _sha256(domain.prepared_manifest) == digest
+        manifest_status[key] = {
+            "samples": len(rows),
+            "expected_tasks": domain.expected_tasks,
+            "normalized_sha256": digest,
+            "prepared": prepared_ok,
+            "sample_types": dict(Counter(str(row["sample_type"]) for row in rows)),
+        }
+
+    environment_checks: dict[str, dict[str, Any]] = {}
+    for model in config.models:
+        asset = assets.get(model.model_key)
+        if asset is None:
+            raise KeyError(f"Missing asset {model.model_key}")
+        if asset.family != model.family:
+            raise ValueError(
+                f"Asset family mismatch for {model.model_key}: {asset.family} != {model.family}"
+            )
+        if not asset.local_model_path.is_dir():
+            raise FileNotFoundError(asset.local_model_path)
+        if not model.python.is_file():
+            raise FileNotFoundError(model.python)
+        check_key = f"{model.python}:{model.family}"
+        if check_key not in environment_checks:
+            environment_checks[check_key] = _check_wrapper_import(config, model)
+
+    jobs = [_audit_job(config, job, manifest_status) for job in config.jobs]
+    counts = Counter(str(job["status"]) for job in jobs)
+    pending = [job for job in jobs if job["status"] not in {"complete", "accepted_bundle"}]
+    capacity = _capacity_status(config, jobs)
+    ready = (
+        all(job["status"] == "ready" for job in pending)
+        and all(check["passed"] for check in environment_checks.values())
+        and capacity["safe"]
+    )
+    return {
+        "schema": "mprisk_complete_cache_matrix_audit_v1",
+        "status": "ready" if ready else "blocked",
+        "ready_to_launch": ready,
+        "models": len(config.models),
+        "jobs": len(config.jobs),
+        "matrix": {"vt_models": 13, "va_models": 3, "domains": ["source", "target"]},
+        "manifest_status": {
+            f"{domain}:{protocol}": status for (domain, protocol), status in manifest_status.items()
+        },
+        "environment_checks": list(environment_checks.values()),
+        "capacity": capacity,
+        "job_status_counts": dict(counts),
+        "job_records": jobs,
+    }
+
+
+def _capacity_status(config: MatrixConfig, jobs: list[dict[str, Any]]) -> dict[str, Any]:
+    projected_bytes = 0
+    projected_inodes = 0
+    missing_shapes: list[str] = []
+    for job in jobs:
+        if job["status"] in {"complete", "accepted_bundle"}:
+            continue
+        shape = job.get("trajectory_shape")
+        if not (
+            isinstance(shape, list)
+            and len(shape) == 2
+            and all(isinstance(value, int) and value > 0 for value in shape)
+        ):
+            missing_shapes.append(str(job["job_id"]))
+            continue
+        ledger = job.get("ledger", {})
+        missing = int(ledger.get("missing", job["expected_tasks"]))
+        trajectory_bytes = int(shape[0]) * int(shape[1]) * 4
+        projected_bytes += missing * (trajectory_bytes + 8192)
+        projected_inodes += missing * 2 + 16
+
+    filesystem = config.output_root if config.output_root.exists() else config.output_root.parent
+    filesystem.mkdir(parents=True, exist_ok=True)
+    usage = shutil.disk_usage(filesystem)
+    stat = os.statvfs(filesystem)
+    total_inodes = int(stat.f_files)
+    free_inodes = int(stat.f_ffree)
+    projected_utilization = (usage.used + projected_bytes) / usage.total
+    projected_inode_utilization = (
+        (total_inodes - free_inodes + projected_inodes) / total_inodes if total_inodes > 0 else 1.0
+    )
+    safe = (
+        not missing_shapes
+        and projected_utilization <= config.max_projected_filesystem_utilization
+        and projected_inode_utilization <= config.max_projected_filesystem_utilization
+    )
+    return {
+        "safe": safe,
+        "filesystem": str(filesystem),
+        "projected_bytes": projected_bytes,
+        "projected_inodes": projected_inodes,
+        "projected_utilization": projected_utilization,
+        "projected_inode_utilization": projected_inode_utilization,
+        "limit": config.max_projected_filesystem_utilization,
+        "missing_smoke_shapes": missing_shapes,
+    }
+
+
+def execute_matrix(config: MatrixConfig) -> None:
+    audit = audit_matrix(config)
+    if not audit["ready_to_launch"]:
+        blockers = [
+            f"{row['job_id']}={row['status']}"
+            for row in audit["job_records"]
+            if row["status"] not in {"complete", "accepted_bundle", "ready"}
+        ]
+        raise RuntimeError("Cache matrix is not launchable: " + ", ".join(blockers))
+    config.lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = os.open(config.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+    os.write(lock_fd, f"{os.getpid()}\n".encode())
+    os.close(lock_fd)
+    try:
+        for stage in ("source", "target"):
+            stage_jobs = [job for job in config.jobs if job.domain.domain == stage]
+            _execute_stage(config, stage_jobs)
+    finally:
+        config.lock_path.unlink(missing_ok=True)
+
+
+def launch_tmux(config: MatrixConfig) -> None:
+    audit = audit_matrix(config)
+    if not audit["ready_to_launch"]:
+        raise RuntimeError("Dry-run audit is blocked; refusing to create tmux session")
+    exists = subprocess.run(
+        ["tmux", "has-session", "-t", config.tmux_session],
+        check=False,
+        capture_output=True,
+    )
+    if exists.returncode == 0:
+        raise RuntimeError(f"tmux session already exists: {config.tmux_session}")
+    command = [
+        sys.executable,
+        str(config.repo_root / "scripts" / "run_cache_matrix_queue.py"),
+        "--config",
+        str(config.source_path),
+        "--execute",
+    ]
+    subprocess.run(["tmux", "new-session", "-d", "-s", config.tmux_session, *command], check=True)
+
+
+def _execute_stage(config: MatrixConfig, jobs: list[CacheJob]) -> None:
+    queues = {lane: deque(job for job in jobs if job.model.gpu_lane == lane) for lane in (0, 1)}
+    running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]] = {}
+    while any(queues.values()) or running:
+        for lane in (0, 1):
+            if lane in running or not queues[lane]:
+                continue
+            job = queues[lane].popleft()
+            status = _audit_job(config, job, {})
+            if status["status"] in {"complete", "accepted_bundle"}:
+                continue
+            if status["status"] != "ready":
+                raise RuntimeError(f"Job became unready: {job.job_id}: {status['status']}")
+            _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
+            log_path = job.output_root / "runtime.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            handle = log_path.open("a", encoding="utf-8")
+            process = subprocess.Popen(
+                _job_command(config, job),
+                cwd=config.repo_root,
+                env=_job_environment(config, job, lane),
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+            )
+            running[lane] = (job, process, handle)
+            _write_runtime(config, jobs, running)
+        if not running:
+            continue
+        time.sleep(10)
+        for lane, (job, process, handle) in list(running.items()):
+            return_code = process.poll()
+            if return_code is None:
+                continue
+            handle.close()
+            del running[lane]
+            if return_code != 0:
+                _write_runtime(config, jobs, running)
+                raise RuntimeError(f"Cache extraction failed: {job.job_id}, exit={return_code}")
+            status = _ledger_status(job.output_root, job.domain.expected_tasks)
+            if status["status"] != "complete":
+                raise RuntimeError(f"Cache extraction ended incomplete: {job.job_id}: {status}")
+            _write_runtime(config, jobs, running)
+
+
+def _audit_job(
+    config: MatrixConfig,
+    job: CacheJob,
+    manifest_status: dict[tuple[str, str], dict[str, Any]],
+) -> dict[str, Any]:
+    record: dict[str, Any] = {
+        "job_id": job.job_id,
+        "domain": job.domain.domain,
+        "model_key": job.model.model_key,
+        "family": job.model.family,
+        "protocol": job.model.protocol,
+        "gpu_lane": job.model.gpu_lane,
+        "python": str(job.model.python),
+        "expected_samples": job.domain.expected_samples,
+        "expected_tasks": job.domain.expected_tasks,
+        "trajectory_shape": list(job.model.trajectory_shape),
+        "output_root": str(job.output_root),
+    }
+    invalidation = job.model.invalidated_domains.get(job.domain.domain)
+    if invalidation:
+        record["invalidation_reason"] = invalidation
+    ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
+    if ledger["status"] == "complete":
+        record.update(status="complete", ledger=ledger)
+        return record
+    if ledger["status"] in {"failed", "invalid"}:
+        record.update(status=ledger["status"], ledger=ledger)
+        return record
+    accepted = job.model.accepted_bundle_domains.get(job.domain.domain)
+    if accepted and not invalidation:
+        _validate_accepted_bundle(config, job, accepted)
+        record.update(status="accepted_bundle", accepted_bundle=accepted)
+        return record
+    prepared = job.domain.prepared_manifest.is_file()
+    if manifest_status:
+        prepared = bool(manifest_status[(job.domain.domain, job.domain.protocol)]["prepared"])
+    if not prepared:
+        record.update(status="blocked_manifest_not_prepared", ledger=ledger)
+        return record
+    smoke = _smoke_status(config, job)
+    if not smoke["passed"]:
+        record.update(status="blocked_smoke", smoke=smoke, ledger=ledger)
+        return record
+    record.update(status="ready", smoke=smoke, ledger=ledger)
+    return record
+
+
+def _smoke_status(config: MatrixConfig, job: CacheJob) -> dict[str, Any]:
+    path = job.smoke_evidence
+    if not path.is_file():
+        return {"passed": False, "reason": "missing", "path": str(path)}
+    payload = _read_json(path)
+    expected = {
+        "schema": SMOKE_SCHEMA,
+        "status": "PASS",
+        "model_key": job.model.model_key,
+        "family": job.model.family,
+        "protocol": job.model.protocol,
+        "domain": job.domain.domain,
+        "expected_tasks": 48,
+        "completed_tasks": 48,
+        "failed_tasks": 0,
+        "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
+        "environment_python": str(job.model.python),
+    }
+    mismatches = {
+        key: {"expected": value, "actual": payload.get(key)}
+        for key, value in expected.items()
+        if payload.get(key) != value
+    }
+    shape = payload.get("trajectory_shape")
+    if shape != list(job.model.trajectory_shape):
+        mismatches["trajectory_shape"] = {
+            "expected": list(job.model.trajectory_shape),
+            "actual": shape,
+        }
+    prompt_ids = payload.get("prompt_ids")
+    if not isinstance(prompt_ids, list) or len(prompt_ids) != 8 or len(set(prompt_ids)) != 8:
+        mismatches["prompt_ids"] = {"expected": "8 unique IDs", "actual": prompt_ids}
+    return {
+        "passed": not mismatches,
+        "path": str(path),
+        "mismatches": mismatches,
+        "trajectory_shape": shape,
+    }
+
+
+def _ledger_status(output_root: Path, expected_tasks: int) -> dict[str, Any]:
+    path = output_root / "batch_state.sqlite3"
+    if not path.is_file():
+        return {"status": "absent", "completed": 0, "missing": expected_tasks}
+    try:
+        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        counts = {
+            str(status): int(count)
+            for status, count in connection.execute(
+                "SELECT status, COUNT(*) FROM tasks GROUP BY status"
+            ).fetchall()
+        }
+        total = int(connection.execute("SELECT COUNT(*) FROM tasks").fetchone()[0])
+        connection.close()
+    except (sqlite3.Error, OSError) as exc:
+        return {"status": "invalid", "error": str(exc)}
+    if total != expected_tasks:
+        return {"status": "invalid", "total": total, "expected": expected_tasks}
+    if counts.get("failed", 0):
+        return {
+            "status": "failed",
+            "counts": counts,
+            "missing": expected_tasks - counts.get("completed", 0),
+        }
+    if counts.get("completed", 0) == expected_tasks:
+        return {"status": "complete", "counts": counts, "missing": 0}
+    return {
+        "status": "incomplete",
+        "counts": counts,
+        "completed": counts.get("completed", 0),
+        "missing": expected_tasks - counts.get("completed", 0),
+    }
+
+
+def _validate_bundle(config: MatrixConfig) -> None:
+    report = _read_json(config.bundle_validation_report)
+    if (
+        report.get("schema") != "taffc_complete_bundle_validation_v1"
+        or report.get("status") != "PASS"
+    ):
+        raise ValueError("Canonical bundle validation report is not PASS")
+    inventory = _read_json(config.bundle_inventory)
+    if Path(str(inventory.get("bundle_path", ""))).resolve() != config.bundle_root:
+        raise ValueError("Bundle inventory path does not match bundle_root")
+
+
+def _validate_accepted_bundle(
+    config: MatrixConfig, job: CacheJob, accepted: dict[str, Any]
+) -> None:
+    inventory = _read_json(config.bundle_inventory)
+    node: Any = inventory
+    pointer = _required_str(accepted, "inventory_pointer")
+    for key in pointer.split("."):
+        if not isinstance(node, dict) or key not in node:
+            raise KeyError(f"Missing inventory pointer {pointer}")
+        node = node[key]
+    if not isinstance(node, dict):
+        raise ValueError(f"Inventory pointer is not an object: {pointer}")
+    expected = {
+        "samples": job.domain.expected_samples,
+        "successful_tasks": job.domain.expected_tasks,
+        "protocol": job.domain.protocol.upper(),
+    }
+    for key, value in expected.items():
+        if node.get(key) != value:
+            raise ValueError(
+                f"Accepted bundle mismatch for {job.job_id} {key}: {node.get(key)} != {value}"
+            )
+    index_path = config.bundle_root / _required_str(accepted, "index_path")
+    if not index_path.is_file():
+        raise FileNotFoundError(index_path)
+
+
+def _check_wrapper_import(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(config.repo_root / "src")
+    code = (
+        "from mprisk.models.wrapper_registry import get_wrapper; "
+        f"w=get_wrapper({model.family!r}); "
+        f"assert w.family == {model.family!r}; print(w.__name__)"
+    )
+    completed = subprocess.run(
+        [str(model.python), "-c", code],
+        cwd=config.repo_root,
+        env=env,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return {
+        "python": str(model.python),
+        "family": model.family,
+        "passed": completed.returncode == 0,
+        "detail": completed.stdout.strip()
+        if completed.returncode == 0
+        else completed.stderr.strip(),
+    }
+
+
+def _job_command(config: MatrixConfig, job: CacheJob) -> list[str]:
+    return [
+        str(job.model.python),
+        str(config.job_runner),
+        "--gpu-memory-fraction",
+        str(config.max_gpu_memory_fraction),
+        "--",
+        "--manifest",
+        str(job.domain.prepared_manifest),
+        "--prompt-set",
+        str(config.prompt_sets[job.model.protocol]),
+        "--protocol",
+        job.model.protocol,
+        "--model-key",
+        job.model.model_key,
+        "--asset-config",
+        str(config.asset_config),
+        "--device",
+        "cuda:0",
+        "--dtype",
+        "bfloat16",
+        "--prefill-strategy",
+        "full_prefill",
+        "--output-root",
+        str(job.output_root),
+        "--materialize-every",
+        "100",
+        *job.model.extra_args,
+    ]
+
+
+def _job_environment(config: MatrixConfig, job: CacheJob, lane: int) -> dict[str, str]:
+    env = dict(os.environ)
+    env.update(
+        {
+            "CUDA_VISIBLE_DEVICES": str(lane),
+            "PYTHONPATH": str(config.repo_root / "src"),
+            "OMP_NUM_THREADS": str(config.cpu_threads_per_job),
+            "MKL_NUM_THREADS": str(config.cpu_threads_per_job),
+            "OPENBLAS_NUM_THREADS": str(config.cpu_threads_per_job),
+            "NUMEXPR_NUM_THREADS": str(config.cpu_threads_per_job),
+            "TOKENIZERS_PARALLELISM": "false",
+        }
+    )
+    return env
+
+
+def _require_gpu_capacity(lane: int, fraction: float) -> None:
+    completed = subprocess.run(
+        [
+            "nvidia-smi",
+            "--query-gpu=memory.used,memory.total",
+            "--format=csv,noheader,nounits",
+            "-i",
+            str(lane),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    used, total = (float(value.strip()) for value in completed.stdout.split(","))
+    if used / total >= fraction:
+        raise RuntimeError(f"GPU {lane} memory is already {used / total:.1%} utilized")
+
+
+def _write_runtime(
+    config: MatrixConfig,
+    stage_jobs: list[CacheJob],
+    running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]],
+) -> None:
+    payload = {
+        "schema": "mprisk_cache_matrix_runtime_v1",
+        "updated_at_unix": time.time(),
+        "running": [
+            {"gpu": lane, "job_id": value[0].job_id, "pid": value[1].pid}
+            for lane, value in running.items()
+        ],
+        "jobs": [
+            _ledger_status(job.output_root, job.domain.expected_tasks) | {"job_id": job.job_id}
+            for job in stage_jobs
+        ],
+    }
+    _atomic_text(config.runtime_record, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--config", required=True, type=Path)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--prepare-manifests", action="store_true")
+    mode.add_argument("--launch", action="store_true")
+    mode.add_argument("--execute", action="store_true")
+    return parser
+
+
+def cli(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    config = load_matrix_config(args.config)
+    if args.prepare_manifests:
+        payload = prepare_manifests(config)
+    elif args.dry_run:
+        payload = audit_matrix(config)
+    elif args.launch:
+        launch_tmux(config)
+        payload = {"status": "launched", "tmux_session": config.tmux_session}
+    else:
+        execute_matrix(config)
+        payload = {"status": "complete"}
+    print(json.dumps(payload, indent=2, sort_keys=True))
+    return 0
+
+
+def _required_mapping(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+    return _mapping(mapping.get(key), key)
+
+
+def _mapping(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} must be a mapping")
+    return value
+
+
+def _required_list(mapping: dict[str, Any], key: str) -> list[Any]:
+    value = mapping.get(key)
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{key} must be a non-empty list")
+    return value
+
+
+def _required_str(mapping: dict[str, Any], key: str) -> str:
+    value = mapping.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _positive_int(mapping: dict[str, Any], key: str) -> int:
+    value = mapping.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{key} must be a positive integer")
+    return value
+
+
+def _nonnegative_int(mapping: dict[str, Any], key: str) -> int:
+    value = mapping.get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{key} must be a non-negative integer")
+    return value
+
+
+def _shape(value: Any, label: str) -> tuple[int, int]:
+    if not (
+        isinstance(value, list)
+        and len(value) == 2
+        and all(isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in value)
+    ):
+        raise ValueError(f"{label} must be [positive layers, positive hidden]")
+    return int(value[0]), int(value[1])
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected JSON object: {path}")
+    return value
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _atomic_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(text, encoding="utf-8")
+    os.replace(temporary, path)
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())
