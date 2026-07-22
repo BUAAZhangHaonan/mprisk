@@ -221,6 +221,9 @@ class Phi4MmWrapper(BaseModelWrapper):
                 "model_config_sha256": _sha256(self.model_path / "config.json"),
                 "weight_index_sha256": _sha256(self.model_path / "model.safetensors.index.json"),
                 "video_sampling": media_provenance,
+                "video_sampling_method": media_provenance["method"],
+                "requested_frames": media_provenance["requested_frames"],
+                "actual_frames": media_provenance["actual_frames"],
                 "peft_compatibility_patch": bool(getattr(self, "_compatibility_patch", False)),
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_bytes,
@@ -262,7 +265,9 @@ class Phi4MmWrapper(BaseModelWrapper):
         images: list[Any] = []
         audios: list[tuple[np.ndarray, int]] = []
         vision_sources: list[str] = []
+        video_sources: list[str] = []
         audio_sources: list[str] = []
+        actual_video_frames = 0
         for message in request.messages:
             if message.get("role") != "user":
                 raise ValueError("Phi-4 extraction accepts exactly one user turn")
@@ -281,8 +286,16 @@ class Phi4MmWrapper(BaseModelWrapper):
                     vision_sources.append(path)
                 elif item_type == "video":
                     path = _required_media_path(item.get("video"), "video")
-                    images.extend(_uniform_video_frames(path, self.video_num_segments))
+                    frames = _uniform_video_frames(path, self.video_num_segments)
+                    if len(frames) != self.video_num_segments:
+                        raise ValueError(
+                            f"Phi-4 requested {self.video_num_segments} video frames "
+                            f"but decoder returned {len(frames)}"
+                        )
+                    images.extend(frames)
+                    actual_video_frames += len(frames)
                     vision_sources.append(path)
+                    video_sources.append(path)
                     if request.use_audio_in_video:
                         audios.append(_decode_audio(path))
                         audio_sources.append(path)
@@ -299,8 +312,12 @@ class Phi4MmWrapper(BaseModelWrapper):
         audio_tokens = "".join(f"<|audio_{index}|>" for index in range(1, len(audios) + 1))
         prompt = f"<|user|>{image_tokens}{audio_tokens}{task_text}<|end|><|assistant|>"
         return prompt, images, audios, {
-            "method": "uniform_midpoint_ffmpeg_v1",
+            "method": "uniform_midpoint_ffmpeg_v1" if actual_video_frames else None,
             "frame_count": len(images),
+            "requested_frames": self.video_num_segments * len(video_sources)
+            if actual_video_frames
+            else 0,
+            "actual_frames": actual_video_frames,
             "audio_count": len(audios),
             "vision_sources": vision_sources,
             "audio_sources": audio_sources,

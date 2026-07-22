@@ -21,7 +21,7 @@ from mprisk.models.base_wrapper import (
     PrefillResult,
 )
 
-MAX_VIDEO_FRAMES: int = 16
+DEFAULT_VIDEO_FRAMES: int = 8
 _FFMPEG_AVAILABLE: bool = shutil.which("ffmpeg") is not None
 
 
@@ -46,6 +46,7 @@ class Gemma4Wrapper(BaseModelWrapper):
         attn_implementation: str = "sdpa",
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        video_num_segments: int = DEFAULT_VIDEO_FRAMES,
         model: Any | None = None,
         processor: Any | None = None,
         runtime_versions: Mapping[str, str] | None = None,
@@ -58,6 +59,9 @@ class Gemma4Wrapper(BaseModelWrapper):
         self.attn_implementation = attn_implementation
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.video_num_segments = int(video_num_segments)
+        if not 1 <= self.video_num_segments <= 64:
+            raise ValueError("Gemma-4 video_num_segments must be in [1, 64]")
         self._contract = _load_model_contract(self.model_path)
         if dtype != self._contract["torch_dtype"]:
             raise ValueError(
@@ -143,7 +147,7 @@ class Gemma4Wrapper(BaseModelWrapper):
             tokenize=False,
             add_generation_prompt=True,
         )
-        media = _collect_media_inputs(request)
+        media = _collect_media_inputs(request, max_frames=self.video_num_segments)
         processor_kwargs: dict[str, Any] = {
             "text": [prompt],
             "return_tensors": "pt",
@@ -165,6 +169,14 @@ class Gemma4Wrapper(BaseModelWrapper):
             # default 32-frame sampler exceeding the supplied frame count.
             frame_counts = [int(v.shape[0]) for v in media["videos"]]
             processor_kwargs["num_frames"] = frame_counts[0]
+            actual_frames = sum(frame_counts)
+            if actual_frames != self.video_num_segments:
+                raise ValueError(
+                    f"Gemma-4 requested {self.video_num_segments} video frames but "
+                    f"decoder returned {actual_frames}"
+                )
+        else:
+            actual_frames = 0
         if media["images"] is not None:
             processor_kwargs["images"] = media["images"]
         _validate_media_contract(request.condition, media)
@@ -242,6 +254,15 @@ class Gemma4Wrapper(BaseModelWrapper):
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
             "media_keys": _media_keys(media),
+            "video_sampling_method": "uniform_linspace_pyav_v1" if actual_frames else None,
+            "requested_frames": self.video_num_segments if actual_frames else 0,
+            "actual_frames": actual_frames,
+            "video_frame_indices": (
+                media["video_metadata"][0]["frames_indices"] if actual_frames else []
+            ),
+            "video_source_total_frames": (
+                media["video_metadata"][0]["total_num_frames"] if actual_frames else 0
+            ),
         }
         return PrefillResult(
             request=request,
@@ -371,7 +392,11 @@ def build_va_request(
     )
 
 
-def _collect_media_inputs(request: PrefillRequest) -> dict[str, Any]:
+def _collect_media_inputs(
+    request: PrefillRequest,
+    *,
+    max_frames: int = DEFAULT_VIDEO_FRAMES,
+) -> dict[str, Any]:
     """Walk request.messages and load audio/video inputs for the processor.
 
     For joint V+A conditioning (use_audio_in_video=True), we decode the video's
@@ -405,13 +430,15 @@ def _collect_media_inputs(request: PrefillRequest) -> dict[str, Any]:
             elif ctype == "video":
                 vp = str(item.get("video"))
                 if request.use_audio_in_video:
-                    frames, audio_arr, sr, metadata = _video_to_frames_with_audio(vp)
+                    frames, audio_arr, sr, metadata = _video_to_frames_with_audio(
+                        vp, max_frames=max_frames
+                    )
                     video_frames.append(frames)
                     video_metadata.append(metadata)
                     if audio_arr is not None:
                         audio_waveforms.append((audio_arr, sr))
                 else:
-                    frames, metadata = _video_to_frames(vp)
+                    frames, metadata = _video_to_frames(vp, max_frames=max_frames)
                     video_frames.append(frames)
                     video_metadata.append(metadata)
             elif ctype == "image":
@@ -471,7 +498,7 @@ def _audio_to_wav(source_path: str) -> str:
 def _video_to_frames(
     video_path: str,
     *,
-    max_frames: int = MAX_VIDEO_FRAMES,
+    max_frames: int = DEFAULT_VIDEO_FRAMES,
 ) -> tuple[Any, dict[str, Any]]:
     """Uniformly sample RGB frames and preserve their source timestamps."""
     import av
@@ -508,7 +535,7 @@ def _video_to_frames(
 def _video_to_frames_with_audio(
     video_path: str,
     *,
-    max_frames: int = MAX_VIDEO_FRAMES,
+    max_frames: int = DEFAULT_VIDEO_FRAMES,
 ) -> tuple[Any, Any, int, dict[str, Any]]:
     """Decode timestamped video frames and audio using independent containers."""
     import av

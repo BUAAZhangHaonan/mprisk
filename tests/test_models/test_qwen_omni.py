@@ -233,6 +233,47 @@ def test_wrapper_extracts_last_non_padding_token_from_28_thinker_blocks(tmp_path
     assert result.provenance["talker_loaded"] is False
 
 
+def test_wrapper_requests_and_records_exactly_eight_video_frames(tmp_path) -> None:
+    model = _FakeThinker()
+    processor = _FakeProcessor()
+    process_calls = []
+
+    def process_mm_info(messages, *, use_audio_in_video):
+        process_calls.append(messages)
+        return None, None, [torch.zeros((8, 3, 2, 2))]
+
+    wrapper = QwenOmniWrapper(
+        model_key="qwen2_5_omni_7b",
+        model_path=_model_dir(tmp_path),
+        device="cpu",
+        model=model,
+        processor=processor,
+        process_mm_info_fn=process_mm_info,
+        runtime_versions={"transformers": "test", "qwen-omni-utils": "test"},
+    )
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"media")
+    request = build_condition_request(
+        sample_id="sample-1",
+        model_key="qwen2_5_omni_7b",
+        protocol="va",
+        condition="M1",
+        dataset_key="dataset",
+        split="test",
+        media_paths={"vision": str(media)},
+        transcript=None,
+        task_prompt="Identify the emotion.",
+    )
+
+    result = wrapper.extract_prefill(request)
+
+    video_item = process_calls[0][0]["content"][0]
+    assert video_item["nframes"] == 8
+    assert "fps" not in video_item
+    assert result.provenance["requested_frames"] == 8
+    assert result.provenance["actual_frames"] == 8
+
+
 def test_wrapper_rejects_wrong_hidden_state_count(tmp_path) -> None:
     class BadThinker(_FakeThinker):
         def __call__(self, **kwargs):

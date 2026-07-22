@@ -112,6 +112,7 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
         device="cpu",
         model=_Model(),
         processor=processor,
+        video_num_segments=4,
         runtime_versions={"transformers": "test"},
     )
     request = PrefillRequest(
@@ -138,7 +139,7 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "mprisk.models.gemma4._collect_media_inputs",
-        lambda _: {
+        lambda _, *, max_frames: {
             "audio": None,
             "audio_waveforms": [(np.ones(1600, dtype=np.float32), 16000)],
             "videos": [np.zeros((4, 2, 2, 3), dtype=np.uint8)],
@@ -156,3 +157,5 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     assert len(processor.call_kwargs["audio"]) == 1
     assert len(processor.call_kwargs["videos"]) == 1
     assert result.provenance["media_keys"] == ["videos", "audio"]
+    assert result.provenance["requested_frames"] == 4
+    assert result.provenance["actual_frames"] == 4

@@ -112,6 +112,7 @@ class QwenOmniWrapper(BaseModelWrapper):
         attn_implementation: str = "sdpa",
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        video_num_segments: int = 8,
         model: Any | None = None,
         processor: Any | None = None,
         process_mm_info_fn: Any | None = None,
@@ -124,6 +125,9 @@ class QwenOmniWrapper(BaseModelWrapper):
         self.attn_implementation = attn_implementation
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.video_num_segments = int(video_num_segments)
+        if not 1 <= self.video_num_segments <= 64:
+            raise ValueError("Qwen2.5-Omni video_num_segments must be in [1, 64]")
         self._contract = _load_model_contract(self.model_path)
         if dtype != self._contract["torch_dtype"]:
             raise ValueError(
@@ -202,15 +206,23 @@ class QwenOmniWrapper(BaseModelWrapper):
 
         _validate_message_audio_contract(request)
         started_at = time.perf_counter()
+        messages = _messages_with_fixed_video_frames(request.messages, self.video_num_segments)
         prompt = self.processor.apply_chat_template(
-            list(request.messages),
+            messages,
             tokenize=False,
             add_generation_prompt=True,
         )
         audios, images, videos = self._process_mm_info(
-            list(request.messages),
+            messages,
             use_audio_in_video=request.use_audio_in_video,
         )
+        requested_frames = self.video_num_segments if videos else 0
+        actual_frames = _actual_video_frames(videos)
+        if actual_frames != requested_frames:
+            raise ValueError(
+                f"Qwen2.5-Omni requested {requested_frames} video frames but decoder "
+                f"returned {actual_frames}"
+            )
         model_inputs = self.processor(
             text=[prompt],
             audio=audios,
@@ -288,6 +300,9 @@ class QwenOmniWrapper(BaseModelWrapper):
             "weight_index_sha256": _sha256(self.model_path / "model.safetensors.index.json"),
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
+            "video_sampling_method": "uniform_nframes_qwen_omni_utils_v1" if videos else None,
+            "requested_frames": requested_frames,
+            "actual_frames": actual_frames,
         }
         return PrefillResult(
             request=request,
@@ -311,12 +326,20 @@ class QwenOmniWrapper(BaseModelWrapper):
         import torch
 
         _validate_generation_audio_contract(request)
+        messages = _messages_with_fixed_video_frames(request.messages, self.video_num_segments)
         prompt = self.processor.apply_chat_template(
-            list(request.messages), tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True
         )
         audios, images, videos = self._process_mm_info(
-            list(request.messages), use_audio_in_video=request.use_audio_in_video
+            messages, use_audio_in_video=request.use_audio_in_video
         )
+        requested_frames = self.video_num_segments if videos else 0
+        actual_frames = _actual_video_frames(videos)
+        if actual_frames != requested_frames:
+            raise ValueError(
+                f"Qwen2.5-Omni requested {requested_frames} video frames but decoder "
+                f"returned {actual_frames}"
+            )
         model_inputs = self.processor(
             text=[prompt],
             audio=audios,
@@ -441,6 +464,36 @@ def _video_content(path: str | None, fps: float) -> dict[str, Any]:
     if not path:
         raise ValueError("This conditioning view requires media_paths.vision")
     return {"type": "video", "video": path, "fps": fps}
+
+
+def _messages_with_fixed_video_frames(
+    messages: tuple[Mapping[str, Any], ...],
+    requested_frames: int,
+) -> list[dict[str, Any]]:
+    prepared: list[dict[str, Any]] = []
+    for message in messages:
+        content: list[dict[str, Any]] = []
+        for raw_item in message.get("content", []):
+            item = dict(raw_item)
+            if item.get("type") == "video":
+                item.pop("fps", None)
+                item["nframes"] = requested_frames
+            content.append(item)
+        prepared.append({**dict(message), "content": content})
+    return prepared
+
+
+def _actual_video_frames(videos: Any) -> int:
+    if videos is None:
+        return 0
+    rows = list(videos) if isinstance(videos, (list, tuple)) else [videos]
+    total = 0
+    for video in rows:
+        shape = getattr(video, "shape", None)
+        if shape is None or len(shape) != 4:
+            raise ValueError("Qwen2.5-Omni decoded video must be a four-dimensional tensor")
+        total += int(shape[0])
+    return total
 
 
 def _audio_content(path: str | None) -> dict[str, Any]:
