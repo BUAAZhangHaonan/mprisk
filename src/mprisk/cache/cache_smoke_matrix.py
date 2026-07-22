@@ -24,6 +24,7 @@ from mprisk.cache.cache_matrix_queue import (
     SMOKE_SCHEMA,
     CacheJob,
     MatrixConfig,
+    build_asset_signature,
     load_matrix_config,
     normalize_manifest,
 )
@@ -139,7 +140,8 @@ def validate_smoke(
 
     token_counts: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     media_checks: Counter[str] = Counter()
-    requested_frames = _requested_frames(job.model.extra_args)
+    requested_frames = job.model.requested_frames
+    asset_signature = build_asset_signature(config, job.model)
     actual_frames: dict[str, list[int]] = {condition: [] for condition in CONDITIONS}
     provenance_contracts: set[str] = set()
     peak_gpu_memory = 0
@@ -176,6 +178,7 @@ def validate_smoke(
                 condition=str(entry["condition"]),
                 contains_video=contains_video,
                 expected_frames=requested_frames,
+                expected_method=job.model.video_sampling_method,
             )
         )
         provenance_contracts.add(
@@ -223,6 +226,9 @@ def validate_smoke(
         "trajectory_shape": list(job.model.trajectory_shape),
         "extra_args": list(job.model.extra_args),
         "requested_frames": requested_frames,
+        "frame_protocol": job.model.frame_protocol,
+        "video_sampling_method": job.model.video_sampling_method,
+        "asset_signature": asset_signature,
         "actual_frames": {
             condition: {
                 "unique": sorted(set(values)),
@@ -286,6 +292,8 @@ def _smoke_command(config: MatrixConfig, job: CacheJob, paths: SmokePaths) -> li
         "--materialize-every",
         "48",
         "--fail-fast",
+        "--video-num-segments",
+        str(job.model.requested_frames),
         *job.model.extra_args,
     ]
 
@@ -364,32 +372,13 @@ def _validate_media_contract(protocol: str, request: dict[str, Any]) -> tuple[st
     )
 
 
-def _requested_frames(extra_args: tuple[str, ...]) -> int:
-    positions = [
-        index for index, value in enumerate(extra_args) if value == "--video-num-segments"
-    ]
-    if len(positions) != 1:
-        raise ValueError(
-            "Every smoke model requires exactly one explicit --video-num-segments value"
-        )
-    index = positions[0]
-    if index + 1 >= len(extra_args):
-        raise ValueError("--video-num-segments is missing its value")
-    try:
-        value = int(extra_args[index + 1])
-    except ValueError as exc:
-        raise ValueError("--video-num-segments must be an integer") from exc
-    if not 1 <= value <= 64:
-        raise ValueError("--video-num-segments must be in [1, 64]")
-    return value
-
-
 def _validate_frame_contract(
     provenance: dict[str, Any],
     *,
     condition: str,
     contains_video: bool,
     expected_frames: int,
+    expected_method: str,
 ) -> int:
     requested = provenance.get("requested_frames")
     actual = provenance.get("actual_frames")
@@ -405,21 +394,53 @@ def _validate_frame_contract(
         )
     if contains_video:
         method = provenance.get("video_sampling_method")
-        indices = provenance.get("video_frame_indices")
-        source_total = provenance.get("video_source_total_frames")
-        if method != "uniform_midpoint_decord_v1":
-            raise ValueError(f"{condition} has unsupported video_sampling_method={method!r}")
+        indices_by_video = provenance.get("video_frame_indices")
+        source_totals = provenance.get("video_source_total_frames")
+        if method != expected_method:
+            raise ValueError(
+                f"{condition} expected video_sampling_method={expected_method!r}; "
+                f"got {method!r}"
+            )
+        if indices_by_video is None and source_totals is None:
+            return actual
+        if indices_by_video is None or source_totals is None:
+            raise ValueError(
+                f"{condition} must provide both frame indices and source frame totals"
+            )
+        if isinstance(indices_by_video, list) and all(
+            isinstance(index, int) and not isinstance(index, bool)
+            for index in indices_by_video
+        ):
+            indices_by_video = [indices_by_video]
+        if isinstance(source_totals, int) and not isinstance(source_totals, bool):
+            source_totals = [source_totals]
         if (
-            not isinstance(indices, list)
-            or len(indices) != actual
+            not isinstance(indices_by_video, list)
+            or len(indices_by_video) != 1
+            or not isinstance(indices_by_video[0], list)
+        ):
+            raise ValueError(
+                f"{condition} requires one nested video_frame_indices list; "
+                f"got {indices_by_video!r}"
+            )
+        indices = indices_by_video[0]
+        if (
+            len(indices) != actual
             or any(not isinstance(index, int) or isinstance(index, bool) for index in indices)
             or indices != sorted(set(indices))
         ):
             raise ValueError(f"{condition} has invalid video_frame_indices={indices!r}")
-        if not isinstance(source_total, int) or isinstance(source_total, bool) or source_total <= 0:
+        if (
+            not isinstance(source_totals, list)
+            or len(source_totals) != 1
+            or not isinstance(source_totals[0], int)
+            or isinstance(source_totals[0], bool)
+            or source_totals[0] <= 0
+        ):
             raise ValueError(
-                f"{condition} has invalid video_source_total_frames={source_total!r}"
+                f"{condition} has invalid video_source_total_frames={source_totals!r}"
             )
+        source_total = source_totals[0]
         if any(index < 0 or index >= source_total for index in indices):
             raise ValueError(
                 f"{condition} video_frame_indices exceed source frame count {source_total}"
@@ -467,7 +488,10 @@ def _evidence_matches(
         "smoke_manifest_sha256": manifest_sha256,
         "trajectory_shape": list(job.model.trajectory_shape),
         "extra_args": list(job.model.extra_args),
-        "requested_frames": _requested_frames(job.model.extra_args),
+        "requested_frames": job.model.requested_frames,
+        "frame_protocol": job.model.frame_protocol,
+        "video_sampling_method": job.model.video_sampling_method,
+        "asset_signature": build_asset_signature(config, job.model),
     }
     return all(value.get(key) == expected_value for key, expected_value in expected.items())
 
@@ -520,6 +544,8 @@ def launch_tmux(config: MatrixConfig, domain: str, model_keys: list[str]) -> Non
     if subprocess.run(["tmux", "has-session", "-t", session], check=False).returncode == 0:
         raise RuntimeError(f"tmux session already exists: {session}")
     command = [
+        "env",
+        f"PYTHONPATH={config.repo_root / 'src'}",
         sys.executable,
         str(config.repo_root / "scripts" / "run_cache_smoke_matrix.py"),
         "--config",
