@@ -164,13 +164,30 @@ def test_controller_fails_closed_without_launching_target(
 
     monkeypatch.setattr(controller, "launch_target_lanes", forbidden_launch)
     monkeypatch.setattr(controller, "_git_head", lambda path: "head")
+    source_summary = summarize_stage(
+        audit,
+        stage="source",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    target_summary = summarize_stage(
+        audit,
+        stage="target",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    monkeypatch.setattr(
+        controller,
+        "read_stage_progress",
+        lambda config, stage: source_summary if stage == "source" else target_summary,
+    )
     stage_controller = controller.StageController(
         config,
         paths=controller.build_controller_paths(tmp_path / "status"),
         poll_interval_seconds=1,
         source_sessions={0: "source0", 1: "source1"},
         target_sessions={0: "target0", 1: "target1"},
-        audit_fn=lambda _: audit,
+        audit_fn=lambda _: pytest.fail("full audit must not run after ledger failure"),
         sleep_fn=lambda _: None,
     )
 

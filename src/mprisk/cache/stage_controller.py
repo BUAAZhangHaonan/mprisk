@@ -18,6 +18,7 @@ from typing import Any
 
 from mprisk.cache.cache_matrix_queue import (
     MatrixConfig,
+    _ledger_status,
     _scoped_execution_paths,
     audit_matrix,
     load_matrix_config,
@@ -128,6 +129,68 @@ def expected_accepted_jobs(config: MatrixConfig, stage: str) -> int:
         if stage in model.accepted_bundle_domains
         and stage not in model.invalidated_domains
     )
+
+
+def read_stage_progress(config: MatrixConfig, stage: str) -> dict[str, Any]:
+    """Read only the canonical ledgers while a stage is still running."""
+    records: list[dict[str, Any]] = []
+    for job in config.jobs:
+        if job.domain.domain != stage:
+            continue
+        accepted = (
+            stage in job.model.accepted_bundle_domains
+            and stage not in job.model.invalidated_domains
+        )
+        if accepted:
+            status = "accepted_bundle"
+            ledger = {"status": "accepted_bundle", "missing": 0}
+        else:
+            ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
+            ledger_status = str(ledger["status"])
+            status = "ready" if ledger_status in {"absent", "incomplete"} else ledger_status
+        records.append(
+            {
+                "job_id": job.job_id,
+                "domain": stage,
+                "gpu_lane": job.model.gpu_lane,
+                "status": status,
+                "expected_tasks": job.domain.expected_tasks,
+                "ledger": ledger,
+            }
+        )
+    counts = Counter(str(record["status"]) for record in records)
+    expected_accepted = expected_accepted_jobs(config, stage)
+    missing = sum(
+        int(record["ledger"].get("missing", record["expected_tasks"]))
+        for record in records
+        if record["status"] not in TERMINAL_STATUSES
+    )
+    blocked = sorted(
+        f"{record['job_id']}={record['status']}"
+        for record in records
+        if record["status"] not in NONBLOCKING_STATUSES
+    )
+    strict_complete = (
+        len(records) == 16
+        and counts.get("complete", 0) == 16 - expected_accepted
+        and counts.get("accepted_bundle", 0) == expected_accepted
+        and sum(counts.values()) == 16
+        and missing == 0
+        and not blocked
+    )
+    return {
+        "stage": stage,
+        "expected_jobs": 16,
+        "expected_complete": 16 - expected_accepted,
+        "expected_accepted": expected_accepted,
+        "status_counts": dict(sorted(counts.items())),
+        "missing_tasks": missing,
+        "blocked": blocked,
+        "signature_mismatches": [],
+        "strict_complete": strict_complete,
+        "audit_level": "ledger_progress",
+        "records": records,
+    }
 
 
 def tmux_session_exists(session: str) -> bool:
@@ -371,26 +434,12 @@ class StageController:
         os.close(lock_fd)
         source: dict[str, Any] | None = None
         target: dict[str, Any] | None = None
+        source_gate_passed = False
         try:
             self.emit("controller_started")
             while True:
-                audit = self.audit_fn(self.config)
-                source = summarize_stage(
-                    audit,
-                    stage="source",
-                    expected_jobs=16,
-                    expected_accepted=expected_accepted_jobs(
-                        self.config, "source"
-                    ),
-                )
-                target = summarize_stage(
-                    audit,
-                    stage="target",
-                    expected_jobs=16,
-                    expected_accepted=expected_accepted_jobs(
-                        self.config, "target"
-                    ),
-                )
+                source = read_stage_progress(self.config, "source")
+                target = read_stage_progress(self.config, "target")
                 if source["blocked"] or source["signature_mismatches"]:
                     raise RuntimeError(
                         "Source audit failed: "
@@ -416,41 +465,84 @@ class StageController:
                     )
                     self.sleep_fn(self.poll_interval_seconds)
                     continue
-                source_finalized, source_supervisors = stage_is_finalized(
-                    self.config,
-                    stage="source",
-                    sessions=self.source_sessions,
-                )
-                if not source_finalized:
-                    self.write_status(
-                        "source_finalizing",
-                        source=source,
-                        target=target,
-                        supervisors=source_supervisors,
+                if not source_gate_passed:
+                    source_finalized, source_supervisors = stage_is_finalized(
+                        self.config,
+                        stage="source",
+                        sessions=self.source_sessions,
                     )
-                    self.sleep_fn(self.poll_interval_seconds)
-                    continue
-                if not audit.get("ready_to_launch"):
-                    raise RuntimeError(
-                        "Full strict audit is not launchable after source completion"
+                    if not source_finalized:
+                        self.write_status(
+                            "source_finalizing",
+                            source=source,
+                            target=target,
+                            supervisors=source_supervisors,
+                        )
+                        self.sleep_fn(self.poll_interval_seconds)
+                        continue
+                    audit = self.audit_fn(self.config)
+                    source = summarize_stage(
+                        audit,
+                        stage="source",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "source"
+                        ),
                     )
-                if not self.paths.source_audit.is_file():
+                    target = summarize_stage(
+                        audit,
+                        stage="target",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "target"
+                        ),
+                    )
+                    if not source["strict_complete"]:
+                        raise RuntimeError(
+                            "Source ledger candidate failed the full strict audit"
+                        )
+                    if not audit.get("ready_to_launch"):
+                        raise RuntimeError(
+                            "Full strict audit is not launchable after source completion"
+                        )
                     _atomic_json(self.paths.source_audit, audit)
                     self.emit("source_audit_complete")
-                if target["blocked"] or target["signature_mismatches"]:
-                    raise RuntimeError(
-                        "Target prelaunch audit failed: "
-                        + json.dumps(
-                            {
-                                "blocked": target["blocked"],
-                                "signature_mismatches": target[
-                                    "signature_mismatches"
-                                ],
-                            },
-                            sort_keys=True,
+                    if target["blocked"] or target["signature_mismatches"]:
+                        raise RuntimeError(
+                            "Target prelaunch audit failed: "
+                            + json.dumps(
+                                {
+                                    "blocked": target["blocked"],
+                                    "signature_mismatches": target[
+                                        "signature_mismatches"
+                                    ],
+                                },
+                                sort_keys=True,
+                            )
                         )
-                    )
+                    source_gate_passed = True
                 if target["strict_complete"]:
+                    audit = self.audit_fn(self.config)
+                    source = summarize_stage(
+                        audit,
+                        stage="source",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "source"
+                        ),
+                    )
+                    target = summarize_stage(
+                        audit,
+                        stage="target",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "target"
+                        ),
+                    )
+                    if not source["strict_complete"] or not target["strict_complete"]:
+                        raise RuntimeError(
+                            "Final ledger candidate failed the full strict audit"
+                        )
                     finalized, supervisors = stage_is_finalized(
                         self.config,
                         stage="target",
