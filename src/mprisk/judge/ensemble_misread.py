@@ -29,6 +29,7 @@ CONFIG_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
 SIGNATURE_SCHEMA = "mprisk_ensemble_misread_signature_v1"
 OUTPUT_SCHEMA = "mprisk_ensemble_misread_label_v1"
 PROVENANCE_SCHEMA = "mprisk_ensemble_misread_provenance_v1"
+GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
 ARBITRATION_PROMPT = (
     "Act as the final adjudicator for an affective Misread decision. Independently compare the "
     "reference and diagnostic descriptions, then use the three blinded preliminary assessments "
@@ -52,6 +53,7 @@ class EnsembleMisreadConfig(BaseModel):
     flash_model: Literal["deepseek-v4-flash"]
     pro_model: Literal["deepseek-v4-pro"]
     flash_replicates: Literal[3]
+    gt_coverage_receipt_path: Path
     gt_description_manifest_path: Path
     diagnostic_affect_description_manifest_path: Path
     diagnostic_run_id: str
@@ -137,6 +139,7 @@ def load_api_key() -> str:
 
 def build_sample_tasks(config: EnsembleMisreadConfig) -> list[SampleTask]:
     references = _index(_read_jsonl(config.gt_description_manifest_path), "GT_DESCRIPTION")
+    _validate_gt_coverage_receipt(config, set(references))
     diagnostics = _index(
         _read_jsonl(config.diagnostic_affect_description_manifest_path),
         "DIAGNOSTIC_AFFECT_DESCRIPTION",
@@ -168,6 +171,46 @@ def build_sample_tasks(config: EnsembleMisreadConfig) -> list[SampleTask]:
             )
         )
     return tasks
+
+
+def _validate_gt_coverage_receipt(
+    config: EnsembleMisreadConfig, sample_ids: set[str]
+) -> None:
+    if not config.gt_coverage_receipt_path.is_file():
+        raise FileNotFoundError(config.gt_coverage_receipt_path)
+    receipt = json.loads(config.gt_coverage_receipt_path.read_text(encoding="utf-8"))
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("schema_name") != GT_COVERAGE_SCHEMA
+        or receipt.get("status") != "PASS"
+    ):
+        raise ValueError("Target GT coverage receipt is not PASS")
+    protocols = receipt.get("protocols")
+    record = protocols.get(config.protocol) if isinstance(protocols, dict) else None
+    if not isinstance(record, dict) or record.get("complete") is not True:
+        raise ValueError(f"Target GT coverage is incomplete for {config.protocol}")
+    expected = len(sample_ids)
+    checks = {
+        "expected_rows": expected,
+        "observed_rows": expected,
+        "unique_sample_ids": expected,
+        "blank_sample_ids": 0,
+        "duplicate_sample_ids": 0,
+        "protocol_mismatches": 0,
+        "nonempty_gt_descriptions": expected,
+        "missing_gt_descriptions": 0,
+        "sample_id_set_sha256": _hash(_canonical(sorted(sample_ids))),
+    }
+    mismatches = {
+        key: {"expected": value, "observed": record.get(key)}
+        for key, value in checks.items()
+        if record.get(key) != value
+    }
+    if mismatches:
+        raise ValueError(
+            "Target GT coverage receipt does not match the judgment input: "
+            + _canonical(mismatches)
+        )
 
 
 def build_flash_calls(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]) -> list[CallSpec]:
@@ -711,6 +754,7 @@ def _signature(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]) -> di
         "confidence_threshold": config.confidence_threshold,
         "prompt_sha256": _hash(MISREAD_JUDGMENT_PROMPT),
         "arbitration_prompt_sha256": _hash(ARBITRATION_PROMPT),
+        "gt_coverage_receipt_sha256": _sha256(config.gt_coverage_receipt_path),
         "gt_manifest_sha256": _sha256(config.gt_description_manifest_path),
         "diagnostic_manifest_sha256": _sha256(config.diagnostic_affect_description_manifest_path),
         "sample_count": len(tasks),

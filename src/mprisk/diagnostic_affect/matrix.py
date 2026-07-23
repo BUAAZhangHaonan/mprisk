@@ -24,6 +24,11 @@ DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
 ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
 REQUEST_PLAN_SCHEMA = "mprisk_misread_request_plan_v1"
 SOURCE_LABEL_SCHEMA = "mprisk_v2_misread_label_v1"
+GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
+
+
+class TargetGTCoverageBlocked(RuntimeError):
+    """Raised after recording that canonical target GT is incomplete."""
 
 
 def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
@@ -82,6 +87,24 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
     }
     if target_model_keys != set(canonical_models):
         raise ValueError("Target jobs do not match the canonical 16-model cache matrix")
+    gt_coverage = _audit_target_gt_coverage(
+        jobs=jobs,
+        bundle_root=bundle_root,
+        canonical_domains=canonical_domains,
+    )
+    coverage_path = destination / "target_gt_coverage_audit.json"
+    _atomic_json(coverage_path, gt_coverage)
+    if gt_coverage["status"] != "PASS":
+        _write_blocked_gt_plan(
+            destination=destination,
+            config_path=config_path,
+            run_id=_required_text(config, "run_id"),
+            coverage=gt_coverage,
+            coverage_path=coverage_path,
+        )
+        raise TargetGTCoverageBlocked(
+            "Target GT_DESCRIPTION coverage is incomplete; Misread request planning is blocked"
+        )
     source_labels = _validate_existing_source_labels(
         judgment_root=source_judgment_root,
         bundle_root=bundle_root,
@@ -189,6 +212,7 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "flash_model": config["flash_model"],
             "pro_model": config["pro_model"],
             "flash_replicates": 3,
+            "gt_coverage_receipt_path": str(coverage_path),
             "gt_description_manifest_path": str(gt_manifest),
             "diagnostic_affect_description_manifest_path": str(diagnostic_manifest),
             "diagnostic_run_id": diagnostic_payload["run_id"],
@@ -378,13 +402,8 @@ def _normalize_manifest_row(
 
 def _gt_row(row: dict[str, Any], *, domain: str, dataset: str, split: str) -> dict[str, Any]:
     if domain == "target":
-        views = row.get("views")
-        m12 = views.get("M12") if isinstance(views, dict) else None
-        label = m12.get("label") if isinstance(m12, dict) else None
-        if label not in {"positive", "negative", "neutral"}:
-            raise ValueError(f"Invalid target M12 valence: {row.get('sample_id')}")
-        description = f"The overall emotional valence is {label}."
-        basis = "frozen_views.M12.label"
+        description = _required_text(row, "GT_DESCRIPTION")
+        basis = "canonical_target_manifest.GT_DESCRIPTION"
     else:
         description = _required_text(row, "gt_describe")
         basis = "frozen_gt_describe"
@@ -397,6 +416,158 @@ def _gt_row(row: dict[str, Any], *, domain: str, dataset: str, split: str) -> di
         "GT_DESCRIPTION": description,
         "reference_basis": basis,
     }
+
+
+def _audit_target_gt_coverage(
+    *,
+    jobs: list[dict[str, Any]],
+    bundle_root: Path,
+    canonical_domains: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    protocol_inputs: dict[str, tuple[Path, int]] = {}
+    for raw_job in jobs:
+        job = _validate_job(raw_job)
+        if job["domain"] != "target":
+            continue
+        protocol = job["protocol"].upper()
+        canonical = canonical_domains.get(f"target:{protocol.lower()}")
+        if canonical is None:
+            raise ValueError(f"Missing canonical target protocol: {protocol}")
+        manifest = (bundle_root / job["manifest_path"]).resolve()
+        _require_within(manifest, bundle_root)
+        if manifest != Path(canonical["source_manifest"]):
+            raise ValueError(f"Target GT manifest is not canonical: {job['job_id']}")
+        expected = int(canonical["expected_samples"])
+        if job["expected_count"] != expected:
+            raise ValueError(f"Target GT expected count mismatch: {job['job_id']}")
+        previous = protocol_inputs.setdefault(protocol, (manifest, expected))
+        if previous != (manifest, expected):
+            raise ValueError(f"Target jobs disagree on the {protocol} GT input")
+    if set(protocol_inputs) != {"VT", "VA"}:
+        raise ValueError("Target GT audit requires exactly VT and VA manifests")
+
+    protocols: dict[str, dict[str, Any]] = {}
+    id_sets: dict[str, set[str]] = {}
+    for protocol, (manifest, expected) in sorted(protocol_inputs.items()):
+        rows = _read_jsonl(manifest)
+        ids = [
+            row.get("sample_id") if isinstance(row.get("sample_id"), str) else ""
+            for row in rows
+        ]
+        nonblank_ids = [sample_id.strip() for sample_id in ids if sample_id.strip()]
+        unique_ids = set(nonblank_ids)
+        id_sets[protocol] = unique_ids
+        nonempty_gt = sum(
+            isinstance(row.get("GT_DESCRIPTION"), str)
+            and bool(row["GT_DESCRIPTION"].strip())
+            for row in rows
+        )
+        record = {
+            "protocol": protocol,
+            "manifest_path": str(manifest),
+            "manifest_sha256": _sha256(manifest),
+            "expected_rows": expected,
+            "observed_rows": len(rows),
+            "unique_sample_ids": len(unique_ids),
+            "blank_sample_ids": len(rows) - len(nonblank_ids),
+            "duplicate_sample_ids": len(nonblank_ids) - len(unique_ids),
+            "protocol_mismatches": sum(
+                str(row.get("protocol", "")).upper() != protocol for row in rows
+            ),
+            "nonempty_gt_descriptions": nonempty_gt,
+            "missing_gt_descriptions": len(rows) - nonempty_gt,
+            "sample_id_set_sha256": _hash_json(sorted(unique_ids)),
+        }
+        record["complete"] = (
+            record["observed_rows"] == expected
+            and record["unique_sample_ids"] == expected
+            and record["blank_sample_ids"] == 0
+            and record["duplicate_sample_ids"] == 0
+            and record["protocol_mismatches"] == 0
+            and record["nonempty_gt_descriptions"] == expected
+            and record["missing_gt_descriptions"] == 0
+        )
+        protocols[protocol] = record
+    overlap = id_sets["VT"] & id_sets["VA"]
+    complete = all(record["complete"] for record in protocols.values()) and not overlap
+    return {
+        "schema_name": GT_COVERAGE_SCHEMA,
+        "status": "PASS" if complete else "BLOCKED",
+        "required_field": "GT_DESCRIPTION",
+        "protocols": protocols,
+        "cross_protocol_sample_id_overlap": len(overlap),
+        "expected_unique_samples": sum(
+            record["expected_rows"] for record in protocols.values()
+        ),
+        "nonempty_gt_descriptions": sum(
+            record["nonempty_gt_descriptions"] for record in protocols.values()
+        ),
+        "missing_gt_descriptions": sum(
+            record["missing_gt_descriptions"] for record in protocols.values()
+        ),
+    }
+
+
+def _write_blocked_gt_plan(
+    *,
+    destination: Path,
+    config_path: Path,
+    run_id: str,
+    coverage: dict[str, Any],
+    coverage_path: Path,
+) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    invalidated: list[dict[str, str]] = []
+    prior_plan_path = destination / "plan.json"
+    if prior_plan_path.is_file():
+        prior_plan = json.loads(prior_plan_path.read_text(encoding="utf-8"))
+        prior_invalidated = prior_plan.get("invalidated_pre_gate_artifacts", [])
+        if isinstance(prior_invalidated, list):
+            invalidated.extend(
+                record
+                for record in prior_invalidated
+                if isinstance(record, dict)
+                and set(record) == {"original", "preserved_as"}
+            )
+    for name in ("request_plan_ledger.jsonl", "jobs.jsonl", "jobs"):
+        source = destination / name
+        invalid = destination / f"{name}.pre_gt_gate.INVALID"
+        if source.exists():
+            if invalid.exists():
+                raise FileExistsError(invalid)
+            source.replace(invalid)
+            record = {"original": str(source), "preserved_as": str(invalid)}
+            if record not in invalidated:
+                invalidated.append(record)
+    plan = {
+        "schema_name": PLAN_SCHEMA,
+        "status": "blocked_gt_coverage",
+        "run_id": run_id,
+        "config_path": str(config_path.expanduser().resolve()),
+        "config_sha256": _sha256(config_path),
+        "api_requests_issued": 0,
+        "api_key_accessed": False,
+        "request_plan_ledger_path": None,
+        "target_gt_coverage_audit_path": str(coverage_path),
+        "target_gt_coverage_audit_sha256": _sha256(coverage_path),
+        "missing_gt_descriptions": coverage["missing_gt_descriptions"],
+        "invalidated_pre_gate_artifacts": invalidated,
+    }
+    _atomic_json(destination / "plan.json", plan)
+    lines = [
+        "# Cross-domain Misread preparation",
+        "",
+        "- Status: `BLOCKED`",
+        "- Reason: canonical target `GT_DESCRIPTION` coverage is incomplete",
+        f"- Non-empty GT descriptions: `{coverage['nonempty_gt_descriptions']}`",
+        f"- Missing GT descriptions: `{coverage['missing_gt_descriptions']}`",
+        "- API requests issued: `0`",
+        "- API key accessed: `false`",
+        "- Request plan: `not generated`",
+        f"- Coverage audit: `{coverage_path}`",
+        "",
+    ]
+    _atomic_bytes(destination / "RUN_STATUS.md", "\n".join(lines).encode())
 
 
 def _validate_formal_cache_contract(

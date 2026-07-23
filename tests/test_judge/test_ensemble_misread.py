@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,6 +22,7 @@ def _jsonl(path: Path, rows: list[dict]) -> None:
 def _config(tmp_path: Path) -> EnsembleMisreadConfig:
     gt = tmp_path / "gt.jsonl"
     diagnostic = tmp_path / "diagnostic.jsonl"
+    coverage = tmp_path / "gt_coverage.json"
     _jsonl(
         gt,
         [
@@ -47,6 +49,39 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
             )
         ],
     )
+    sample_ids = ["a", "b"]
+    sample_digest = hashlib.sha256(
+        json.dumps(
+            sample_ids,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    coverage.write_text(
+        json.dumps(
+            {
+                "schema_name": "mprisk_target_gt_coverage_v1",
+                "status": "PASS",
+                "protocols": {
+                    "VT": {
+                        "complete": True,
+                        "expected_rows": 2,
+                        "observed_rows": 2,
+                        "unique_sample_ids": 2,
+                        "blank_sample_ids": 0,
+                        "duplicate_sample_ids": 0,
+                        "protocol_mismatches": 0,
+                        "nonempty_gt_descriptions": 2,
+                        "missing_gt_descriptions": 0,
+                        "sample_id_set_sha256": sample_digest,
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     return EnsembleMisreadConfig(
         schema_name="mprisk_ensemble_misread_judgment_config_v1",
         run_id="run",
@@ -60,6 +95,7 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         flash_model="deepseek-v4-flash",
         pro_model="deepseek-v4-pro",
         flash_replicates=3,
+        gt_coverage_receipt_path=coverage,
         gt_description_manifest_path=gt,
         diagnostic_affect_description_manifest_path=diagnostic,
         diagnostic_run_id="diag",
@@ -126,6 +162,29 @@ def test_dry_run_never_requires_api_key(tmp_path: Path, monkeypatch) -> None:
     assert result["unique_request_payload_sha256_count"] == 2
     assert result["api_requests_issued"] == 0
     assert result["api_key_accessed"] is False
+
+
+def test_dry_run_and_execute_block_non_pass_gt_coverage(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    receipt = json.loads(config.gt_coverage_receipt_path.read_text(encoding="utf-8"))
+    receipt["status"] = "BLOCKED"
+    config.gt_coverage_receipt_path.write_text(
+        json.dumps(receipt) + "\n", encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="coverage receipt is not PASS"):
+        dry_run(config)
+    client = FakeClient()
+    with pytest.raises(ValueError, match="coverage receipt is not PASS"):
+        asyncio.run(run_ensemble(config, client=client))
+    assert client.calls == 0
+
+
+def test_legacy_config_without_gt_coverage_receipt_is_rejected(tmp_path: Path) -> None:
+    payload = _config(tmp_path).model_dump()
+    payload.pop("gt_coverage_receipt_path")
+    with pytest.raises(ValueError, match="gt_coverage_receipt_path"):
+        EnsembleMisreadConfig.model_validate(payload)
 
 
 def test_ensemble_is_resumable_and_fail_closed(tmp_path: Path) -> None:
