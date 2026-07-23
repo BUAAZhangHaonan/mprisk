@@ -59,8 +59,9 @@ manifests, sidecars, checkpoints, prompt IDs, cache roots, or figure-map keys.
   same explicit version token.
 - Generic modules and symbols describe the task. Model, protocol, condition, dataset, and split
   belong in configs and provenance, not module names.
-- Legacy configs live under `configs/legacy/` and are read-only records. Active loaders reject
-  their schemas; there are no import aliases, symlinks, or silent dual-schema readers.
+- Retired configs remain available through Git history, not the active config tree. Active loaders
+  accept only canonical versioned schemas; there are no import aliases, symlinks, or silent
+  dual-schema readers.
 
 Diagnostic Affect Description v2 uses `schema_name` consistently in configs, manifests,
 signatures, and provenance. Every artifact also carries the same immutable `run_id`. Misread

@@ -8,7 +8,7 @@ MIND keeps model assets in a unified registry and validates them before large ru
 
 - `configs/assets/model_assets.yaml`
 - `src/mprisk/assets/registry.py`
-- `scripts/verify_assets.py`
+- `tests/test_assets/test_registry.py`
 - `outputs/assets/*`
 
 ## Full-Cache Surface

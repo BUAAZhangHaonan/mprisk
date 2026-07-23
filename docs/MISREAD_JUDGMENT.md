@@ -24,5 +24,5 @@ exactly cover that queue. Each `mprisk_misread_label_v1` row contains the canoni
 1 for Misread and 0 for Non-misread. The accompanying `misread_labels_provenance.json` binds the
 source decisions, human review, label schema, counts, and checksums.
 
-The previous 162-row Qwen-specific v1 config and instructions are preserved under
-`configs/legacy/judge/` and `docs/legacy/`. They are read-only provenance, not an active interface.
+The retired 162-row Qwen-specific v1 config and instructions remain available through Git history.
+They are not part of the checked-out active interface.

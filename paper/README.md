@@ -1,6 +1,6 @@
 # Paper
 
-This folder owns the revised manuscript, appendix, figures, tables, legacy notes, and response letter.
+This folder owns the revised manuscript, appendix, figures, tables, and response letter.
 
 ## Revision Target
 
@@ -25,4 +25,6 @@ The main paper should center on four evidence blocks:
 
 ## Paper Export Rule
 
-Figures and tables in `paper/figures/generated/` and `paper/tables/generated/` must be generated from `outputs/` by export scripts. Manual copies should stay in `paper/legacy/` or `paper/figures/legacy/`.
+Figures and tables in `paper/figures/generated/` and `paper/tables/generated/` must be generated from
+`outputs/` by export scripts. Manual historical copies are recovered from Git history and are not
+kept in the active tree.

@@ -6,7 +6,6 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-EXACT_INACTIVE_ROOTS = (("configs", "legacy"),)
 IMMUTABLE_V1_SCHEMAS = {
     "configs/labels/sample_type_schema.yaml",
     "configs/labels/stage1_emotion_schema.yaml",
@@ -27,11 +26,6 @@ LEGACY_PUBLIC_FIELDS = (
 )
 
 
-def _is_exact_inactive_path(path: Path) -> bool:
-    parts = path.relative_to(ROOT).parts
-    return any(parts[: len(root)] == root for root in EXACT_INACTIVE_ROOTS)
-
-
 def _active_text_files() -> list[Path]:
     roots = (ROOT / "src/mprisk", ROOT / "scripts", ROOT / "configs")
     suffixes = {".py", ".yaml", ".yml"}
@@ -39,7 +33,7 @@ def _active_text_files() -> list[Path]:
         path
         for base in roots
         for path in base.rglob("*")
-        if path.is_file() and path.suffix in suffixes and not _is_exact_inactive_path(path)
+        if path.is_file() and path.suffix in suffixes
     ]
 
 

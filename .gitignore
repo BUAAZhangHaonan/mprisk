@@ -4,6 +4,8 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.hypothesis/
+.ipynb_checkpoints/
 .coverage
 htmlcov/
 *.egg-info/
@@ -17,6 +19,40 @@ batch_state.sqlite3*
 .venv/
 venv/
 env/
+
+# Editors and operating-system metadata
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local backups and rejected patches
+*.bak
+*.bak.*
+*.backup
+*.backup.*
+*.orig
+*.rej
+
+# Temporary work and audit scratch
+/tmp/
+/temp/
+/scratch/
+/.audit/
+/audit_tmp/
+*.tmp
+*.temp
+
+# Runtime status and local experiment products
+RUN_STATUS.md
+/wandb/
+/runs/
+/checkpoints/
+
+# Delivery staging marker
+.codex_delivery_staging
 
 # Frontend
 node_modules/

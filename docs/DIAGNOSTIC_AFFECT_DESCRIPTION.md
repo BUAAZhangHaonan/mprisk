@@ -57,9 +57,9 @@ PYTHONPATH=src python scripts/verify_diagnostic_affect_descriptions.py \
   --dataset ch_sims_v2 --split test --smoke
 ```
 
-## Legacy artifact
+## Frozen artifact boundary
 
 The frozen 162-row Qwen2.5-Omni artifact remains unchanged at
-`outputs/diagnostics/qwen2_5_omni_7b_m12_v1/`. Its old config is retained only under
-`configs/legacy/experiments/` to document that read-only run. The active generator does not read,
-resume, migrate, or overwrite that directory.
+`outputs/diagnostics/qwen2_5_omni_7b_m12_v1/`. The retired configuration is available through Git
+history rather than the active config tree. The active generator does not read, resume, migrate, or
+overwrite that directory.

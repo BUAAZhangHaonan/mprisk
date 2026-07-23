@@ -7,7 +7,7 @@ artifacts. The distinction prevents cleanup work from invalidating resumable exp
 
 - `src/mprisk/`: importable task, cache, model, representation, state, evaluation, and export code.
 - `scripts/`: thin command-line entry points. Implemented commands delegate to `src/mprisk/`.
-- `configs/`: versioned active configuration, except the exact `configs/legacy/` subtree.
+- `configs/`: versioned active configuration only. Retired configs remain in Git history.
 - `tests/`: unit, contract, smoke, and provenance tests.
 
 An active command must either perform its documented task or fail explicitly. A scaffold must not
@@ -18,13 +18,13 @@ return a successful status for an unimplemented experiment.
 The following files are retained because existing manifests, ledgers, caches, or published exports
 refer to their exact names:
 
-- `configs/legacy/`;
 - frozen v1 schemas named in `docs/NAMING_CONVENTIONS.md`;
 - existing cache strategy, prompt-set, model, condition, and figure-map identity keys;
 - committed provenance records and control manifests.
 
 These surfaces are not templates for new code. New semantic contracts receive new versioned names;
-existing artifacts are never silently rewritten in place.
+existing artifacts are never silently rewritten in place. Retired configs, notes, and manuscript
+copies are recovered from Git history instead of remaining in the active tree.
 
 ## Generated and large artifacts
 
