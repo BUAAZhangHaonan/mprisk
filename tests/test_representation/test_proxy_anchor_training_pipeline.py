@@ -143,7 +143,7 @@ def _config(max_epochs: int = 3) -> TrainingConfig:
     )
 
 
-def _pa_only_config(max_epochs: int = 3) -> TrainingConfig:
+def _proxy_anchor_config(max_epochs: int = 3) -> TrainingConfig:
     return replace(
         _config(max_epochs=max_epochs),
         enable_state_supervision=False,
@@ -155,11 +155,11 @@ def _pa_only_config(max_epochs: int = 3) -> TrainingConfig:
     )
 
 
-def test_tme_pa_only_training_selects_on_val_ac_and_exports_unit_z_r(tmp_path) -> None:
+def test_proxy_anchor_training_selects_on_val_ac_and_exports_unit_z_r(tmp_path) -> None:
     dataset = _dataset(tmp_path)
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_pa_only_config(),
+        config=_proxy_anchor_config(),
         output_dir=tmp_path / "run",
     )
 
@@ -265,12 +265,12 @@ def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_pa
     dataset = _dataset(tmp_path)
     first = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_pa_only_config(max_epochs=1),
+        config=_proxy_anchor_config(max_epochs=1),
         output_dir=tmp_path / "run",
     )
     resumed = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_pa_only_config(max_epochs=3),
+        config=_proxy_anchor_config(max_epochs=3),
         output_dir=tmp_path / "run",
         resume_checkpoint=first.last_checkpoint_path,
     )
@@ -283,7 +283,7 @@ def test_training_resume_requires_matching_signature_and_continues_epochs(tmp_pa
     with pytest.raises(ValueError, match="resume signature mismatch"):
         train_trajectory_encoder(
             dataset_path=bad,
-            config=_pa_only_config(max_epochs=3),
+            config=_proxy_anchor_config(max_epochs=3),
             output_dir=tmp_path / "bad-run",
             resume_checkpoint=first.last_checkpoint_path,
         )
@@ -472,7 +472,7 @@ def test_relation_training_reads_direct_float32_layer_hidden_cache(tmp_path) -> 
     dataset = _dataset(tmp_path, direct_2d=True)
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_pa_only_config(max_epochs=1),
+        config=_proxy_anchor_config(max_epochs=1),
         output_dir=tmp_path / "run-2d",
     )
     checkpoint = torch.load(result.best_checkpoint_path, map_location="cpu")
@@ -661,7 +661,7 @@ def test_training_never_loads_calibration_or_official_test_cache(tmp_path) -> No
 
     result = train_trajectory_encoder(
         dataset_path=dataset,
-        config=_pa_only_config(max_epochs=1),
+        config=_proxy_anchor_config(max_epochs=1),
         output_dir=tmp_path / "run-excluded",
     )
 

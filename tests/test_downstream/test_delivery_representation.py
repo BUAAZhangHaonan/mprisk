@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -16,7 +15,6 @@ from mprisk.experiments.delivery_representation import (
     BASELINE_COMPLETION_SCHEMA,
     BASELINE_METHODS,
     DSTRONG_METHOD,
-    DTHETA_METHOD,
     METHODS,
     PARTIALLY_RUNNABLE,
     PENDING_CACHE_UNION,
@@ -145,7 +143,7 @@ def test_baseline_job_uses_registered_native_config_for_relation_identity() -> N
     assert identity.protocol == job.protocol
 
 
-def test_global_dstrong_v2_changes_only_d_supervision_weight() -> None:
+def test_production_template_locks_final_dstrong_config() -> None:
     root = Path(__file__).parents[2]
     template = yaml.safe_load(
         (
@@ -156,20 +154,20 @@ def test_global_dstrong_v2_changes_only_d_supervision_weight() -> None:
 
     for job in template["jobs"]:
         configs = job["training_configs"]
-        assert set(configs) == set(METHODS)
-        base_path = root / configs[DTHETA_METHOD]["path"]
+        assert tuple(configs) == METHODS
         strong_path = root / configs[DSTRONG_METHOD]["path"]
-        base = load_training_config(base_path)
         strong = load_training_config(strong_path)
+        assert strong.enable_state_supervision is True
         assert strong.d_supervision_weight == pytest.approx(0.5)
-        assert replace(strong, d_supervision_weight=base.d_supervision_weight) == base
+        assert strong.angular_supervision_weight == pytest.approx(0.2)
         assert strong_path.name.endswith("_tme_pa_dstrong_v2.yaml")
-        base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
         strong_raw = yaml.safe_load(strong_path.read_text(encoding="utf-8"))
-        assert base_raw["key"] != strong_raw["key"]
+        assert strong_raw["key"] == (
+            f"delivery_20260716_{job['model_key']}_{DSTRONG_METHOD}_seed20260717"
+        )
 
 
-def test_dstrong_method_can_be_selected_without_running_infeasible_pilot() -> None:
+def test_dstrong_is_the_only_registered_tme_method() -> None:
     assert _normalize_method_selection({DSTRONG_METHOD}) == (DSTRONG_METHOD,)
     assert _normalize_method_selection(None) == METHODS
     with pytest.raises(DeliveryPlanError, match="unknown method"):

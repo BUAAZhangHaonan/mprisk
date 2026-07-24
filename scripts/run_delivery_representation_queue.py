@@ -21,8 +21,6 @@ def main() -> int:
         "--method-key",
         action="append",
         choices=(
-            "tme_pa_only_v1",
-            "tme_pa_dtheta_v1",
             "tme_pa_dstrong_v2",
             "single_point_binary_v1",
             "trajectory_mlp_binary_v1",

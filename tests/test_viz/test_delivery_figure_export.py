@@ -128,7 +128,7 @@ def test_delivery_state_ready_requires_all_three_exact_dstrong_markers(tmp_path:
 
 def test_old_tme_variants_never_satisfy_final_state_readiness(tmp_path: Path) -> None:
     for model_key, _protocol, _label in export.MODELS:
-        _delivery_run(tmp_path, model_key, method="tme_pa_dtheta_v1")
+        _delivery_run(tmp_path, model_key, method="obsolete_tme_method")
     assert export._ready_state_artifacts(tmp_path) is None
 
 
