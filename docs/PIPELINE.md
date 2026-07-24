@@ -292,7 +292,6 @@ Build or normalize the prompt-conditioned cache manifest from existing model-env
 
 ```bash
 python scripts/build_prompt_conditioned_cache.py \
-  --mode A \
   --source-manifest outputs/prompt_conditioned_cache/source_rows.jsonl \
   --model-key qwen3_vl_8b \
   --protocol VT \

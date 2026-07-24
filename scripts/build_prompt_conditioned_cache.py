@@ -17,7 +17,6 @@ from mprisk.cache.prompt_conditioned_cache import (
 )
 from mprisk.utils.io import write_json, write_jsonl
 
-
 DEFAULT_OUTPUT_ROOT = Path("outputs/prompt_conditioned_cache")
 
 
@@ -34,18 +33,12 @@ class BuildPromptConditionedCacheResult:
 
 def build_prompt_conditioned_cache(
     *,
-    mode: str = "A",
-    source_manifest: str | Path | None = None,
+    source_manifest: str | Path,
     output_root: str | Path = DEFAULT_OUTPUT_ROOT,
     model_key: str | None = None,
     protocol: str | None = None,
     prompt_set_key: str | None = None,
 ) -> BuildPromptConditionedCacheResult:
-    if mode.upper() != "A":
-        raise NotImplementedError("Mode B is not implemented yet; use mode A with --source-manifest")
-    if source_manifest is None:
-        raise ValueError("mode A requires --source-manifest")
-
     source_rows = _read_source_rows(source_manifest)
     entries: list[PromptConditionedStateEntry] = []
     missing: list[dict[str, Any]] = []
@@ -82,13 +75,18 @@ def build_prompt_conditioned_cache(
         values=[entry.prompt_set_key for entry in entries],
     )
 
-    output_dir = Path(output_root) / resolved_model_key / resolved_protocol / resolved_prompt_set_key
+    output_dir = (
+        Path(output_root)
+        / resolved_model_key
+        / resolved_protocol
+        / resolved_prompt_set_key
+    )
     manifest_path = write_prompt_conditioned_manifest(output_dir / "manifest.jsonl", entries)
     missing_path = write_jsonl(output_dir / "missing_rows.jsonl", missing)
     summary_path = write_json(
         output_dir / "summary.json",
         {
-            "mode": "A",
+            "source_type": "existing_prompted_cache_manifest",
             "source_manifest": str(source_manifest),
             "model_key": resolved_model_key,
             "protocol": resolved_protocol,
@@ -119,10 +117,15 @@ def summary_path_for(output_dir: str | Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Build prompt-conditioned cache manifests from existing prompted cache metadata."
+        description=(
+            "Build prompt-conditioned cache manifests from existing prompted cache metadata."
+        )
     )
-    parser.add_argument("--mode", default="A", help="Build mode. Only mode A is implemented.")
-    parser.add_argument("--source-manifest", help="Existing prompted cache JSONL metadata.")
+    parser.add_argument(
+        "--source-manifest",
+        required=True,
+        help="Existing prompted cache JSONL metadata.",
+    )
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--model-key")
     parser.add_argument("--protocol")
@@ -131,14 +134,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         result = build_prompt_conditioned_cache(
-            mode=args.mode,
             source_manifest=args.source_manifest,
             output_root=args.output_root,
             model_key=args.model_key,
             protocol=args.protocol,
             prompt_set_key=args.prompt_set_key,
         )
-    except (NotImplementedError, ValueError) as exc:
+    except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 2
     print(result.manifest_path)

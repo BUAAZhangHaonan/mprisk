@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 from mprisk.cache.prompt_conditioned_cache import (
     PromptConditionedManifest,
@@ -10,7 +12,7 @@ from mprisk.cache.prompt_conditioned_cache import (
     read_prompt_conditioned_entries,
     write_prompt_conditioned_manifest,
 )
-from scripts.build_prompt_conditioned_cache import build_prompt_conditioned_cache
+from scripts.build_prompt_conditioned_cache import build_prompt_conditioned_cache, main
 
 
 def _entry(tmp_path, **overrides) -> PromptConditionedStateEntry:
@@ -52,7 +54,10 @@ def test_entry_normalizes_protocol_and_condition(tmp_path) -> None:
 
 def test_manifest_round_trips_jsonl(tmp_path) -> None:
     manifest_path = tmp_path / "manifest.jsonl"
-    entries = [_entry(tmp_path), _entry(tmp_path, sample_id="sample-2", prompt_id="vt_primary_v1_t02")]
+    entries = [
+        _entry(tmp_path),
+        _entry(tmp_path, sample_id="sample-2", prompt_id="vt_primary_v1_t02"),
+    ]
 
     written = write_prompt_conditioned_manifest(manifest_path, entries)
     loaded_entries = read_prompt_conditioned_entries(written)
@@ -131,7 +136,7 @@ def test_load_prompt_conditioned_manifest_lookup(tmp_path) -> None:
     ) is not None
 
 
-def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_missing_rows(
+def test_build_prompt_conditioned_cache_exports_manifest_summary_and_missing_rows(
     tmp_path,
 ) -> None:
     source_manifest = tmp_path / "source.jsonl"
@@ -173,7 +178,6 @@ def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_miss
     )
 
     result = build_prompt_conditioned_cache(
-        mode="A",
         source_manifest=source_manifest,
         output_root=tmp_path / "outputs/prompt_conditioned_cache",
         model_key="qwen3_vl_8b",
@@ -202,8 +206,16 @@ def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_miss
     assert rows[0]["shard_path"] == "existing/prompted-m1.safetensors"
     assert rows[0]["metadata"]["extra_field"] == "kept-in-metadata"
     assert summary["total_source_rows"] == 2
+    assert summary["source_type"] == "existing_prompted_cache_manifest"
     assert summary["exported_rows"] == 1
     assert summary["missing_rows"] == 1
     assert summary["manifest_path"] == str(result.manifest_path)
     assert missing[0]["sample_id"] == "sample-2"
     assert "shard_path" in missing[0]["reason"]
+
+
+def test_cli_requires_source_manifest() -> None:
+    with pytest.raises(SystemExit) as error:
+        main([])
+
+    assert error.value.code == 2
