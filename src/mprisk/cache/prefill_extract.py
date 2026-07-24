@@ -97,11 +97,13 @@ def _load_entry_t0(entry: HiddenStateEntry) -> np.ndarray:
             token_index = _resolved_token_index(shape[1], entry)
             return np.asarray(tensor[:, token_index, :])
         if len(shape) == 2:
-            if entry.token_count != 1:
-                raise ValueError(
-                    "2D hidden-state shards require entry.token_count == 1 "
-                    f"(got {entry.token_count})"
-                )
+            # 2D shards (layer, hidden) are already t0-extracted at write
+            # time by prefill_writer: only the t0 token row is stored. The
+            # entry.token_count field reflects the ORIGINAL prompt length
+            # (e.g. 1058 tokens), not the contents of this shard, so the
+            # previous token_count == 1 assertion was incorrect and broke
+            # all canonical_rerun_v2 inference (including val-selected
+            # best_test_preds.pt regeneration). Drop it.
             return np.asarray(tensor[:, :])
     raise ValueError(
         "Hidden-state tensor must have shape [sample, layer, token, hidden], "
