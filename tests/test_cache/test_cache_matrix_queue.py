@@ -20,6 +20,7 @@ from mprisk.cache.cache_matrix_queue import (
     _scoped_execution_paths,
     _smoke_status,
     _task_estimate,
+    _terminate_running_processes,
     _wait_for_gpu_capacity,
     _write_cache_asset_signature,
     build_asset_signature,
@@ -28,6 +29,65 @@ from mprisk.cache.cache_matrix_queue import (
     load_matrix_config,
     normalize_manifest,
 )
+
+
+class _ProcessFixture:
+    def __init__(self, *, hangs: bool) -> None:
+        self.hangs = hangs
+        self.returncode = None
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self.wait_calls: list[float | None] = []
+        self.pid = 100
+
+    def poll(self):
+        return self.returncode
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+        if not self.hangs:
+            self.returncode = -15
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+        self.returncode = -9
+
+    def wait(self, timeout=None):
+        self.wait_calls.append(timeout)
+        if self.hangs and self.returncode is None:
+            raise queue.subprocess.TimeoutExpired("fixture", timeout)
+        return self.returncode
+
+
+class _HandleFixture:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_dual_lane_cleanup_terminates_waits_kills_and_closes() -> None:
+    graceful = _ProcessFixture(hangs=False)
+    hung = _ProcessFixture(hangs=True)
+    graceful_handle = _HandleFixture()
+    hung_handle = _HandleFixture()
+    running = {
+        0: (SimpleNamespace(), graceful, graceful_handle),
+        1: (SimpleNamespace(), hung, hung_handle),
+    }
+
+    _terminate_running_processes(running, timeout_seconds=0.01)
+
+    assert graceful.terminate_calls == 1
+    assert graceful.kill_calls == 0
+    assert graceful.wait_calls == [None]
+    assert hung.terminate_calls == 1
+    assert hung.kill_calls == 1
+    assert hung.wait_calls == [0.01, None]
+    assert graceful_handle.closed is True
+    assert hung_handle.closed is True
+    assert running == {}
 
 
 def test_scoped_execution_paths_isolate_source_gpu_lanes(tmp_path: Path) -> None:
@@ -619,6 +679,30 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         raise AssertionError(command)
 
     monkeypatch.setattr(queue.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        queue,
+        "build_checkpoint_digest",
+        lambda *args, **kwargs: {
+            "schema": "mprisk_checkpoint_digest_receipt_v1",
+            "checkpoint_sha256": "checkpoint",
+            "files": [],
+        },
+    )
+    monkeypatch.setattr(
+        queue,
+        "build_extractor_semantic_digest",
+        lambda *args, **kwargs: {
+            "schema": "mprisk_extractor_semantic_digest_v1",
+            "sha256": "extractor",
+            "repository_files_sha256": {"shared.py": "shared"},
+            "trust_remote_code_files_sha256": {"remote.py": "remote"},
+        },
+    )
+    monkeypatch.setattr(
+        queue,
+        "build_model_asset_inventory",
+        lambda *args, **kwargs: {"sha256": "model-asset"},
+    )
     environment = tmp_path / "configured"
     (environment / "bin").mkdir(parents=True)
     (environment / "lib").mkdir()
@@ -641,7 +725,9 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         accepted_bundle_domains={},
     )
     config = SimpleNamespace(
-        asset_config=tmp_path / "assets.yaml", repo_root=repo_root
+        asset_config=tmp_path / "assets.yaml",
+        repo_root=repo_root,
+        output_root=tmp_path / "outputs",
     )
 
     signature = build_asset_signature(config, model)
@@ -650,7 +736,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         (model_path / "processor_config.json").read_bytes()
     ).hexdigest()
     expected_signature = {
-        "schema": "mprisk_cache_asset_signature_v2",
+        "schema": "mprisk_cache_asset_signature_v3",
         "model_key": "model",
         "family": "qwen_vl",
         "dtype": "bfloat16",
@@ -677,6 +763,18 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         "model_config_sha256": hashlib.sha256(
             (model_path / "config.json").read_bytes()
         ).hexdigest(),
+        "checkpoint_digest_schema": "mprisk_checkpoint_digest_receipt_v1",
+        "checkpoint_sha256": "checkpoint",
+        "checkpoint_digest_receipt": str(
+            tmp_path / "outputs/receipts/checkpoints/model.json"
+        ),
+        "model_asset_fingerprint": "model-asset",
+        "extractor_semantic_schema": "mprisk_extractor_semantic_digest_v1",
+        "extractor_semantic_sha256": "extractor",
+        "extractor_semantic_files": {
+            "repository": {"shared.py": "shared"},
+            "trust_remote_code": {"remote.py": "remote"},
+        },
         "processor_contract_sha256": hashlib.sha256(
             queue._canonical_json(
                 {"processor_config.json": processor_file_sha}
@@ -691,7 +789,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     assert queue._canonical_json(signature) == queue._canonical_json(expected_signature)
 
     assert signature["sys_executable"] == "/env/bin/python"
-    assert signature["schema"] == "mprisk_cache_asset_signature_v2"
+    assert signature["schema"] == "mprisk_cache_asset_signature_v3"
     assert signature["python_no_user_site"] is False
     assert signature["env_isolation"] is False
     assert signature["transformers_classes"] == {}

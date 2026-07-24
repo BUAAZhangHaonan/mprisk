@@ -22,6 +22,14 @@ from mprisk.cache.context_window import (
     audit_smoke_cache_context,
     load_context_ceiling,
 )
+from mprisk.cache.integrity import (
+    build_checkpoint_digest,
+    build_extractor_semantic_digest,
+    build_model_asset_inventory,
+    completion_receipt_status,
+    validate_accepted_bundle,
+    write_completion_receipt,
+)
 from mprisk.cache.llava_v15_frame_plan import (
     CONTEXT_BUDGET_MODE,
     FRAME_PLAN_SCHEMA,
@@ -33,6 +41,7 @@ from mprisk.cache.llava_v15_frame_plan import (
     FRAME_PROTOCOL as LLAVA_FRAME_PROTOCOL,
 )
 from mprisk.config.loader import load_yaml
+from mprisk.prompts.template_bank import load_equiv_prompt_set
 
 SCHEMA = "mprisk_complete_cache_matrix_v2"
 SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v2"
@@ -779,51 +788,94 @@ def _execute_stage(
     selected_runtime_record = runtime_record or config.runtime_record
     queues = {lane: deque(job for job in jobs if job.model.gpu_lane == lane) for lane in (0, 1)}
     running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]] = {}
-    while any(queues.values()) or running:
-        for lane in (0, 1):
-            if lane in running or not queues[lane]:
-                continue
-            job = queues[lane].popleft()
-            status = _audit_job(config, job, {})
-            if status["status"] in {"complete", "accepted_bundle"}:
-                continue
-            if status["status"] != "ready":
-                raise RuntimeError(f"Job became unready: {job.job_id}: {status['status']}")
-            if wait_for_gpu:
-                _wait_for_gpu_capacity(lane, config.max_gpu_memory_fraction)
-            else:
-                _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
-            _write_cache_asset_signature(
-                job, build_asset_signature(config, job.model)
-            )
-            log_path = job.output_root / "runtime.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            handle = log_path.open("a", encoding="utf-8")
-            process = subprocess.Popen(
-                _job_command(config, job),
-                cwd=config.repo_root,
-                env=build_job_environment(config, job, lane),
-                stdout=handle,
-                stderr=subprocess.STDOUT,
-            )
-            running[lane] = (job, process, handle)
-            _write_runtime(selected_runtime_record, jobs, running)
-        if not running:
-            continue
-        time.sleep(10)
-        for lane, (job, process, handle) in list(running.items()):
-            return_code = process.poll()
-            if return_code is None:
-                continue
-            handle.close()
-            del running[lane]
-            if return_code != 0:
+    try:
+        while any(queues.values()) or running:
+            for lane in (0, 1):
+                if lane in running or not queues[lane]:
+                    continue
+                job = queues[lane].popleft()
+                status = _audit_job(config, job, {})
+                if status["status"] in {"complete", "accepted_bundle"}:
+                    continue
+                if status["status"] != "ready":
+                    raise RuntimeError(
+                        f"Job became unready: {job.job_id}: {status['status']}"
+                    )
+                if wait_for_gpu:
+                    _wait_for_gpu_capacity(lane, config.max_gpu_memory_fraction)
+                else:
+                    _require_gpu_capacity(lane, config.max_gpu_memory_fraction)
+                signature = build_asset_signature(config, job.model)
+                _write_cache_asset_signature(job, signature)
+                log_path = job.output_root / "runtime.log"
+                log_path.parent.mkdir(parents=True, exist_ok=True)
+                handle = log_path.open("a", encoding="utf-8")
+                try:
+                    process = subprocess.Popen(
+                        _job_command(config, job),
+                        cwd=config.repo_root,
+                        env=build_job_environment(config, job, lane),
+                        stdout=handle,
+                        stderr=subprocess.STDOUT,
+                    )
+                except BaseException:
+                    handle.close()
+                    raise
+                running[lane] = (job, process, handle)
                 _write_runtime(selected_runtime_record, jobs, running)
-                raise RuntimeError(f"Cache extraction failed: {job.job_id}, exit={return_code}")
-            status = _ledger_status(job.output_root, job.domain.expected_tasks)
-            if status["status"] != "complete":
-                raise RuntimeError(f"Cache extraction ended incomplete: {job.job_id}: {status}")
-            _write_runtime(selected_runtime_record, jobs, running)
+            if not running:
+                continue
+            time.sleep(10)
+            for lane, (job, process, handle) in list(running.items()):
+                return_code = process.poll()
+                if return_code is None:
+                    continue
+                process.wait()
+                handle.close()
+                del running[lane]
+                if return_code != 0:
+                    _write_runtime(selected_runtime_record, jobs, running)
+                    raise RuntimeError(
+                        f"Cache extraction failed: {job.job_id}, exit={return_code}"
+                    )
+                status = _ledger_status(job.output_root, job.domain.expected_tasks)
+                if status["status"] != "complete":
+                    raise RuntimeError(
+                        f"Cache extraction ended incomplete: {job.job_id}: {status}"
+                    )
+                write_completion_receipt(
+                    job.output_root,
+                    expected_signature=_expected_batch_signature(config, job),
+                    expected_tasks=job.domain.expected_tasks,
+                )
+                _write_runtime(selected_runtime_record, jobs, running)
+    finally:
+        _terminate_running_processes(running)
+        _write_runtime(selected_runtime_record, jobs, running)
+
+
+def _terminate_running_processes(
+    running: dict[int, tuple[CacheJob, subprocess.Popen[Any], Any]],
+    *,
+    timeout_seconds: float = 30.0,
+) -> None:
+    """Terminate every live lane, then wait, kill, wait, and close all handles."""
+    records = list(running.items())
+    for _, (_, process, _) in records:
+        if process.poll() is None:
+            process.terminate()
+    for _, (_, process, _) in records:
+        if process.poll() is None:
+            try:
+                process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        else:
+            process.wait()
+    for lane, (_, _, handle) in records:
+        handle.close()
+        running.pop(lane, None)
 
 
 def _audit_job(
@@ -862,7 +914,12 @@ def _audit_job(
     ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
     accepted = job.model.accepted_bundle_domains.get(job.domain.domain)
     if accepted and not invalidation:
-        _validate_accepted_bundle(config, job, accepted)
+        _validate_accepted_bundle(
+            config,
+            job,
+            accepted,
+            asset_signature=asset_signature_status["signature"],
+        )
         record.update(status="accepted_bundle", accepted_bundle=accepted)
         return record
     if not asset_signature_status["passed"]:
@@ -877,6 +934,15 @@ def _audit_job(
             record.update(status="blocked_cache_asset_signature", ledger=ledger)
             return record
     if ledger["status"] == "complete":
+        completion = completion_receipt_status(
+            job.output_root,
+            expected_signature=_expected_batch_signature(config, job),
+            expected_tasks=job.domain.expected_tasks,
+        )
+        record["completion_receipt"] = completion
+        if not completion["passed"]:
+            record.update(status="blocked_completion_receipt", ledger=ledger)
+            return record
         record.update(status="complete", ledger=ledger)
         return record
     if ledger["status"] in {"failed", "invalid"}:
@@ -1064,7 +1130,11 @@ def _validate_bundle(config: MatrixConfig) -> None:
 
 
 def _validate_accepted_bundle(
-    config: MatrixConfig, job: CacheJob, accepted: dict[str, Any]
+    config: MatrixConfig,
+    job: CacheJob,
+    accepted: dict[str, Any],
+    *,
+    asset_signature: dict[str, Any],
 ) -> None:
     inventory = _read_json(config.bundle_inventory)
     node: Any = inventory
@@ -1088,6 +1158,96 @@ def _validate_accepted_bundle(
     index_path = config.bundle_root / _required_str(accepted, "index_path")
     if not index_path.is_file():
         raise FileNotFoundError(index_path)
+    prompt_ids = _prompt_ids(config.prompt_sets[job.model.protocol])
+    sample_ids = _manifest_sample_ids(job.domain.prepared_manifest)
+    task_keys = sorted(
+        [
+            sample_id,
+            prompt_id,
+            condition,
+            job.model.model_key,
+            job.domain.protocol,
+        ]
+        for sample_id in sample_ids
+        for prompt_id in prompt_ids
+        for condition in CONDITIONS
+    )
+    waiver_value = accepted.get("equivalence_waiver")
+    waiver_path = None
+    if waiver_value is not None:
+        waiver_path = Path(str(waiver_value)).expanduser()
+        if not waiver_path.is_absolute():
+            waiver_path = (config.repo_root / waiver_path).resolve()
+    validate_accepted_bundle(
+        index_path,
+        expected_identity={
+            "model_key": job.model.model_key,
+            "family": job.model.family,
+            "protocol": job.domain.protocol,
+            "dtype": job.model.dtype,
+            "manifest_sha256": _sha256(job.domain.prepared_manifest),
+            "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
+            "prompt_ids": list(prompt_ids),
+            "conditions": list(CONDITIONS),
+            "model_path": asset_signature["model_path"],
+            "prefill_strategy": "full_prefill",
+            "prefill_strategy_version": "v1",
+            "expected_tasks": job.domain.expected_tasks,
+            "task_set_sha256": hashlib.sha256(
+                _canonical_json(task_keys).encode()
+            ).hexdigest(),
+            "model_asset_fingerprint": asset_signature[
+                "model_asset_fingerprint"
+            ],
+            "extractor_semantic_fingerprint": asset_signature[
+                "extractor_semantic_sha256"
+            ],
+        },
+        equivalence_waiver=waiver_path,
+    )
+
+
+def _expected_batch_signature(
+    config: MatrixConfig, job: CacheJob
+) -> dict[str, Any]:
+    return {
+        "manifest_sha256": _sha256(job.domain.prepared_manifest),
+        "prompt_set_sha256": _sha256(config.prompt_sets[job.model.protocol]),
+        "prompt_ids": _prompt_ids(config.prompt_sets[job.model.protocol]),
+        "protocol": job.domain.protocol,
+        "conditions": list(CONDITIONS),
+        "model_key": job.model.model_key,
+        "family": job.model.family,
+        "dtype": job.model.dtype,
+        "prefill_strategy": "full_prefill",
+        "prefill_strategy_version": "v1",
+    }
+
+
+def _prompt_ids(path: Path) -> list[str]:
+    prompt_set = load_equiv_prompt_set(path)
+    if not prompt_set.active:
+        raise ValueError(f"Prompt set is inactive: {prompt_set.key}")
+    prompt_ids = [template.prompt_id for template in prompt_set.enabled_templates()]
+    if len(prompt_ids) != 8 or len(set(prompt_ids)) != 8:
+        raise ValueError(f"Expected exactly 8 unique prompt IDs: {path}")
+    return prompt_ids
+
+
+def _manifest_sample_ids(path: Path) -> list[str]:
+    sample_ids = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            sample_id = row.get("sample_id")
+            if not isinstance(sample_id, str) or not sample_id:
+                raise ValueError(f"Invalid sample_id at {path}:{line_number}")
+            sample_ids.append(sample_id)
+    if len(sample_ids) != len(set(sample_ids)):
+        raise ValueError(f"Duplicate sample IDs in {path}")
+    return sample_ids
 
 
 def _check_wrapper_import(config: MatrixConfig, model: ModelSpec) -> dict[str, Any]:
@@ -1195,6 +1355,25 @@ def build_asset_signature(
     processor_contract_sha256 = hashlib.sha256(
         _canonical_json(processor_files).encode()
     ).hexdigest()
+    checkpoint_receipt_path = (
+        config.output_root
+        / "receipts"
+        / "checkpoints"
+        / f"{model.model_key}.json"
+    )
+    checkpoint = build_checkpoint_digest(
+        model_path,
+        receipt_path=checkpoint_receipt_path,
+    )
+    extractor = build_extractor_semantic_digest(
+        config.repo_root,
+        family=model.family,
+        model_path=model_path,
+    )
+    model_asset = build_model_asset_inventory(
+        model_path,
+        checkpoint_receipt=checkpoint,
+    )
 
     wrapper_relative = WRAPPER_FILES.get(model.family)
     if wrapper_relative is None:
@@ -1236,7 +1415,7 @@ def build_asset_signature(
         model.family,
     )
     signature = {
-        "schema": "mprisk_cache_asset_signature_v2",
+        "schema": "mprisk_cache_asset_signature_v3",
         "model_key": model.model_key,
         "family": model.family,
         "dtype": model.dtype,
@@ -1252,6 +1431,16 @@ def build_asset_signature(
         "auxiliary_packages": runtime["auxiliary_packages"],
         "model_path": str(model_path),
         "model_config_sha256": _sha256(config_path),
+        "checkpoint_digest_schema": checkpoint["schema"],
+        "checkpoint_sha256": checkpoint["checkpoint_sha256"],
+        "checkpoint_digest_receipt": str(checkpoint_receipt_path),
+        "model_asset_fingerprint": model_asset["sha256"],
+        "extractor_semantic_schema": extractor["schema"],
+        "extractor_semantic_sha256": extractor["sha256"],
+        "extractor_semantic_files": {
+            "repository": extractor["repository_files_sha256"],
+            "trust_remote_code": extractor["trust_remote_code_files_sha256"],
+        },
         "processor_contract_sha256": processor_contract_sha256,
         "processor_files": processor_files,
         "wrapper_path": wrapper_relative,
