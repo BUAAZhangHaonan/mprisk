@@ -1,0 +1,122 @@
+schema: taffc_complete_bundle_matrix_v3
+artifact_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721
+prompt_count: 8
+conditions: [M1, M2, M12]
+
+datasets:
+  - domain: source
+    protocol: VT
+    expected_samples: 1876
+    manifest:
+      status: ready
+      path: datasets/generated_3810/manifests/vt.jsonl
+      sha256: 7a35f8b75986d88d05ce8711907db2e0f623a5d8939dcd96379393bc614ded7b
+      provenance_path: datasets/generated_3810/README.md
+      provenance_sha256: 3f0095d5042195d262bbaafd2b1b4e2bb4566722b5007675417546df7d0a693a
+  - domain: source
+    protocol: VA
+    expected_samples: 1934
+    manifest:
+      status: ready
+      path: datasets/generated_3810/manifests/va.jsonl
+      sha256: 231dd9cb14d345e704c37fde5f3fb465864e9b5ab4d17ffb793332251bd7e2a5
+      provenance_path: datasets/generated_3810/README.md
+      provenance_sha256: 3f0095d5042195d262bbaafd2b1b4e2bb4566722b5007675417546df7d0a693a
+  - domain: target
+    protocol: VT
+    expected_samples: 2035
+    manifest:
+      status: ready
+      path: datasets/ch_sims_v2_cross_domain/manifests/vt.jsonl
+      sha256: 9a469fa07abe9ee201f20d309f7d5fed6326a887f409da116e65b0c813f26cb6
+      provenance_path: datasets/ch_sims_v2_cross_domain/README.md
+      provenance_sha256: 5bde2049ac6ec4ff54163ae880ecc4db440f556de1a7c95433ddb0888a19172f
+  - domain: target
+    protocol: VA
+    expected_samples: 2190
+    manifest:
+      status: ready
+      path: datasets/ch_sims_v2_cross_domain/manifests/va.jsonl
+      sha256: c59443fb0b0df81f84de37e108f658d1d93e01a02a7d505393b69fc3e0820dd2
+      provenance_path: datasets/ch_sims_v2_cross_domain/README.md
+      provenance_sha256: 5bde2049ac6ec4ff54163ae880ecc4db440f556de1a7c95433ddb0888a19172f
+
+models:
+  - {model_key: gemma3_4b, protocol: VT}
+  - {model_key: gemma3_12b, protocol: VT}
+  - {model_key: glm4_6v_flash, protocol: VT}
+  - {model_key: internvl3_5_8b, protocol: VT}
+  - {model_key: llava_v1_5_7b, protocol: VT}
+  - {model_key: llava_onevision_qwen2_7b, protocol: VT}
+  - {model_key: minicpm_v_2_6, protocol: VT}
+  - {model_key: minicpm_v_4_5, protocol: VT}
+  - {model_key: phi3_5_vision, protocol: VT}
+  - {model_key: qwen2_5_vl_7b, protocol: VT}
+  - {model_key: qwen3_vl_8b, protocol: VT}
+  - {model_key: qwen3_5_4b, protocol: VT}
+  - {model_key: qwen3_5_9b, protocol: VT}
+  - {model_key: gemma4_12b, protocol: VA}
+  - {model_key: phi4_multimodal, protocol: VA}
+  - {model_key: qwen2_5_omni_7b, protocol: VA}
+
+# Each pending cell must be replaced by a ready record containing:
+# status, path, sha256, provenance_path, and provenance_sha256.
+# YAML aliases reduce repetition without removing any matrix cell.
+jobs:
+  - domain: source
+    model_key: gemma3_4b
+    protocol: VT
+    expected_samples: 1876
+    artifacts:
+      cache: &source_cache_pending {status: pending, reason: "canonical source cache index and provenance are not bound"}
+      ground_truth: &source_gt_pending {status: pending, reason: "canonical source GT_DESCRIPTION manifest and provenance are not bound"}
+      diagnostic_description: &source_diagnostic_pending {status: pending, reason: "canonical source diagnostic description manifest and provenance are not bound"}
+      misread_labels: &source_misread_pending {status: pending, reason: "canonical source Misread label manifest and provenance are not bound"}
+  - {domain: source, model_key: gemma3_12b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: glm4_6v_flash, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: internvl3_5_8b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: llava_v1_5_7b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: llava_onevision_qwen2_7b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: minicpm_v_2_6, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: minicpm_v_4_5, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: phi3_5_vision, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: qwen2_5_vl_7b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: qwen3_vl_8b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: qwen3_5_4b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: qwen3_5_9b, protocol: VT, expected_samples: 1876, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - {domain: source, model_key: gemma4_12b, protocol: VA, expected_samples: 1934, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+  - domain: source
+    model_key: phi4_multimodal
+    protocol: VA
+    expected_samples: 1934
+    artifacts:
+      cache: *source_cache_pending
+      ground_truth: *source_gt_pending
+      diagnostic_description: *source_diagnostic_pending
+      misread_labels: {status: pending, reason: "Phi-4 source Misread labels are required and not yet bound"}
+  - {domain: source, model_key: qwen2_5_omni_7b, protocol: VA, expected_samples: 1934, artifacts: {cache: *source_cache_pending, ground_truth: *source_gt_pending, diagnostic_description: *source_diagnostic_pending, misread_labels: *source_misread_pending}}
+
+  - domain: target
+    model_key: gemma3_4b
+    protocol: VT
+    expected_samples: 2035
+    artifacts:
+      cache: &target_cache_pending {status: pending, reason: "canonical target cache index and provenance are not bound"}
+      ground_truth: &target_gt_pending {status: pending, reason: "target GT_DESCRIPTION is missing; publication must remain fail-closed"}
+      diagnostic_description: &target_diagnostic_pending {status: pending, reason: "target diagnostic descriptions cannot be finalized before target GT coverage"}
+      misread_labels: &target_misread_pending {status: pending, reason: "target 3xFlash+Pro Misread labels cannot be finalized before target GT and diagnostics"}
+  - {domain: target, model_key: gemma3_12b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: glm4_6v_flash, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: internvl3_5_8b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: llava_v1_5_7b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: llava_onevision_qwen2_7b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: minicpm_v_2_6, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: minicpm_v_4_5, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: phi3_5_vision, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: qwen2_5_vl_7b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: qwen3_vl_8b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: qwen3_5_4b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: qwen3_5_9b, protocol: VT, expected_samples: 2035, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: gemma4_12b, protocol: VA, expected_samples: 2190, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: phi4_multimodal, protocol: VA, expected_samples: 2190, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
+  - {domain: target, model_key: qwen2_5_omni_7b, protocol: VA, expected_samples: 2190, artifacts: {cache: *target_cache_pending, ground_truth: *target_gt_pending, diagnostic_description: *target_diagnostic_pending, misread_labels: *target_misread_pending}}
