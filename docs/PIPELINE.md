@@ -232,7 +232,7 @@ Run the trained representation smoke pipeline:
 ```bash
 python scripts/run_representation_training_smoke.py \
   --bundle-manifest outputs/state_bundles/qwen3_vl_8b/VT/vt_primary_v1/bundle_manifest.jsonl \
-  --config configs/experiments/representation_qwen3_vl_8b_tme_proxy_anchor_v1.yaml \
+  --config configs/experiments/seed_runs/seed20260717/qwen3_vl_8b_tme_proxy_anchor_v1.yaml \
   --model-key qwen3_vl_8b \
   --protocol VT \
   --prompt-set-key vt_primary_v1 \

@@ -316,15 +316,18 @@ def test_single_point_export_rejects_hidden_projection_checkpoint_drift(
 
 
 @pytest.mark.parametrize(
-    "config_name",
+    "model_key",
     [
-        "representation_qwen2_5_omni_7b_single_point_v1.yaml",
-        "representation_qwen3_vl_8b_single_point_v1.yaml",
-        "representation_internvl3_5_8b_single_point_v1.yaml",
+        "qwen2_5_omni_7b",
+        "qwen3_vl_8b",
+        "internvl3_5_8b",
     ],
 )
-def test_single_point_configs_pin_direct_linear_architecture(config_name: str) -> None:
-    config_path = Path("configs/experiments") / config_name
+def test_single_point_configs_pin_direct_linear_architecture(model_key: str) -> None:
+    config_path = (
+        Path("configs/experiments/seed_runs/seed20260717")
+        / f"{model_key}_single_point_binary_v1.yaml"
+    )
     payload = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     assert payload["repr_key"] == SINGLE_POINT_BINARY_V1

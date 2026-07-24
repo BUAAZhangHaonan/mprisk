@@ -75,8 +75,9 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
                     "weight_decay": 0.0001,
                     "proxy_alpha": 32.0,
                     "proxy_margin": 0.1,
+                    "enable_state_supervision": repr_key == "tme_proxy_anchor_v1",
                     "d_supervision_weight": (
-                        0.2 if repr_key == "tme_proxy_anchor_v1" else 0.0
+                        0.5 if repr_key == "tme_proxy_anchor_v1" else 0.0
                     ),
                     "d_ranking_margin": (
                         0.25 if repr_key == "tme_proxy_anchor_v1" else 0.0
@@ -115,44 +116,6 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
     return written
 
 
-def synchronize_main_configs(repo_root: Path) -> list[Path]:
-    updated: list[Path] = []
-    experiment_root = repo_root / "configs/experiments"
-    for model_key, protocol in MODELS.items():
-        for path in sorted(experiment_root.glob(f"representation_{model_key}_*.yaml")):
-            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-            payload["schema"] = "mprisk_representation_training_v4"
-            payload["protocol"] = protocol
-            payload["classification_objective"] = (
-                "proxy_anchor_only"
-                if payload["repr_key"] == "tme_proxy_anchor_v1"
-                else "inverse_frequency_cross_entropy"
-            )
-            is_tme = payload["repr_key"] == "tme_proxy_anchor_v1"
-            payload["d_supervision_weight"] = 0.2 if is_tme else 0.0
-            payload["d_ranking_margin"] = 0.25 if is_tme else 0.0
-            payload["angular_supervision_weight"] = 0.2 if is_tme else 0.0
-            payload["angular_ranking_margin_rad"] = (
-                0.08726646259971647 if is_tme else 0.0
-            )
-            payload["d_aux_samples_per_class"] = 2 if is_tme else 0
-            if is_tme:
-                payload.update(
-                    {
-                        "state_selection_min_d_gap": 1e-6,
-                        "state_selection_min_raw_theta_gap_rad": 0.08726646259971647,
-                        "state_selection_max_d_mannwhitney_p": 0.05,
-                        "state_selection_min_d_effect_size": 0.20,
-                    }
-                )
-            path.write_text(
-                yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
-            updated.append(path)
-    return updated
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate immutable model x seed x representation training configs."
@@ -163,12 +126,9 @@ def main() -> int:
         type=Path,
         default=Path("configs/experiments/seed_runs"),
     )
-    parser.add_argument("--no-sync-main", action="store_true")
     args = parser.parse_args()
     paths = generate_configs(args.repo_root.resolve(), args.output_dir)
-    main_paths = [] if args.no_sync_main else synchronize_main_configs(args.repo_root.resolve())
     print(f"generated={len(paths)}")
-    print(f"updated_main={len(main_paths)}")
     return 0
 
 

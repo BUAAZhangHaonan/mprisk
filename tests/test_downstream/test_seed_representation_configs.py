@@ -35,6 +35,10 @@ def test_generator_locks_every_seed_model_and_representation(tmp_path: Path) -> 
                     if repr_key == "tme_proxy_anchor_v1"
                     else "inverse_frequency_cross_entropy"
                 )
+                is_tme = repr_key == "tme_proxy_anchor_v1"
+                assert config.enable_state_supervision is is_tme
+                assert config.d_supervision_weight == (0.5 if is_tme else 0.0)
+                assert config.angular_supervision_weight == (0.2 if is_tme else 0.0)
                 assert config.repr_key == repr_key
                 assert config.prompt_set_key == prompt_payload["key"]
                 assert config.expected_prompt_ids == expected_ids
