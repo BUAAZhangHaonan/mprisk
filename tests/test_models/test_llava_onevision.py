@@ -168,10 +168,10 @@ def test_text_only_m2_has_no_video_tensor(tmp_path):
     [
         (
             {
-                "attention_mask": torch.ones((1, 32768), dtype=torch.long),
+                "attention_mask": torch.ones((1, 32769), dtype=torch.long),
                 "pixel_values_videos": torch.zeros((1, 8, 3, 2, 2)),
             },
-            "not strictly below",
+            "exceeds the checkpoint limit",
         ),
         (
             {
@@ -197,6 +197,20 @@ def test_native_video_output_fails_closed(model_inputs, match):
             expected_frames=8,
             max_position_embeddings=32768,
         )
+
+
+def test_native_video_output_accepts_exact_context_limit():
+    token_count, frame_count = _validate_native_video_processor_output(
+        {
+            "attention_mask": torch.ones((1, 32768), dtype=torch.long),
+            "pixel_values_videos": torch.zeros((1, 8, 3, 2, 2)),
+        },
+        expected_frames=8,
+        max_position_embeddings=32768,
+    )
+
+    assert token_count == 32768
+    assert frame_count == 8
 
 
 def test_wrapper_rejects_non_f8_protocol(tmp_path):

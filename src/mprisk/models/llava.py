@@ -433,30 +433,3 @@ def _contract_int(value: Any, label: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise TypeError(f"LLaVA-v1.5 {label} must be an integer")
     return value
-
-
-class LlavaOneVisionWrapper(_LlavaFrameWrapper):
-    family = "llava_onevision"
-    model_type = "llava_onevision"
-    architecture = "LlavaOnevisionForConditionalGeneration"
-    processor_class = "LlavaOnevisionProcessor"
-    provenance_schema = "mprisk_llava_onevision_prefill_provenance_v1"
-
-    def _load_dependencies(self) -> tuple[Any, Any]:
-        import torch
-        from transformers import (
-            LlavaOnevisionForConditionalGeneration,
-            LlavaOnevisionProcessor,
-        )
-
-        processor = LlavaOnevisionProcessor.from_pretrained(
-            self.model_path, local_files_only=True
-        )
-        model = LlavaOnevisionForConditionalGeneration.from_pretrained(
-            self.model_path,
-            dtype=getattr(torch, self.dtype_name),
-            attn_implementation=self.attn_implementation,
-            device_map={"": self.device},
-            local_files_only=True,
-        ).eval()
-        return model, processor

@@ -779,7 +779,12 @@ def _validate_static_plan(
     memory_fraction = float(resource.get("max_gpu_memory_fraction", 0.0))
     if not 0.0 < memory_fraction < 0.9:
         raise DeliveryPlanError("max_gpu_memory_fraction must be positive and below 0.9")
-    _validated_file(payload.get("split_assignment"), path, root)
+    _validated_file(
+        payload.get("split_assignment"),
+        path,
+        root,
+        must_exist=not expect_template,
+    )
     jobs = payload.get("jobs")
     if not isinstance(jobs, list) or len(jobs) != 3:
         raise DeliveryPlanError("delivery plan must contain exactly three jobs")
@@ -804,11 +809,22 @@ def _validate_static_plan(
             raise DeliveryPlanError(
                 "training configs must be exactly one registered method group"
             )
-        for field in ("source_manifest", "state_manifest", "prompt_set"):
-            _validated_file(job.get(field), path, root)
+        for field in ("source_manifest", "state_manifest"):
+            _validated_file(
+                job.get(field),
+                path,
+                root,
+                must_exist=not expect_template,
+            )
+        _validated_file(job.get("prompt_set"), path, root)
         invalid = job.get("invalid_assets")
         if str(job["protocol"]) == "va":
-            _validated_file(invalid, path, root)
+            _validated_file(
+                invalid,
+                path,
+                root,
+                must_exist=not expect_template,
+            )
         elif invalid is not None:
             raise DeliveryPlanError("VT jobs must not declare invalid VA assets")
         _validate_expected_counts(job)
@@ -1086,14 +1102,24 @@ def _validate_cache_union(union_path: Path, job: dict[str, Any], plan_path: Path
         raise DeliveryPlanError("blocked cache tasks differ from invalid-asset accounting")
 
 
-def _validated_file(spec: Any, plan_path: Path, root: Path) -> Path:
+def _validated_file(
+    spec: Any,
+    plan_path: Path,
+    root: Path,
+    *,
+    must_exist: bool = True,
+) -> Path:
     if not isinstance(spec, dict) or set(spec) < {"path", "sha256"}:
         raise DeliveryPlanError("file reference must bind path and sha256")
     path = _resolve_spec_path(spec, root)
-    if not path.is_file():
-        raise DeliveryPlanError(f"bound file does not exist: {path}")
     digest = str(spec["sha256"])
-    if len(digest) != 64 or digest != _sha256(path):
+    if len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest):
+        raise DeliveryPlanError(f"invalid sha256 for bound file: {path}")
+    if not path.is_file():
+        if must_exist:
+            raise DeliveryPlanError(f"bound file does not exist: {path}")
+        return path
+    if digest != _sha256(path):
         raise DeliveryPlanError(f"sha256 mismatch for bound file: {path}")
     return path
 

@@ -5,9 +5,9 @@ from __future__ import annotations
 import gc
 import hashlib
 import json
+import shutil
 import subprocess
 import tempfile
-import shutil
 import time
 from collections.abc import Mapping
 from pathlib import Path
@@ -32,7 +32,7 @@ class Gemma4Wrapper(BaseModelWrapper):
     Supports protocol VA only. For VA, conditioning views map to:
       M1  = video-only (vision frames) + task prompt
       M2  = audio-only (16kHz mono wav) + task prompt
-      M12 = video with embedded audio + task prompt
+      M12 = video + its paired audio + task prompt
     """
 
     family = "gemma4"
@@ -304,8 +304,6 @@ class Gemma4Wrapper(BaseModelWrapper):
             )
         if request.condition not in {"M1", "M2", "M12"}:
             raise ValueError(f"Unsupported Gemma-4 VA condition: {request.condition!r}")
-        if request.condition == "M12" and not request.use_audio_in_video:
-            raise ValueError("Gemma-4 M12 requires embedded-video audio")
         if request.condition != "M12" and request.use_audio_in_video:
             raise ValueError("Only Gemma-4 M12 may enable embedded-video audio")
         content_types = {
@@ -324,6 +322,28 @@ class Gemma4Wrapper(BaseModelWrapper):
                 f"Gemma-4 {request.condition} content types {sorted(content_types)} "
                 f"do not match {sorted(expected_types)}"
             )
+        if request.condition == "M12" and request.use_audio_in_video:
+            video_paths = [
+                Path(str(item["video"])).expanduser().resolve()
+                for message in request.messages
+                for item in message.get("content", [])
+                if isinstance(item, Mapping) and item.get("type") == "video"
+            ]
+            audio_paths = [
+                Path(str(item["audio"])).expanduser().resolve()
+                for message in request.messages
+                for item in message.get("content", [])
+                if isinstance(item, Mapping) and item.get("type") == "audio"
+            ]
+            if (
+                len(video_paths) != 1
+                or len(audio_paths) != 1
+                or video_paths[0] != audio_paths[0]
+            ):
+                raise ValueError(
+                    "Gemma-4 embedded-video audio requires identical video and "
+                    "audio assets"
+                )
 
     def _validate_loaded_contract(self) -> None:
         if self.model is None:
@@ -355,7 +375,7 @@ def build_va_request(
     Conditions (mainline VA protocol, no text):
       M1  = video-only (vision frames) + task prompt
       M2  = audio-only (16kHz mono wav) + task prompt
-      M12 = video with embedded audio + task prompt
+      M12 = video + paired audio + task prompt
     """
     condition = condition.upper()
     if condition not in {"M1", "M2", "M12"}:
@@ -385,6 +405,11 @@ def build_va_request(
         content.append({"type": "audio", "audio": audio_path})
     content.append({"type": "text", "text": prompt})
 
+    use_embedded_audio = (
+        condition == "M12"
+        and Path(vision_path).expanduser().resolve()
+        == Path(audio_path).expanduser().resolve()
+    )
     return PrefillRequest(
         sample_id=sample_id,
         model_key=model_key,
@@ -394,7 +419,7 @@ def build_va_request(
         split=split,
         messages=({"role": "user", "content": content},),
         media_paths=media_paths,
-        use_audio_in_video=(condition == "M12"),
+        use_audio_in_video=use_embedded_audio,
         prompt_set_key=prompt_set_key,
         prompt_id=prompt_id,
     )
@@ -407,10 +432,9 @@ def _collect_media_inputs(
 ) -> dict[str, Any]:
     """Walk request.messages and load audio/video inputs for the processor.
 
-    For joint V+A conditioning (use_audio_in_video=True), we decode the video's
-    own audio track via PyAV and pass it as the audio input alongside the video
-    frames. This keeps token/feature counts aligned (processor treats the audio
-    as the video's joint audio track).
+    For joint V+A conditioning, embedded audio is used only when the video and
+    audio content items identify the same asset. Distinct paired audio remains
+    an explicit processor input and is never silently replaced by video audio.
     """
     audio_paths: list[str] = []
     audio_waveforms: list[Any] = []  # raw np.float32 mono arrays
@@ -425,9 +449,8 @@ def _collect_media_inputs(
                 continue
             ctype = str(item.get("type"))
             if ctype == "audio" and request.use_audio_in_video:
-                # M12 path: this audio came from build_va_request for the same
-                # video file. Decode audio directly from the source video instead
-                # so token counts match.
+                # The request validator proves that this audio item identifies
+                # the same asset as the video item.
                 continue  # handled via _video_to_frames_with_audio below
             if ctype == "audio":
                 source = str(item.get("audio"))

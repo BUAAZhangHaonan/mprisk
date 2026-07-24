@@ -134,10 +134,10 @@ def _validate_native_video_processor_output(
     if int(attention_mask.shape[0]) != 1:
         raise ValueError("LLaVA-OneVision processor requires batch size one")
     token_count = int(attention_mask.shape[-1])
-    if token_count >= max_position_embeddings:
+    if token_count > max_position_embeddings:
         raise ValueError(
-            f"LLaVA-OneVision processor produced {token_count} tokens, which is not "
-            f"strictly below the checkpoint limit {max_position_embeddings}"
+            f"LLaVA-OneVision processor produced {token_count} tokens, which exceeds "
+            f"the checkpoint limit {max_position_embeddings}"
         )
     if "pixel_values" in model_inputs or "image_sizes" in model_inputs:
         raise ValueError("LLaVA-OneVision native-video path produced image tensors")

@@ -10,6 +10,7 @@ import torch
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.gemma4 import (
     Gemma4Wrapper,
+    _collect_media_inputs,
     _validate_media_contract,
     build_va_request,
 )
@@ -89,6 +90,42 @@ def test_gemma4_va_requests_keep_conditions_separate(tmp_path):
     assert m1.use_audio_in_video is False
     assert m2.use_audio_in_video is False
     assert m12.use_audio_in_video is True
+
+
+def test_gemma4_m12_preserves_distinct_paired_audio(monkeypatch, tmp_path):
+    video = tmp_path / "sample.mp4"
+    audio = tmp_path / "sample.wav"
+    video.write_bytes(b"video")
+    audio.write_bytes(b"audio")
+    request = build_va_request(
+        sample_id="sample-1",
+        model_key="gemma4_12b",
+        dataset_key="dataset",
+        split="test",
+        condition="M12",
+        media_paths={"vision": str(video), "audio": str(audio)},
+        text_content="not used in VA",
+        task_prompt="Describe the emotion.",
+    )
+    assert request.use_audio_in_video is False
+
+    frames = np.zeros((4, 2, 2, 3), dtype=np.uint8)
+    monkeypatch.setattr(
+        "mprisk.models.gemma4._video_to_frames",
+        lambda path, *, max_frames: (
+            frames,
+            {"total_num_frames": 4, "frames_indices": [0, 1, 2, 3]},
+        ),
+    )
+    monkeypatch.setattr(
+        "mprisk.models.gemma4._audio_to_wav",
+        lambda path: path,
+    )
+    media = _collect_media_inputs(request, max_frames=4)
+
+    assert media["audio"] == [str(audio)]
+    assert media["audio_waveforms"] is None
+    assert len(media["videos"]) == 1
 
 
 def test_gemma4_m12_rejects_missing_audio():

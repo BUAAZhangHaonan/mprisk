@@ -103,8 +103,14 @@ def test_phi4_va_prefill_contract(
     )
     (model_path / "model.safetensors.index.json").write_text("{}", encoding="utf-8")
     monkeypatch.setattr(
-        "mprisk.models.phi4_mm._uniform_video_frames",
-        lambda path, count: [object(), object()],
+        "mprisk.models.phi4_mm._uniform_video_sample_ffmpeg",
+        lambda path, count: (
+            [object(), object()],
+            {
+                "frames_indices": [0, 1],
+                "total_num_frames": 2,
+            },
+        ),
     )
     monkeypatch.setattr(
         "mprisk.models.phi4_mm._decode_audio",

@@ -292,6 +292,8 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
         {
             "repr_key": TME_PROXY_ANCHOR_V1,
             "architecture_version": TME_ARCHITECTURE_V1,
+            "checkpoint_role": "final_selected",
+            "checkpoint_feasibility": {"feasible": True},
             "model_config": {"input_dim": 3, "layer_count": 2},
             "training_config": asdict(training_config),
             "model_state_dict": model.state_dict(),

@@ -72,12 +72,13 @@ def test_annotation_input_rejects_legacy_semantic_fields() -> None:
         GTAnnotationInput.model_validate(payload)
 
 
-def test_media_and_source_assignment_hashes_are_preserved() -> None:
+def test_media_and_source_assignment_use_portable_content_locators() -> None:
     rows, _ = build_gt_annotation_input_pilot(ROOT)
     for row in rows:
-        media_path = Path(row["media"]["path"])
-        assert media_path.is_file()
+        assert row["media"]["path"].startswith("archive://")
+        assert len(row["media"]["sha256"]) == 64
         source = row["source_provenance"]
+        assert source["source_assignment"]["path"].startswith("repo://")
         assert source["source_assignment"]["source_row_sha256"] == source["source_row_sha256"]
 
 
