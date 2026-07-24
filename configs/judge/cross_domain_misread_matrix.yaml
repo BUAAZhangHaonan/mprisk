@@ -1,7 +1,7 @@
 schema_name: mprisk_cross_domain_misread_matrix_v1
 run_id: cross_domain_misread_3flash1pro_20260723
 asset_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/assets/model_assets.yaml
-cache_matrix_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/cache/complete_cache_matrix_20260722.yaml
+cache_matrix_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/cache/complete_cache_matrix.yaml
 frame_plan_validation: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/frame_plans/VALIDATION.json
 bundle_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721
 existing_source_judgment_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721/misread_labels

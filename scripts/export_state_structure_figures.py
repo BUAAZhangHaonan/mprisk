@@ -5,12 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from mprisk.viz.template_v2 import export_template_v2_figures
+from mprisk.viz.state_structure_figures import export_state_structure_figures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Export real-data Fig. 4-8 using the template-v2 visual grammar."
+        description="Export real-data Fig. 4-8 using the canonical state-structure visual grammar."
     )
     parser.add_argument(
         "--source-root",
@@ -20,15 +20,15 @@ def main() -> int:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("outputs/paper_exports/figures/template_v2"),
+        default=Path("outputs/paper_exports/figures/state_structure"),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("paper/figures/generated/template_v2"),
+        default=Path("paper/figures/generated/state_structure"),
     )
     args = parser.parse_args()
-    result = export_template_v2_figures(
+    result = export_state_structure_figures(
         source_root=args.source_root,
         input_root=args.input_root,
         output_root=args.output_root,

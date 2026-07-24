@@ -37,10 +37,10 @@ identity changes. JSONL and JSON artifacts are written atomically and checksumme
 
 ```bash
 PYTHONPATH=src python scripts/generate_diagnostic_affect_descriptions.py \
-  --config configs/experiments/diagnostic_affect_description_v2.yaml
+  --config configs/experiments/diagnostic_affect_description.yaml
 
 PYTHONPATH=src python scripts/generate_diagnostic_affect_descriptions.py \
-  --config configs/experiments/diagnostic_affect_description_v2.yaml \
+  --config configs/experiments/diagnostic_affect_description.yaml \
   --smoke --output-root outputs/diagnostic_affect/smoke
 ```
 

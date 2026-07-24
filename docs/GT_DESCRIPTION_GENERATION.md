@@ -50,9 +50,9 @@ both the output schema and the annotation-input schema version.
 ```bash
 PYTHONPATH=src python scripts/build_gt_annotation_input_pilot.py
 PYTHONPATH=src python scripts/run_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml
+  --config configs/ground_truth/gt_description_generation_pilot.yaml
 PYTHONPATH=src python scripts/verify_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml \
+  --config configs/ground_truth/gt_description_generation_pilot.yaml \
   --require-complete
 ```
 

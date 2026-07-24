@@ -1,4 +1,4 @@
-"""Template-v2 paper figures backed only by registered real experiment artifacts."""
+"""State-structure paper figures backed only by registered real experiment artifacts."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ from mprisk.viz.bundle_figures import (  # noqa: E402
 )
 from mprisk.viz.figure_inputs import provenance_path  # noqa: E402
 
-SCHEMA = "mprisk_template_v2_export_v1"
+SCHEMA = "mprisk_state_structure_figure_export_v1"
 PENDING = "Pending Misread annotations"
 BLUE = "#6F8DB7"
 BLUE_DARK = "#58749C"
@@ -51,36 +51,40 @@ MODEL_MARKERS = {
     "internvl3_5_8b": "^",
 }
 FIGURES = {
-    "fig04_sdr_distributions": "fig04_state_indices_template_v2",
-    "fig05_four_state_stacks": "fig05_state_patterns_template_v2",
-    "fig06_stable_d_signed_r": "fig06_geometry_template_v2",
-    "fig07_misread_bias": "fig07_misread_associations_template_v2",
-    "fig08_representation_comparison": "fig08_representation_quality_template_v2",
+    "fig04_sdr_distributions": "fig04_state_indices",
+    "fig05_four_state_stacks": "fig05_state_patterns",
+    "fig06_stable_d_signed_r": "fig06_state_geometry",
+    "fig07_misread_bias": "fig07_state_misread_associations",
+    "fig08_representation_comparison": "fig08_representation_quality",
 }
 
 
-def export_template_v2_figures(
+def export_state_structure_figures(
     *,
     source_root: str | Path = "outputs/paper_exports/figures",
-    input_root: str | Path = "outputs/paper_exports/figures/template_v2",
-    output_root: str | Path = "paper/figures/generated/template_v2",
+    input_root: str | Path = "outputs/paper_exports/figures/state_structure",
+    output_root: str | Path = "paper/figures/generated/state_structure",
     generated_command: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Materialize real plotting inputs and export the five template-v2 figures."""
+    """Materialize real plotting inputs and export the five state-structure figures."""
     source_dir = Path(source_root)
     input_dir = Path(input_root)
     output_dir = Path(output_root)
     if source_dir.resolve() == input_dir.resolve():
-        raise ValueError("template-v2 inputs must not overwrite the registered source inputs")
+        raise ValueError("state-structure inputs must not overwrite the registered source inputs")
     input_dir.mkdir(parents=True, exist_ok=True)
     output_dir.mkdir(parents=True, exist_ok=True)
-    command = list(generated_command or [sys.executable, "scripts/export_template_v2_figures.py"])
+    command = list(
+        generated_command or [sys.executable, "scripts/export_state_structure_figures.py"]
+    )
     result: dict[str, dict[str, Any]] = {}
     for figure_key, output_stem in FIGURES.items():
         source_csv = source_dir / f"{figure_key}.csv"
         status, source_rows, source_provenance = _load_figure_input(figure_key, source_csv)
         if status != "Ready" or not source_rows:
-            raise ValueError(f"template-v2 source must be a non-empty Ready input: {source_csv}")
+            raise ValueError(
+                f"state-structure source must be a non-empty Ready input: {source_csv}"
+            )
         rows = _materialize_rows(figure_key, source_rows, source_provenance)
         snapshot = input_dir / source_csv.name
         _write_csv(snapshot, rows)
@@ -121,7 +125,7 @@ def export_template_v2_figures(
             "fig08": "Conflict-only Misread projections and supervision-budget curves",
         },
     }
-    manifest_path = input_dir / "template_v2_export.json"
+    manifest_path = input_dir / "state_structure_figure_export.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -142,25 +146,25 @@ def _materialize_rows(
         return rows
     if figure_key == "fig06_stable_d_signed_r":
         _validate_fig06_masks(rows, provenance)
-        return _with_normalized_split(rows, provenance)
+        return normalize_modality_split_rows(rows, provenance)
     if figure_key == "fig07_misread_bias":
         masks = provenance.get("sample_masks")
         if not isinstance(masks, dict) or masks.get("misread") != PENDING:
             raise ValueError("Fig. 7 must preserve Pending Misread annotations")
         if {row.get("panel") for row in rows} != {"bias"}:
             raise ValueError("Fig. 7 may only contain registered real bias rows")
-        return _with_normalized_split(rows, provenance)
+        return normalize_modality_split_rows(rows, provenance)
     if figure_key == "fig08_representation_comparison":
         masks = provenance.get("sample_masks")
         if not isinstance(masks, dict) or masks.get("misread") != PENDING:
             raise ValueError("Fig. 8 must preserve Pending Misread annotations")
         if not str(masks.get("conflict_retention", "")).startswith("Pending"):
             raise ValueError("Fig. 8 must preserve Pending Conflict-retention results")
-        return _project_fig08_rows(rows, provenance)
-    raise ValueError(f"unsupported template-v2 figure: {figure_key}")
+        return project_representation_rows(rows, provenance)
+    raise ValueError(f"unsupported state-structure figure: {figure_key}")
 
 
-def _with_normalized_split(
+def normalize_modality_split_rows(
     rows: list[dict[str, Any]], provenance: dict[str, Any]
 ) -> list[dict[str, Any]]:
     thresholds = provenance.get("thresholds_by_model")
@@ -178,7 +182,7 @@ def _with_normalized_split(
     return materialized
 
 
-def _project_fig08_rows(
+def project_representation_rows(
     rows: list[dict[str, Any]], provenance: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
@@ -247,7 +251,7 @@ def _snapshot_provenance(
         {"path": str(source_csv.resolve()), "sha256": _sha256(source_csv)},
         {"path": str(source_sidecar.resolve()), "sha256": _sha256(source_sidecar)},
     ]
-    snapshot["template_v2"] = {
+    snapshot["state_structure"] = {
         "schema": SCHEMA,
         "figure_key": figure_key,
         "layout_source": "taffc_fig_templates visual grammar only",
@@ -270,7 +274,7 @@ def _render(
     pdf_path: Path,
     png_path: Path,
 ) -> None:
-    _set_style()
+    set_figure_style()
     if figure_key == "fig04_sdr_distributions":
         figure = _render_fig04(rows)
     elif figure_key == "fig05_four_state_stacks":
@@ -288,7 +292,7 @@ def _render(
     plt.close(figure)
 
 
-def _set_style() -> None:
+def set_figure_style() -> None:
     plt.rcParams.update(
         {
             "font.family": "serif",
@@ -500,7 +504,7 @@ def _render_fig05(rows: list[dict[str, Any]]) -> Any:
     axis.text(-0.16, 1.10, "(a)", transform=axis.transAxes, fontsize=22, fontweight="bold")
     axis.legend(loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, frameon=False)
     pending = figure.add_subplot(grid[0, 1])
-    _pending_panel(
+    render_pending_panel(
         pending,
         "Misread composition within each\nState Pattern (Conflict only)",
         xlabel="State Pattern",
@@ -609,7 +613,7 @@ def _render_fig07(rows: list[dict[str, Any]], provenance: dict[str, Any]) -> Any
     for column, heading in enumerate(headings):
         axis = figure.add_subplot(grid[0, column])
         xticklabels = ("Confusion", "Consensus", "Balanced", "Dominant") if column == 2 else None
-        _pending_panel(
+        render_pending_panel(
             axis,
             heading,
             xlabel="State Pattern" if column == 2 else "Normalized state coordinate",
@@ -759,7 +763,7 @@ def _render_fig08(rows: list[dict[str, Any]]) -> Any:
             fontweight="bold",
         )
         pending = figure.add_subplot(grid[1, column])
-        _pending_panel(
+        render_pending_panel(
             pending,
             f"{representation}\nConflict supervision sensitivity",
             xlabel="Conflict supervision retained (%)",
@@ -788,7 +792,7 @@ def _render_fig08(rows: list[dict[str, Any]]) -> Any:
     return figure
 
 
-def _pending_panel(
+def render_pending_panel(
     axis: Any,
     title: str,
     *,

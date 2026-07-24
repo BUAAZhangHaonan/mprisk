@@ -21,7 +21,7 @@ resource_gate:
     - mprisk-main-p8-queue
     - mprisk-followup-p8-queue
   producer_command_substrings:
-    - scripts/run_prefill_dependency_queue.py --config configs/cache/prefill_followup_p8_queue_v1.yaml
+    - scripts/run_prefill_dependency_queue.py --config configs/cache/prefill_followup_p8_queue.yaml
     - scripts/extract_prefill_batch.py
 jobs:
   - {seed: 20260717, model_key: qwen3_vl_8b, protocol: vt, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml, cache_root: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717, expected_tasks: 60288}

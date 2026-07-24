@@ -19,8 +19,9 @@ not the task name.
 
 GT Description generation selects adapters with `provider_key`. Vendor-specific settings and
 credentials live only under `provider_settings` and `ground_truth/providers/`; task modules never
-name a vendor API or credential. The active generation config is v3 because this provider boundary
-changes its schema. Unknown providers and settings fail explicitly and never select an alternative.
+name a vendor API or credential. The active generation config declares the v3 schema because this
+provider boundary changes its contract. Unknown providers and settings fail explicitly and never
+select an alternative.
 
 ## Protocol, modality, and condition
 
@@ -50,22 +51,24 @@ The currently running cache/downstream identity retains its existing state API a
 until that run finishes. This glossary does not authorize in-place migration of ledgers,
 manifests, sidecars, checkpoints, prompt IDs, cache roots, or figure-map keys.
 
-## Version suffixes
+## Versioned identities and stable entrypoints
 
-- Schemas end in `_vN`, starting at `_v1`.
-- A schema version is immutable. A field or semantic change increments `N` and writes a new
-  artifact directory.
-- Config filenames end in `_vN.yaml`; generated artifact directories end in `/vN` or contain the
-  same explicit version token.
+- Schemas end in `_vN`, starting at `_v1`. A schema version is immutable. A field or semantic
+  change increments `N` and writes a new artifact identity.
+- Frozen datasets, deliveries, prompt banks, seeds, model product names, and reproducible
+  experiment configs retain their source-defined version or date token.
+- The one active operational config for a task uses a stable task-level filename, such as
+  `misread_judgment.yaml` or `diagnostic_affect_description.yaml`. Its contents declare the exact
+  immutable schema and run identity.
 - Generic modules and symbols describe the task. Model, protocol, condition, dataset, and split
   belong in configs and provenance, not module names.
-- Retired configs remain available through Git history, not the active config tree. Active loaders
-  accept only canonical versioned schemas; there are no import aliases, symlinks, or silent
-  dual-schema readers.
+- Retired operational configs remain available through Git history, not beside the active file.
+  Active loaders accept only the schema declared by each canonical config; there are no import
+  aliases, symlinks, or silent dual-schema readers.
 
-Diagnostic Affect Description v2 uses `schema_name` consistently in configs, manifests,
-signatures, and provenance. Every artifact also carries the same immutable `run_id`. Misread
-Judgment v2 names the measured model as `subject_model_key` and the external judge as
+The Diagnostic Affect Description v2 schema uses `schema_name` consistently in configs, manifests,
+signatures, and provenance. Every artifact also carries the same immutable `run_id`. The Misread
+Judgment v2 schema names the measured model as `subject_model_key` and the external judge as
 `judge_model`; it reads only `GT_DESCRIPTION` and `DIAGNOSTIC_AFFECT_DESCRIPTION`.
 
 The label-schema transition follows this rule exactly:

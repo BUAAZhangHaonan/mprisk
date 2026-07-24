@@ -12,7 +12,7 @@ manifest row is checked against these identities before a request is built. Lega
 handwritten rows without schema identity, and Diagnostic Affect Description rows from another run
 fail closed. The service request is blinded and contains only the two canonical description fields.
 
-The active config at `configs/judge/misread_judgment_v2.yaml` has `status: pending` and generic
+The active config at `configs/judge/misread_judgment.yaml` has `status: pending` and generic
 future paths because Misread annotations and complete Diagnostic Affect Description manifests are
 not available yet. A pending config fails before reading manifests or calling the provider. Change
 it to `status: ready` only after replacing all identity fields and paths with one real frozen run.

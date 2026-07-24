@@ -1,6 +1,6 @@
-"""Template-v3 figures and tables with formal Misread evidence only.
+"""Misread figures and tables with formal Misread evidence only.
 
-The v3 export is additive.  It never rewrites the registered figures, template-v2,
+The Misread export is additive.  It never rewrites the registered figures, template-v2,
 or the original paper tables.  Missing/in-progress formal roots produce explicit
 Pending panels; a root claiming usable evidence is validated fail-closed.
 """
@@ -38,34 +38,34 @@ from mprisk.viz.formal_misread import (  # noqa: E402
     load_formal_root,
     sha256,
 )
-from mprisk.viz.template_v2 import (  # noqa: E402
+from mprisk.viz.state_structure_figures import (  # noqa: E402
     GRID,
     STATE_COLORS,
-    _pending_panel,
-    _project_fig08_rows,
-    _set_style,
-    _with_normalized_split,
+    normalize_modality_split_rows,
+    project_representation_rows,
+    render_pending_panel,
+    set_figure_style,
 )
 
-SCHEMA = "mprisk_template_v3_misread_export_v1"
+SCHEMA = "mprisk_misread_figure_export_v1"
 PENDING = "Pending formal Misread results"
 FIGURE_KEYS = (
-    "fig05_state_patterns_template_v3_misread",
-    "fig07_misread_associations_template_v3_misread",
-    "fig08_representation_quality_template_v3_misread",
+    "fig05_state_patterns",
+    "fig07_misread_associations",
+    "fig08_representation_quality",
 )
 
 
-def export_template_v3_misread(
+def export_misread_figures(
     *,
     source_root: str | Path = "outputs/paper_exports/figures",
     labels_root: str | Path | None = None,
     probes_root: str | Path | None = None,
     budgets_root: str | Path | None = None,
-    input_root: str | Path = "outputs/paper_exports/figures/template_v3_misread",
-    output_root: str | Path = "paper/figures/generated/template_v3_misread",
-    table_input_root: str | Path = "outputs/paper_exports/tables/template_v3_misread",
-    table_output_root: str | Path = "paper/tables/generated/template_v3_misread",
+    input_root: str | Path = "outputs/paper_exports/figures/misread",
+    output_root: str | Path = "paper/figures/generated/misread",
+    table_input_root: str | Path = "outputs/paper_exports/tables/misread",
+    table_output_root: str | Path = "paper/tables/generated/misread",
     generated_command: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     source_dir = Path(source_root)
@@ -76,9 +76,9 @@ def export_template_v3_misread(
     for path in (input_dir, output_dir, table_input_dir, table_output_dir):
         path.mkdir(parents=True, exist_ok=True)
     if source_dir.resolve() == input_dir.resolve():
-        raise ValueError("template-v3 inputs must not overwrite registered source inputs")
+        raise ValueError("Misread figure inputs must not overwrite registered source inputs")
 
-    command = list(generated_command or [sys.executable, "export_template_v3_misread"])
+    command = list(generated_command or [sys.executable, "export_misread_figures"])
     labels = load_formal_root(labels_root, kind="labels")
     probes = load_formal_root(probes_root, kind="probes")
     budgets = load_formal_root(budgets_root, kind="budgets")
@@ -184,7 +184,7 @@ def export_template_v3_misread(
         "figures": figures,
         "tables": tables,
     }
-    manifest_path = input_dir / "template_v3_misread_export.json"
+    manifest_path = input_dir / "misread_figure_export.json"
     manifest_path.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
@@ -194,7 +194,7 @@ def export_template_v3_misread(
 def _ready_source(root: Path, key: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     status, rows, provenance = _load_figure_input(key, root / f"{key}.csv")
     if status != "Ready" or not rows:
-        raise ValueError(f"template-v3 requires registered Ready source: {key}")
+        raise ValueError(f"Misread figures require registered Ready source: {key}")
     return rows, provenance
 
 
@@ -339,7 +339,7 @@ def _fig07_rows(
     state_rows: list[dict[str, Any]],
     label_rows: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    normalized_stable = _with_normalized_split(stable_rows, provenance)
+    normalized_stable = normalize_modality_split_rows(stable_rows, provenance)
     labels = _label_index(label_rows, eligibility="label_eligible")
     patterns = {(row["model_key"], row["sample_id"]): row["pattern"] for row in state_rows}
     thresholds = provenance["thresholds_by_model"]
@@ -431,7 +431,7 @@ def _fig08_rows(
     budget_rows: list[dict[str, Any]] | None,
     budget_root: FormalRoot | None,
 ) -> list[dict[str, Any]]:
-    projected = _project_fig08_rows(rows, provenance)
+    projected = project_representation_rows(rows, provenance)
     output = [
         {
             **row,
@@ -496,7 +496,7 @@ def _fig08_rows(
 
 
 def _render_fig05(rows: list[dict[str, Any]], ready: bool, excluded: dict[str, int]) -> Any:
-    _set_style()
+    set_figure_style()
     figure = plt.figure(figsize=(14.48, 10.86), dpi=100)
     figure.suptitle(
         "Figure 5. State Pattern distributions and Misread prevalence",
@@ -546,7 +546,7 @@ def _render_fig05(rows: list[dict[str, Any]], ready: bool, excluded: dict[str, i
     axis.text(-0.16, 1.10, "(a)", transform=axis.transAxes, fontsize=22, fontweight="bold")
     right = figure.add_subplot(grid[0, 1])
     if not ready:
-        _pending_panel(
+        render_pending_panel(
             right,
             "Misread composition within each\nState Pattern (Conflict only)",
             xlabel="State Pattern",
@@ -603,7 +603,7 @@ def _render_fig05(rows: list[dict[str, Any]], ready: bool, excluded: dict[str, i
 def _render_fig07(
     rows: list[dict[str, Any]], provenance: dict[str, Any], ready: bool, excluded: dict[str, int]
 ) -> Any:
-    _set_style()
+    set_figure_style()
     figure = plt.figure(figsize=(14.48, 10.86), dpi=100)
     figure.suptitle(
         "Figure 7. State-Misread associations and model-specific modality bias",
@@ -628,7 +628,7 @@ def _render_fig07(
     ):
         axis = figure.add_subplot(grid[0, column])
         if not ready:
-            _pending_panel(
+            render_pending_panel(
                 axis,
                 title,
                 xlabel=xlabel,
@@ -766,7 +766,7 @@ def _render_fig07(
 
 
 def _render_fig08(rows: list[dict[str, Any]], ready: bool) -> Any:
-    _set_style()
+    set_figure_style()
     figure = plt.figure(figsize=(14.48, 10.86), dpi=100)
     figure.suptitle(
         "Figure 8. Frozen representation quality and Conflict-supervision sensitivity",
@@ -810,7 +810,7 @@ def _render_fig08(rows: list[dict[str, Any]], ready: bool) -> Any:
             row for row in rows if row["panel"] == "budget" and row["representation"] == method
         ]
         if not ready:
-            _pending_panel(
+            render_pending_panel(
                 bottom,
                 f"{method}\nConflict supervision sensitivity",
                 xlabel="Conflict supervision retained (%)",
@@ -916,8 +916,8 @@ def _export_tables(
                     )
                 )
             )
-    tables["tab01_cross_backbone_results_template_v3_misread"] = _write_table(
-        "tab01_cross_backbone_results_template_v3_misread",
+    tables["tab01_cross_backbone_results"] = _write_table(
+        "tab01_cross_backbone_results",
         tab1_columns,
         tab1,
         input_root,
@@ -971,11 +971,13 @@ def _export_tables(
                     )
                 )
             )
-    probes_ready = probes is not None and probe_rows is not None and all(
-        row["latency_ms"] is not None for row in probe_rows
+    probes_ready = (
+        probes is not None
+        and probe_rows is not None
+        and all(row["latency_ms"] is not None for row in probe_rows)
     )
-    tables["tab02_conflict_misread_baselines_template_v3_misread"] = _write_table(
-        "tab02_conflict_misread_baselines_template_v3_misread",
+    tables["tab02_conflict_misread_baselines"] = _write_table(
+        "tab02_conflict_misread_baselines",
         tab2_columns,
         tab2,
         input_root,
@@ -1002,7 +1004,7 @@ def _write_table(
     csv_path = input_root / f"{key}.csv"
     _write_csv(csv_path, rows, fieldnames=columns)
     provenance = {
-        "schema": "mprisk_template_v3_table_input_v1",
+        "schema": "mprisk_misread_table_input_v1",
         "table_key": key,
         "status": "Ready" if ready else "Pending",
         "columns": list(columns),
@@ -1043,7 +1045,7 @@ def _write_table(
     table.auto_set_font_size(False)
     table.set_fontsize(10)
     table.scale(1.0, 1.8)
-    for (row_index, column_index), cell in table.get_celld().items():
+    for (row_index, _column_index), cell in table.get_celld().items():
         cell.set_edgecolor("#444444")
         if row_index == 0:
             cell.set_facecolor("#E9EEF7")
@@ -1135,7 +1137,7 @@ def _write_provenance(
     excluded: dict[str, int],
 ) -> Path:
     provenance = {
-        "schema": "mprisk_template_v3_figure_input_v1",
+        "schema": "mprisk_misread_figure_input_v1",
         "figure_key": key,
         "status": "Ready" if all(readiness.values()) else "Partial",
         "input_sha256": sha256(path),

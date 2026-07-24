@@ -9,7 +9,7 @@ from pathlib import Path
 
 from mprisk.viz.bundle_figures import UMAP_CONFIG
 from mprisk.viz.figure_inputs import PROVENANCE_SCHEMA, provenance_path
-from mprisk.viz.template_v2 import FIGURES, PENDING, export_template_v2_figures
+from mprisk.viz.state_structure_figures import FIGURES, PENDING, export_state_structure_figures
 
 MODELS = ("qwen2_5_omni_7b", "qwen3_vl_8b", "internvl3_5_8b")
 
@@ -209,7 +209,7 @@ def _prepare_sources(root: Path) -> None:
     )
 
 
-def test_template_v2_exports_separately_with_real_only_coordinates_and_pending_panels(
+def test_state_structure_exports_separately_with_real_only_coordinates_and_pending_panels(
     tmp_path: Path,
 ) -> None:
     source_root = tmp_path / "original-inputs"
@@ -218,11 +218,11 @@ def test_template_v2_exports_separately_with_real_only_coordinates_and_pending_p
     _prepare_sources(source_root)
     original_hashes = {path: _sha(path) for path in source_root.glob("fig*.csv*") if path.is_file()}
 
-    result = export_template_v2_figures(
+    result = export_state_structure_figures(
         source_root=source_root,
         input_root=input_root,
         output_root=output_root,
-        generated_command=["pytest", "template-v2"],
+        generated_command=["pytest", "template state-structure"],
     )
 
     assert set(result["figures"]) == set(FIGURES)
@@ -239,7 +239,7 @@ def test_template_v2_exports_separately_with_real_only_coordinates_and_pending_p
         ).stdout.splitlines()[2:]
         assert not [line for line in images if line.strip()]
         sidecar = json.loads(Path(item["provenance"]).read_text())
-        assert sidecar["template_v2"]["synthetic_data_used"] is False
+        assert sidecar["state_structure"]["synthetic_data_used"] is False
         assert all(Path(source["path"]).parent == source_root for source in sidecar["sources"])
 
     fig08_rows = list(csv.DictReader((input_root / "fig08_representation_comparison.csv").open()))

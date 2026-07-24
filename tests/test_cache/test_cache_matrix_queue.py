@@ -566,7 +566,7 @@ def test_dynamic_smoke_gate_uses_subset_plan_sha_not_full_plan_sha(
 def test_complete_matrix_uses_dynamic_llava_context_and_accepts_only_internvl() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     config = load_matrix_config(
-        repo_root / "configs/cache/complete_cache_matrix_20260722.yaml"
+        repo_root / "configs/cache/complete_cache_matrix.yaml"
     )
 
     by_key = {model.model_key: model for model in config.models}

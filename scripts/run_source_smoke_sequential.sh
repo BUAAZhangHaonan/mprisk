@@ -8,7 +8,7 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 python_bin="/home/team/zhanghaonan/miniconda3/envs/mind-py311/bin/python"
-config="$repo_root/configs/cache/complete_cache_matrix_20260722.yaml"
+config="$repo_root/configs/cache/complete_cache_matrix.yaml"
 log_root="$repo_root/outputs/cache_smoke_matrix_20260722/source"
 driver_log="$log_root/sequential_driver.log"
 

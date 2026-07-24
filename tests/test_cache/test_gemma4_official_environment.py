@@ -14,7 +14,7 @@ from mprisk.cache.cache_matrix_queue import (
 def test_gemma4_official_environment_resolves_unified_auto_classes() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     matrix = load_matrix_config(
-        repo_root / "configs/cache/complete_cache_matrix_20260722.yaml"
+        repo_root / "configs/cache/complete_cache_matrix.yaml"
     )
     model = next(item for item in matrix.models if item.model_key == "gemma4_12b")
     asset = index_assets(load_model_assets(matrix.asset_config))[model.model_key]

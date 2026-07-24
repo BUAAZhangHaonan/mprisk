@@ -559,7 +559,7 @@ def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run blinded Misread judgment.")
     parser.add_argument(
-        "--config", type=Path, default=Path("configs/judge/misread_judgment_v2.yaml")
+        "--config", type=Path, default=Path("configs/judge/misread_judgment.yaml")
     )
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--import-human", type=Path)

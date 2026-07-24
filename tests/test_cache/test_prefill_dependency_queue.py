@@ -23,7 +23,7 @@ from mprisk.cache.prefill_dependency_queue import (
     wait_for_main_gate,
 )
 
-QUEUE_CONFIG = Path("configs/cache/prefill_followup_p8_queue_v1.yaml")
+QUEUE_CONFIG = Path("configs/cache/prefill_followup_p8_queue.yaml")
 
 
 def _write_ledger(path: Path, statuses: list[str]) -> None:

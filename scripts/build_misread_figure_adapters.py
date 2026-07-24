@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Bind completed queue artifacts to the template-v3 formal input contract.
+"""Bind completed queue artifacts to the formal Misread figure input contract.
 
 The queue and conflict-supervision trees are immutable experiment evidence.  This
 adapter only reads them, verifies every referenced checksum, and writes small
-CSV/marker roots under the additive template-v3 output tree.  It does not copy,
+CSV/marker roots under the additive figure-input tree.  It does not copy,
 rewrite, or reinterpret source experiment files.
 """
 
@@ -128,13 +128,17 @@ def probe_adapter(
     sources: list[dict[str, str]] = []
     queue_complete = queue_root / "MISREAD_BUDGET_COMPLETE.json"
     queue_marker = load_json(queue_complete)
-    add_source(sources, queue_complete, str(queue_marker.get("metrics_csv_sha256")) if False else None)
+    add_source(
+        sources, queue_complete, str(queue_marker.get("metrics_csv_sha256")) if False else None
+    )
     queue_metrics = queue_root / "misread_budget_probe_metrics.csv"
     add_source(sources, queue_metrics, str(queue_marker["metrics_csv_sha256"]))
     for model in MODELS:
         label_sha = label_artifact_sha(labels_root, model)
         for fraction in (0.10, 0.25, 0.50, 1.00):
-            marker_path = queue_root / model / f"fraction_{fraction:.2f}" / "FRACTION_PROBE_COMPLETE.json"
+            marker_path = (
+                queue_root / model / f"fraction_{fraction:.2f}" / "FRACTION_PROBE_COMPLETE.json"
+            )
             marker = load_json(marker_path)
             if marker.get("status") != "complete":
                 raise RuntimeError(f"probe fraction is not complete: {marker_path}")
@@ -146,7 +150,11 @@ def probe_adapter(
                 continue
             run = load_json(run_path)
             for entry in run["representations"]:
-                method = {"single_point": "Single-Point", "trajectory_mlp": "Trajectory MLP", "tme": "TME"}[entry["representation"]]
+                method = {
+                    "single_point": "Single-Point",
+                    "trajectory_mlp": "Trajectory MLP",
+                    "tme": "TME",
+                }[entry["representation"]]
                 values = entry["metrics"]
                 provenance = load_json(Path(entry["artifacts"]["provenance"]["path"]))
                 rows.append(
@@ -175,7 +183,7 @@ def probe_adapter(
         "status": "complete",
         "dataset_id": "delivery_20260716",
         "split_assignment_sha256": split_assignment_sha256,
-        "generated_command": ["python", "scripts/build_template_v3_adapters.py"],
+        "generated_command": ["python", "scripts/build_misread_figure_adapters.py"],
         "methods": list(METHODS),
         "models": list(MODELS),
         "seed": seed,
@@ -185,7 +193,16 @@ def probe_adapter(
     }
     marker_path = output_root / "COMPLETE.json"
     marker_sha = write_json(marker_path, marker)
-    write_json(output_root / "figure_input_manifest.json", {"kind": "probes", "marker": str(marker_path), "marker_sha256": marker_sha, "sources": sources, "rows": rows})
+    write_json(
+        output_root / "figure_input_manifest.json",
+        {
+            "kind": "probes",
+            "marker": str(marker_path),
+            "marker_sha256": marker_sha,
+            "sources": sources,
+            "rows": rows,
+        },
+    )
     return marker_path, marker
 
 
@@ -194,7 +211,10 @@ def _aligned_count(dataset_path: Path) -> int:
     with dataset_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             row = json.loads(line)
-            if row.get("sample_type") == "Aligned" and row.get("representation_split") == "relation_train":
+            if (
+                row.get("sample_type") == "Aligned"
+                and row.get("representation_split") == "relation_train"
+            ):
                 groups.add(str(row["sample_id"]))
     return len(groups)
 
@@ -221,27 +241,53 @@ def budget_adapter(
         budget_complete = load_json(budget_complete_path)
         add_source(sources, budget_complete_path)
         ac_rows = read_csv(Path(budget_complete["ac_metrics_csv"]))
-        add_source(sources, Path(budget_complete["ac_metrics_csv"]), budget_complete["ac_metrics_csv_sha256"])
+        add_source(
+            sources,
+            Path(budget_complete["ac_metrics_csv"]),
+            budget_complete["ac_metrics_csv_sha256"],
+        )
         for ac in ac_rows:
             fraction = float(ac["conflict_supervision_fraction"])
             method_queue = ac["method"]
-            method = {"single_point": "Single-Point", "trajectory_mlp": "Trajectory MLP", "tme": "TME"}[method_queue]
-            conflict_fraction_marker = conflict_root / model / f"fraction_{fraction:.2f}" / "FRACTION_COMPLETE.json"
-            conflict_fraction = load_json(conflict_fraction_marker)
+            method = {
+                "single_point": "Single-Point",
+                "trajectory_mlp": "Trajectory MLP",
+                "tme": "TME",
+            }[method_queue]
+            conflict_fraction_marker = (
+                conflict_root / model / f"fraction_{fraction:.2f}" / "FRACTION_COMPLETE.json"
+            )
+            load_json(conflict_fraction_marker)
             add_source(sources, conflict_fraction_marker)
-            method_marker_path = conflict_root / model / f"fraction_{fraction:.2f}" / method_queue / "RUN_COMPLETE.json"
+            method_marker_path = (
+                conflict_root
+                / model
+                / f"fraction_{fraction:.2f}"
+                / method_queue
+                / "RUN_COMPLETE.json"
+            )
             method_marker = load_json(method_marker_path)
             add_source(sources, method_marker_path)
-            queue_fraction_marker = queue_root / model / f"fraction_{fraction:.2f}" / "FRACTION_PROBE_COMPLETE.json"
+            queue_fraction_marker = (
+                queue_root / model / f"fraction_{fraction:.2f}" / "FRACTION_PROBE_COMPLETE.json"
+            )
             queue_fraction = load_json(queue_fraction_marker)
             add_source(sources, queue_fraction_marker)
             run_path = Path(queue_fraction["probe_run_complete"]["path"])
             require_sha(run_path, queue_fraction["probe_run_complete"]["sha256"])
             run = load_json(run_path)
             add_source(sources, run_path, queue_fraction["probe_run_complete"]["sha256"])
-            probe_entry = next(item for item in run["representations"] if item["representation"] == method_queue)
+            probe_entry = next(
+                item for item in run["representations"] if item["representation"] == method_queue
+            )
             provenance = load_json(Path(probe_entry["artifacts"]["provenance"]["path"]))
-            q = next(item for item in queue_metrics if item["model_key"] == model and float(item["fraction"]) == fraction and item["representation"] == method_queue)
+            next(
+                item
+                for item in queue_metrics
+                if item["model_key"] == model
+                and float(item["fraction"]) == fraction
+                and item["representation"] == method_queue
+            )
             training_dataset = Path(method_marker["training_relation_dataset"])
             n_aligned = _aligned_count(training_dataset)
             rows.append(
@@ -275,7 +321,7 @@ def budget_adapter(
         "status": "complete",
         "dataset_id": "delivery_20260716",
         "split_assignment_sha256": split_assignment_sha256,
-        "generated_command": ["python", "scripts/build_template_v3_adapters.py"],
+        "generated_command": ["python", "scripts/build_misread_figure_adapters.py"],
         "methods": list(METHODS),
         "models": list(MODELS),
         "representative_model": "qwen3_vl_8b",
@@ -288,7 +334,16 @@ def budget_adapter(
     }
     marker_path = output_root / "COMPLETE.json"
     marker_sha = write_json(marker_path, marker)
-    write_json(output_root / "figure_input_manifest.json", {"kind": "budgets", "marker": str(marker_path), "marker_sha256": marker_sha, "sources": sources, "rows": rows})
+    write_json(
+        output_root / "figure_input_manifest.json",
+        {
+            "kind": "budgets",
+            "marker": str(marker_path),
+            "marker_sha256": marker_sha,
+            "sources": sources,
+            "rows": rows,
+        },
+    )
     return marker_path, marker
 
 
@@ -296,14 +351,37 @@ def main() -> None:
     repo = Path(__file__).resolve().parents[1]
     labels_root = repo / "outputs/labels/delivery_20260716_single_flash_v1"
     queue_root = repo / "outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1"
-    conflict_root = repo / "outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1"
-    output = repo / "outputs/paper_exports/figures/template_v3_misread/adapters"
+    conflict_root = (
+        repo / "outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1"
+    )
+    output = repo / "outputs/paper_exports/figures/misread/adapters"
     output.mkdir(parents=True, exist_ok=True)
     provenance = load_json(labels_root / "provenance.json")
     split_sha = provenance["input_artifacts"]["split_assignment"]["sha256"]
-    probe_path, _ = probe_adapter(labels_root=labels_root, queue_root=queue_root, output_root=output / "probes", split_assignment_sha256=split_sha, seed=20260717)
-    budget_path, _ = budget_adapter(labels_root=labels_root, queue_root=queue_root, conflict_root=conflict_root, output_root=output / "budgets", split_assignment_sha256=split_sha, seed=20260717)
-    manifest = {"schema": "mprisk_template_v3_adapter_manifest_v1", "labels_root": str(labels_root), "probe_root": str(probe_path.parent), "budget_root": str(budget_path.parent), "probe_marker_sha256": sha256(probe_path), "budget_marker_sha256": sha256(budget_path), "source_read_only": True}
+    probe_path, _ = probe_adapter(
+        labels_root=labels_root,
+        queue_root=queue_root,
+        output_root=output / "probes",
+        split_assignment_sha256=split_sha,
+        seed=20260717,
+    )
+    budget_path, _ = budget_adapter(
+        labels_root=labels_root,
+        queue_root=queue_root,
+        conflict_root=conflict_root,
+        output_root=output / "budgets",
+        split_assignment_sha256=split_sha,
+        seed=20260717,
+    )
+    manifest = {
+        "schema": "mprisk_misread_figure_adapter_manifest_v1",
+        "labels_root": str(labels_root),
+        "probe_root": str(probe_path.parent),
+        "budget_root": str(budget_path.parent),
+        "probe_marker_sha256": sha256(probe_path),
+        "budget_marker_sha256": sha256(budget_path),
+        "source_read_only": True,
+    }
     write_json(output / "figure_input_manifest.json", manifest)
     print(json.dumps(manifest, sort_keys=True))
 

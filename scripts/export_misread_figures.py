@@ -5,12 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from mprisk.viz.template_v3_misread import export_template_v3_misread
+from mprisk.viz.misread_figures import export_misread_figures
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Export additive template-v3 figures/tables from formal Misread roots."
+        description="Export Misread figures and tables from formal Misread roots."
     )
     parser.add_argument("--source-root", type=Path, default=Path("outputs/paper_exports/figures"))
     parser.add_argument("--labels-root", type=Path)
@@ -19,25 +19,25 @@ def main() -> int:
     parser.add_argument(
         "--input-root",
         type=Path,
-        default=Path("outputs/paper_exports/figures/template_v3_misread"),
+        default=Path("outputs/paper_exports/figures/misread"),
     )
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=Path("paper/figures/generated/template_v3_misread"),
+        default=Path("paper/figures/generated/misread"),
     )
     parser.add_argument(
         "--table-input-root",
         type=Path,
-        default=Path("outputs/paper_exports/tables/template_v3_misread"),
+        default=Path("outputs/paper_exports/tables/misread"),
     )
     parser.add_argument(
         "--table-output-root",
         type=Path,
-        default=Path("paper/tables/generated/template_v3_misread"),
+        default=Path("paper/tables/generated/misread"),
     )
     args = parser.parse_args()
-    result = export_template_v3_misread(
+    result = export_misread_figures(
         source_root=args.source_root,
         labels_root=args.labels_root,
         probes_root=args.probes_root,

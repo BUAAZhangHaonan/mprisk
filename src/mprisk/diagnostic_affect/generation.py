@@ -683,7 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/experiments/diagnostic_affect_description_v2.yaml"),
+        default=Path("configs/experiments/diagnostic_affect_description.yaml"),
     )
     parser.add_argument("--manifest-path", type=Path)
     parser.add_argument("--output-root", type=Path)

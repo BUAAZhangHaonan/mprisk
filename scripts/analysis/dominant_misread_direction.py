@@ -23,13 +23,12 @@ from typing import Any
 
 import httpx
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_ROOT = REPO_ROOT / "outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1"
 FORMAL_ROOT = REPO_ROOT.parent / "mprisk-v2/outputs/v2/misread"
 SOURCE_ROOT = REPO_ROOT / "data/processed/manifests/protocol_manifests_merged"
 PROMPT_PATH = Path(__file__).with_name("dominant_misread_direction_prompt.txt")
-OUTPUT_ROOT = REPO_ROOT / "outputs/analysis/dominant_misread_direction_v1"
+OUTPUT_ROOT = REPO_ROOT / "outputs/analysis/dominant_misread_direction"
 MANIFEST_PATH = OUTPUT_ROOT / "manifest.jsonl"
 RESULTS_PATH = OUTPUT_ROOT / "results.jsonl"
 SUMMARY_PATH = OUTPUT_ROOT / "summary.json"
@@ -178,7 +177,9 @@ def build_manifest() -> list[dict[str, Any]]:
                 raise ValueError(f"{state_path(model)}: duplicate candidate {sample_id}")
             state_map[sample_id] = row
 
-        judgment_map = unique_by(load_jsonl(judgment_path(model)), "sample_id", judgment_path(model))
+        judgment_map = unique_by(
+            load_jsonl(judgment_path(model)), "sample_id", judgment_path(model)
+        )
         candidate_ids = sorted(
             sample_id
             for sample_id, row in state_map.items()
@@ -189,11 +190,7 @@ def build_manifest() -> list[dict[str, Any]]:
         source_map = unique_by(load_jsonl(source_path), "sample_id", source_path)
 
         description_rows = load_jsonl(description_path(model))
-        m12_rows = [
-            row
-            for row in description_rows
-            if row.get("condition") == "M12"
-        ]
+        m12_rows = [row for row in description_rows if row.get("condition") == "M12"]
         description_map = unique_by(m12_rows, "sample_id", description_path(model))
 
         for sample_id in candidate_ids:
@@ -215,7 +212,7 @@ def build_manifest() -> list[dict[str, Any]]:
                     f"does not match expected {protocol!r}"
                 )
             value_r = state.get("R")
-            if not isinstance(value_r, (int, float)) or not math.isfinite(float(value_r)):
+            if not isinstance(value_r, int | float) or not math.isfinite(float(value_r)):
                 raise ValueError(f"{model}/{sample_id}: R is not finite")
             if value_r == 0:
                 raise ValueError(f"{model}/{sample_id}: R=0 has no unique direction")
@@ -225,7 +222,7 @@ def build_manifest() -> list[dict[str, Any]]:
             direction = "V" if value_r > 0 else second_modality
             manifest.append(
                 {
-                    "schema": "mprisk_dominant_misread_direction_manifest_v1",
+                    "schema": "mprisk_dominant_misread_direction_manifest_v2",
                     "model": model,
                     "sample_id": sample_id,
                     "protocol": protocol.upper(),
@@ -329,9 +326,13 @@ def validate_judge_output(content: str, direction: str) -> dict[str, Any]:
 
 def model_unavailable(status_code: int, body: str) -> bool:
     lowered = body.lower()
-    return status_code in {400, 404} and "model" in lowered and any(
-        token in lowered
-        for token in ("not found", "does not exist", "unsupported", "unavailable", "invalid")
+    return (
+        status_code in {400, 404}
+        and "model" in lowered
+        and any(
+            token in lowered
+            for token in ("not found", "does not exist", "unsupported", "unavailable", "invalid")
+        )
     )
 
 
@@ -359,12 +360,11 @@ def run_once() -> int:
     fatal_model_error = False
     with httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS) as client:
         for index, row in enumerate(pending, 1):
-            key = request_key(row)
             messages, prompt_sha256 = render_request(row, prompt)
             append_jsonl(
                 RESULTS_PATH,
                 {
-                    "schema": "mprisk_dominant_misread_direction_result_v1",
+                    "schema": "mprisk_dominant_misread_direction_result_v2",
                     "status": "started",
                     "model": row["model"],
                     "sample_id": row["sample_id"],
@@ -410,7 +410,7 @@ def run_once() -> int:
                     raise ValueError("API response has empty content")
                 result = validate_judge_output(content, row["direction"])
                 record = {
-                    "schema": "mprisk_dominant_misread_direction_result_v1",
+                    "schema": "mprisk_dominant_misread_direction_result_v2",
                     "status": "success",
                     "model": row["model"],
                     "sample_id": row["sample_id"],
@@ -427,7 +427,7 @@ def run_once() -> int:
                 append_jsonl(
                     RESULTS_PATH,
                     {
-                        "schema": "mprisk_dominant_misread_direction_result_v1",
+                        "schema": "mprisk_dominant_misread_direction_result_v2",
                         "status": "failed",
                         "model": row["model"],
                         "sample_id": row["sample_id"],
@@ -460,12 +460,10 @@ def summarize() -> int:
         failed = [row for row in records if row.get("status") == "failed"]
         started_unresolved = [row for row in records if row.get("status") == "started"]
         true_count = sum(
-            row.get("response", {}).get("follows_dominant_direction") is True
-            for row in successes
+            row.get("response", {}).get("follows_dominant_direction") is True for row in successes
         )
         unclear_count = sum(
-            row.get("response", {}).get("chosen_modality") == "unclear"
-            for row in successes
+            row.get("response", {}).get("chosen_modality") == "unclear" for row in successes
         )
         false_count = len(successes) - true_count - unclear_count
         direction_counts = Counter(row["direction"] for row in model_rows)
@@ -484,7 +482,7 @@ def summarize() -> int:
             "direction_distribution": dict(sorted(direction_counts.items())),
         }
     summary = {
-        "schema": "mprisk_dominant_misread_direction_summary_v1",
+        "schema": "mprisk_dominant_misread_direction_summary_v2",
         "api_model": API_MODEL,
         "manifest_sha256": manifest_fingerprint(rows) if rows else None,
         "per_model": per_model,
@@ -524,7 +522,10 @@ def main() -> int:
         "V",
     )
     validate_judge_output(
-        '{"follows_dominant_direction": false, "chosen_modality": "unclear", "reason": "ambiguous"}',
+        (
+            '{"follows_dominant_direction": false, "chosen_modality": "unclear", '
+            '"reason": "ambiguous"}'
+        ),
         "V",
     )
     print("self-test=ok")
