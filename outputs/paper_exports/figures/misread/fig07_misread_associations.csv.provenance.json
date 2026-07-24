@@ -1,0 +1,92 @@
+{
+  "excluded_labels": {
+    "blocked": 5,
+    "label_eligible": 5684,
+    "probe_eligible": 5684,
+    "unresolved": 2
+  },
+  "figure_key": "fig07_misread_associations",
+  "generated_command": [
+    "/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python",
+    "/home/team/zhanghaonan/mprisk-delivery-final-2/scripts/export_misread_figures.py"
+  ],
+  "input_sha256": "465096b13cad9d6b8609ff0de96f112b8734c4e7bda2eb592a2929a87c5819ec",
+  "panel_readiness": {
+    "bias": true,
+    "misread": true
+  },
+  "row_count": 294,
+  "schema": "mprisk_misread_figure_input_v1",
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig05_four_state_stacks.csv",
+      "sha256": "164bc4ed805966bab9cccb59f7ddd27cf95fed04bbb18518178dc3a995cd7d00"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig05_four_state_stacks.csv.provenance.json",
+      "sha256": "9638bae0e9b5bb4c00d00a28f4e09f4e5bfc8ec1173bfbd607ef5591632a73f0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig07_misread_bias.csv",
+      "sha256": "c82b213449a560f07c234c01d587c183f6dbc8700fc076a4d615a9aaec5bac45"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig07_misread_bias.csv.provenance.json",
+      "sha256": "22d6944e504b62ce9efd29081a0bbeabf9314a00cdc4a2b7a965708f89fa45f4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv",
+      "sha256": "c92c1d87b765870462252e89b8c3f3af317bddc05297e1e02539c6f3cb4ea90f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv.provenance.json",
+      "sha256": "94b5e5d2d5bbde130f4103eaea47315639ee52c06de23ff309d92420a01846cf"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/COMPLETE.json",
+      "sha256": "89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/labels/gemma4_12b_it.jsonl",
+      "sha256": "8a8b8d61642e87e9f6f0ba81e756754117ee2b00254ed91ba864a2dd4d292874"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/labels/internvl3_5_8b.jsonl",
+      "sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/labels/qwen2_5_omni_7b.jsonl",
+      "sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/labels/qwen3_vl_8b.jsonl",
+      "sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/provenance.json",
+      "sha256": "1e20193f6dda2ed85ae5f2f0119964d488c91014c8b7a1b44855b257139da2f7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels/summary.json",
+      "sha256": "40859c31ac7514bfb77746e89fdeccba153b2bffa71a2c6e3af9f6fe0959acf1"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/probes/COMPLETE.json",
+      "sha256": "d6203dc754cd1611ca3e8688ee0b27e0a426caf06341c09b68efd89fe2075c4a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/probes/probe_metrics.csv",
+      "sha256": "99f59a835e65d1c81f233dc7ec275ddc7836c9172329da8eb53e1b67e3fd5d5a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/budgets/COMPLETE.json",
+      "sha256": "92a48934c16c3f0e3d420a9f9b1983ab69d7f13473382413fb29e26dcd4c6d09"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/budgets/budget_metrics.csv",
+      "sha256": "8a3d9f32156fb9ba0c3ad885efcdfa1aba44c2c1a23265209dcf875df3e73ca0"
+    }
+  ],
+  "status": "Ready",
+  "synthetic_data_used": false
+}

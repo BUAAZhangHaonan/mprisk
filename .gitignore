@@ -119,6 +119,9 @@ outputs/**/*
 !outputs/paper_exports/**/*.json
 !outputs/paper_exports/**/*.tex
 !outputs/paper_exports/**/*.md
+!outputs/paper_exports/figures/misread/adapters/labels/COMPLETE.json.sha256
+!outputs/paper_exports/figures/misread/adapters/labels/labels/
+!outputs/paper_exports/figures/misread/adapters/labels/labels/*.jsonl
 !outputs/reports/
 !outputs/reports/**/
 !outputs/reports/**/*.md

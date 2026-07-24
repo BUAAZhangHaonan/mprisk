@@ -13,9 +13,21 @@ def main() -> int:
         description="Export Misread figures and tables from formal Misread roots."
     )
     parser.add_argument("--source-root", type=Path, default=Path("outputs/paper_exports/figures"))
-    parser.add_argument("--labels-root", type=Path)
-    parser.add_argument("--probes-root", type=Path)
-    parser.add_argument("--budgets-root", type=Path)
+    parser.add_argument(
+        "--labels-root",
+        type=Path,
+        default=Path("outputs/paper_exports/figures/misread/adapters/labels"),
+    )
+    parser.add_argument(
+        "--probes-root",
+        type=Path,
+        default=Path("outputs/paper_exports/figures/misread/adapters/probes"),
+    )
+    parser.add_argument(
+        "--budgets-root",
+        type=Path,
+        default=Path("outputs/paper_exports/figures/misread/adapters/budgets"),
+    )
     parser.add_argument(
         "--input-root",
         type=Path,

@@ -59,9 +59,15 @@ FIGURE_KEYS = (
 def export_misread_figures(
     *,
     source_root: str | Path = "outputs/paper_exports/figures",
-    labels_root: str | Path | None = None,
-    probes_root: str | Path | None = None,
-    budgets_root: str | Path | None = None,
+    labels_root: str | Path | None = (
+        "outputs/paper_exports/figures/misread/adapters/labels"
+    ),
+    probes_root: str | Path | None = (
+        "outputs/paper_exports/figures/misread/adapters/probes"
+    ),
+    budgets_root: str | Path | None = (
+        "outputs/paper_exports/figures/misread/adapters/budgets"
+    ),
     input_root: str | Path = "outputs/paper_exports/figures/misread",
     output_root: str | Path = "paper/figures/generated/misread",
     table_input_root: str | Path = "outputs/paper_exports/tables/misread",
@@ -1122,7 +1128,7 @@ def _write_csv(
     path.parent.mkdir(parents=True, exist_ok=True)
     names = list(fieldnames or (rows[0].keys() if rows else ()))
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=names)
+        writer = csv.DictWriter(handle, fieldnames=names, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

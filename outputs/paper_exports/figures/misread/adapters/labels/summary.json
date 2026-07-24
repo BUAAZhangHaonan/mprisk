@@ -1,0 +1,161 @@
+{
+  "confidence_threshold": 0.5,
+  "models": {
+    "gemma4_12b_it": {
+      "by_sample_type": {
+        "Aligned": {
+          "blocked": 0,
+          "label_eligible": 1092,
+          "misread": 68,
+          "misread_rate": 0.06227106227106227,
+          "needs_manual_review": 1,
+          "non_misread": 1024,
+          "probe_eligible": 0,
+          "rows": 1093
+        },
+        "Conflict": {
+          "blocked": 5,
+          "label_eligible": 841,
+          "misread": 214,
+          "misread_rate": 0.2544589774078478,
+          "needs_manual_review": 0,
+          "non_misread": 627,
+          "probe_eligible": 0,
+          "rows": 846
+        }
+      },
+      "overall": {
+        "blocked": 5,
+        "label_eligible": 1933,
+        "misread": 282,
+        "misread_rate": 0.14588722193481635,
+        "needs_manual_review": 1,
+        "non_misread": 1651,
+        "probe_eligible": 0,
+        "rows": 1939
+      },
+      "protocol": "VA",
+      "representative_probe_model": false
+    },
+    "internvl3_5_8b": {
+      "by_sample_type": {
+        "Aligned": {
+          "blocked": 0,
+          "label_eligible": 1144,
+          "misread": 107,
+          "misread_rate": 0.09353146853146853,
+          "needs_manual_review": 0,
+          "non_misread": 1037,
+          "probe_eligible": 1144,
+          "rows": 1144
+        },
+        "Conflict": {
+          "blocked": 0,
+          "label_eligible": 732,
+          "misread": 279,
+          "misread_rate": 0.38114754098360654,
+          "needs_manual_review": 0,
+          "non_misread": 453,
+          "probe_eligible": 732,
+          "rows": 732
+        }
+      },
+      "overall": {
+        "blocked": 0,
+        "label_eligible": 1876,
+        "misread": 386,
+        "misread_rate": 0.20575692963752665,
+        "needs_manual_review": 0,
+        "non_misread": 1490,
+        "probe_eligible": 1876,
+        "rows": 1876
+      },
+      "protocol": "VT",
+      "representative_probe_model": true
+    },
+    "qwen2_5_omni_7b": {
+      "by_sample_type": {
+        "Aligned": {
+          "blocked": 0,
+          "label_eligible": 1092,
+          "misread": 68,
+          "misread_rate": 0.06227106227106227,
+          "needs_manual_review": 1,
+          "non_misread": 1024,
+          "probe_eligible": 1092,
+          "rows": 1093
+        },
+        "Conflict": {
+          "blocked": 5,
+          "label_eligible": 841,
+          "misread": 214,
+          "misread_rate": 0.2544589774078478,
+          "needs_manual_review": 0,
+          "non_misread": 627,
+          "probe_eligible": 841,
+          "rows": 846
+        }
+      },
+      "overall": {
+        "blocked": 5,
+        "label_eligible": 1933,
+        "misread": 282,
+        "misread_rate": 0.14588722193481635,
+        "needs_manual_review": 1,
+        "non_misread": 1651,
+        "probe_eligible": 1933,
+        "rows": 1939
+      },
+      "protocol": "VA",
+      "representative_probe_model": true
+    },
+    "qwen3_vl_8b": {
+      "by_sample_type": {
+        "Aligned": {
+          "blocked": 0,
+          "label_eligible": 1144,
+          "misread": 85,
+          "misread_rate": 0.0743006993006993,
+          "needs_manual_review": 0,
+          "non_misread": 1059,
+          "probe_eligible": 1144,
+          "rows": 1144
+        },
+        "Conflict": {
+          "blocked": 0,
+          "label_eligible": 731,
+          "misread": 273,
+          "misread_rate": 0.3734610123119015,
+          "needs_manual_review": 1,
+          "non_misread": 458,
+          "probe_eligible": 731,
+          "rows": 732
+        }
+      },
+      "overall": {
+        "blocked": 0,
+        "label_eligible": 1875,
+        "misread": 358,
+        "misread_rate": 0.19093333333333334,
+        "needs_manual_review": 1,
+        "non_misread": 1517,
+        "probe_eligible": 1875,
+        "rows": 1876
+      },
+      "protocol": "VT",
+      "representative_probe_model": true
+    }
+  },
+  "schema": "mprisk_misread_label_import_summary_v1",
+  "totals": {
+    "blocked": 10,
+    "label_eligible": 7617,
+    "misread": 1308,
+    "misread_rate": 0.17172115005907837,
+    "models": 4,
+    "needs_manual_review": 3,
+    "non_misread": 6309,
+    "probe_eligible": 5684,
+    "rows": 7630
+  }
+}

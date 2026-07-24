@@ -374,7 +374,11 @@ def canonical_metric_rows(
         for name in ("seed", "n_train", "n_val", "n_test"):
             item[name] = int(row[name])
         if role == "probe_metrics":
-            item["latency_ms"] = float(row["latency_ms"])
+            item["latency_ms"] = (
+                None if row["latency_ms"] == "" else float(row["latency_ms"])
+            )
+            if item["latency_ms"] is not None and item["latency_ms"] < 0:
+                raise ValueError("formal probe latency_ms must be non-negative")
             key = (row["model"], row["method"], row["seed"])
         else:
             for name in ("budget_pct", "n_conflict_supervision", "n_aligned_supervision"):

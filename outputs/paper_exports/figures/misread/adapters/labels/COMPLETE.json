@@ -1,0 +1,25 @@
+{
+  "artifact_checksums_sha256": "eeae2bbcb3b5db79c565a648f84b46a997ae9ef7fcab646b82d8b731d2ed372f",
+  "counts": {
+    "blocked": 10,
+    "label_eligible": 7617,
+    "misread": 1308,
+    "misread_rate": 0.17172115005907837,
+    "models": 4,
+    "needs_manual_review": 3,
+    "non_misread": 6309,
+    "probe_eligible": 5684,
+    "rows": 7630
+  },
+  "eligible_subset_complete": true,
+  "models": [
+    "qwen3_vl_8b",
+    "internvl3_5_8b",
+    "qwen2_5_omni_7b",
+    "gemma4_12b_it"
+  ],
+  "resolved_count": 7617,
+  "schema": "mprisk_formal_misread_labels_root_v1",
+  "status": "partial_manual_review_required",
+  "unresolved_count": 13
+}

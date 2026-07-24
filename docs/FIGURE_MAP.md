@@ -62,3 +62,36 @@ python scripts/build_run_status.py \
 `RUN_STATUS.md` renders only supplied machine-readable records: actual argv/PID, GPU
 snapshots, cache complete/failed/missing counts, experiment outcomes, PDF paths, and
 Pending inputs. Missing runtime evidence remains explicitly unrecorded or Pending.
+
+## Canonical Additive Exports
+
+The canonical exporters never replace the registered root figures or either historical
+`template_v2` / `template_v3_misread` export. They materialize checked snapshots and
+figures in separate additive directories:
+
+| Export | Checked inputs | Generated figures |
+|---|---|---|
+| State structure | `outputs/paper_exports/figures/state_structure/` | `paper/figures/generated/state_structure/` |
+| Misread | `outputs/paper_exports/figures/misread/` | `paper/figures/generated/misread/` |
+| Misread tables | `outputs/paper_exports/tables/misread/` | `paper/tables/generated/misread/` |
+
+The committed Misread adapter root is self-contained under
+`outputs/paper_exports/figures/misread/adapters/`. It binds verified labels, probe
+metrics, and Conflict-supervision budget metrics by SHA-256. The exporter keeps the
+probe-latency cell `Pending` because the registered probe queue did not record latency.
+It does not substitute a numeric value.
+
+```bash
+PYTHONPATH=src python scripts/export_state_structure_figures.py
+PYTHONPATH=src python scripts/export_misread_figures.py
+```
+
+To rebuild the canonical adapters from the original formal evidence, supply its three
+immutable roots explicitly:
+
+```bash
+PYTHONPATH=src python scripts/build_misread_figure_adapters.py \
+  --labels-root outputs/labels/delivery_20260716_single_flash_v1 \
+  --queue-root outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1 \
+  --conflict-root outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1
+```

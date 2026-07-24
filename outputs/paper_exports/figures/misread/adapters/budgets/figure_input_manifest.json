@@ -1,0 +1,1301 @@
+{
+  "kind": "budgets",
+  "marker": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/budgets/COMPLETE.json",
+  "marker_sha256": "92a48934c16c3f0e3d420a9f9b1983ab69d7f13473382413fb29e26dcd4c6d09",
+  "rows": [
+    {
+      "accuracy": 0.8538461538461538,
+      "auprc": 0.6758282039008017,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "f24d3aeeaa3d5f3baa8833ed6855afc380be695dbde355f8b51b8f605a10a0cb",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.786535303776683,
+      "method": "Single-Point",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 57,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.7615384615384615,
+      "auprc": 0.4027595056422061,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "30d18bb5716b5cda8f927c1fc2157462aeeb0eb07b619b49967dd9e40d56f523",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.6601737077325238,
+      "method": "Trajectory MLP",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 57,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8153846153846154,
+      "auprc": 0.5068492300850036,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "9975ed627de51fe0add075b0821c969490934261090e7c04bb9f6286342215b4",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.6592398427260813,
+      "method": "TME",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 57,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8538461538461538,
+      "auprc": 0.6758282039008017,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "f2c99550b3e48121d582ef7fd8df5148341b11908c798fec08835b4d12dfcd75",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.786535303776683,
+      "method": "Single-Point",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 143,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.7230769230769231,
+      "auprc": 0.36748719592280044,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "8e9a4e879c66497d39ac4e6fc915b35bbf93a293302a58618159e3ea25e0c565",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.6599825632083696,
+      "method": "Trajectory MLP",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 143,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8153846153846154,
+      "auprc": 0.1723261558609721,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "3fe7806e7f206dc4ec088d48d0660561181dc62a2101f52d3badf102408c62ec",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.4491525423728814,
+      "method": "TME",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 143,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8538461538461538,
+      "auprc": 0.6758282039008017,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "eb28a0307a82db4b2aeed6d8b0ad2c80d80db9587cc93660b7040676b21eb37c",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.786535303776683,
+      "method": "Single-Point",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 285,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.7307692307692307,
+      "auprc": 0.4479911093248225,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "f8ac9358e07e7f432675bba3fe273e266a74a459e227dcad43bd25f3b8931e11",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.6817959297852996,
+      "method": "Trajectory MLP",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 285,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.7923076923076923,
+      "auprc": 0.22630683177951857,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "f28dcadac09fe2b6131990a4e3d7bae66c0a00d60fb0f5f8881cd565c9a47c13",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.44206008583690987,
+      "method": "TME",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 285,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8538461538461538,
+      "auprc": 0.6758282039008017,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "aef4ab224b63c5962f0c2ae3e06188d0d8b4a99b7bb5f74fa1db7523c3011f42",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.786535303776683,
+      "method": "Single-Point",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 569,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8153846153846154,
+      "auprc": 0.5195604143070571,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "23d83507d46178de5c6234099a1395a43c4d4d9cf096b1433abfdaa001d480c6",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.74,
+      "method": "Trajectory MLP",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 569,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8307692307692308,
+      "auprc": 0.3753492094968569,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "a9c003b29b00e0c500b96c958fab5dd03d7eeac36c4adf254334395c84def03e",
+      "label_artifact_sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19",
+      "macro_f1": 0.453781512605042,
+      "method": "TME",
+      "model": "qwen2_5_omni_7b",
+      "n_aligned_supervision": 722,
+      "n_conflict_supervision": 569,
+      "n_test": 130,
+      "n_train": 569,
+      "n_val": 142,
+      "protocol": "VA",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "aecb5ba21f95a3ab8b52aca3114d1adf9f49136c6b531728a9f1c2b099f3e9fc"
+    },
+    {
+      "accuracy": 0.8272727272727273,
+      "auprc": 0.6557375423031229,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "6c6149260e99c5c10083af67d6be9614554135abd228e927c998bc08e228034c",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.805237163358494,
+      "method": "Single-Point",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6545454545454545,
+      "auprc": 0.33663058124271394,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "8bc80e7cbb76fddb88842f1838133705a6f471ba92ddfc831dc32c6427ab8541",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.4777611194402799,
+      "method": "Trajectory MLP",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6909090909090909,
+      "auprc": 0.29653284936797375,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "94a16ea4176eae52fd49a9f4df3a4bcb7c59a65eeb29608bda98d4fa72d8b84a",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.40860215053763443,
+      "method": "TME",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.8272727272727273,
+      "auprc": 0.6557375423031229,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "82d72cc498f021496ad0ff990e01d9a38586dca9067878d1aacff3ecc299cb7a",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.805237163358494,
+      "method": "Single-Point",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6363636363636364,
+      "auprc": 0.5061086465448846,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "cc3de2e7b19da112e02cca0a91823695739c79992808a16903788270263d3cab",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.6148459383753502,
+      "method": "Trajectory MLP",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7,
+      "auprc": 0.4479115239210622,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "61bf233e624b1aad07f566cdef0a92cc80960c3bc084ad6b47bfdb39c6720e71",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.5535604476694134,
+      "method": "TME",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.8272727272727273,
+      "auprc": 0.6557375423031229,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "349806744f6e96126bd2d67da4be47205ad9c55ac209b95aa16ff8ea28971110",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.805237163358494,
+      "method": "Single-Point",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6909090909090909,
+      "auprc": 0.29888666856533264,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "e8719c392ab402ee9501ff2f1992103c131f9d629e163382fc867e970529b9b2",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.40860215053763443,
+      "method": "Trajectory MLP",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6727272727272727,
+      "auprc": 0.47589705169989427,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "12bcc65eccadc530bbd32a604c478b6eb06f24a5b4e4552cd3a8671fbf0e14ec",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.6283783783783783,
+      "method": "TME",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.8272727272727273,
+      "auprc": 0.6557375423031229,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "b515111fcd49ac4aed543c611d041f2893d6aa7a1594056acdf6f6cf4858ba4b",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.805237163358494,
+      "method": "Single-Point",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6909090909090909,
+      "auprc": 0.28805131693674074,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "240f4a34e02b05380c67d7168062c25c98160645e62faed62e5ae74675d59ccc",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.40860215053763443,
+      "method": "Trajectory MLP",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7090909090909091,
+      "auprc": 0.495081242839503,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "d9c0636f096b6304a95d8a1bdbe247f08258bfb2a1eea9d89046cf3133abeaed",
+      "label_artifact_sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c",
+      "macro_f1": 0.6783625730994152,
+      "method": "TME",
+      "model": "qwen3_vl_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 509,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7909090909090909,
+      "auprc": 0.7779288529888352,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "96121b05b0e7a8a8f16607a70dc65cd161fdaa34a4dd7fa5c2b230971162388f",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7728700960588921,
+      "method": "Single-Point",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6818181818181818,
+      "auprc": 0.3181818181818182,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "f1232ce21404e498fef903eb6e2940b9dbdc8a5b0ee822ac928696f7c1744175",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.40540540540540543,
+      "method": "Trajectory MLP",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6818181818181818,
+      "auprc": 0.4826032114733597,
+      "budget_pct": 10,
+      "encoder_checkpoint_sha256": "5cd9b06723e635013cf28a969ec648b3c7d7d078b80c865e33952ec6b4dace4e",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.40540540540540543,
+      "method": "TME",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 51,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7909090909090909,
+      "auprc": 0.7779288529888352,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "66752f04d004099a8e7a2075fb8ec396b3bb98e42e2770cc33c752df9cf87ccf",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7728700960588921,
+      "method": "Single-Point",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7454545454545455,
+      "auprc": 0.6528232829483722,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "ede85e00d2a8e6e29f90f0c414b97d2d9e0ae3dd9ea5b2674cf3cb6631a30ff6",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7348484848484849,
+      "method": "Trajectory MLP",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6727272727272727,
+      "auprc": 0.44720739574396146,
+      "budget_pct": 25,
+      "encoder_checkpoint_sha256": "44385f30b1ca2d47db3be6f656f310d5139be9eddecfb223cd81302a3b112144",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.5957533687219274,
+      "method": "TME",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 128,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7909090909090909,
+      "auprc": 0.7779288529888352,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "c36856b78f262fcba55bf6513a3e80678b96e289980a430c6146a1bde8e2cd39",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7728700960588921,
+      "method": "Single-Point",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6818181818181818,
+      "auprc": 0.3181818181818182,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "8fd2575c742e227b0edd1a38b0b95a56e9e5e5ba7b4eb1c3912dc325bbe1b696",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.40540540540540543,
+      "method": "Trajectory MLP",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7454545454545455,
+      "auprc": 0.6139414544242693,
+      "budget_pct": 50,
+      "encoder_checkpoint_sha256": "92179567e7658f8702e16f3e6b885c666c4db6e631315ffc20cb4cff08847883",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7327316903852829,
+      "method": "TME",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 255,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7909090909090909,
+      "auprc": 0.7779288529888352,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "069e746641b67a09aa8716191c2ea25f36a8a877177372557d31e0f8a9537436",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7728700960588921,
+      "method": "Single-Point",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.6818181818181818,
+      "auprc": 0.3635570899531839,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "d0270effb7735a499d53642bd470c950c78cd8263daca17b455a2eefa1360480",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.40540540540540543,
+      "method": "Trajectory MLP",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    },
+    {
+      "accuracy": 0.7545454545454545,
+      "auprc": 0.5409298300744875,
+      "budget_pct": 100,
+      "encoder_checkpoint_sha256": "b4b0d0ea2504ee5219e350daa61d38ce87da2b32d4e3500e3fb0c658a5d1f91f",
+      "label_artifact_sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2",
+      "macro_f1": 0.7302697302697303,
+      "method": "TME",
+      "model": "internvl3_5_8b",
+      "n_aligned_supervision": 764,
+      "n_conflict_supervision": 510,
+      "n_test": 110,
+      "n_train": 510,
+      "n_val": 112,
+      "protocol": "VT",
+      "seed": 20260717,
+      "status": "Ready",
+      "test_sample_ids_sha256": "6a45e2496f2f120459bc94a743afefeaf4b5cd65434459c4a293ed573e76cb21"
+    }
+  ],
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/MISREAD_BUDGET_COMPLETE.json",
+      "sha256": "a49ab1b25624435e09671f9915dc9f33263a9b42fa7b1f7ad6e6a862b2a19f3a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/misread_budget_probe_metrics.csv",
+      "sha256": "010d57dd5e64bed623396f8df70078806916a5bcc362620ca9ea59705cbcf00c"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/BUDGET_COMPLETE.qwen2_5_omni_7b.json",
+      "sha256": "fc723d28331e3ff89867565b857c54f32c2d075a9bbe3be7335db9ce91800903"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/conflict_supervision_budget_ac_metrics.qwen2_5_omni_7b.csv",
+      "sha256": "b797c7b5d1d19a790ab001141930643f2daa8f70ddacae443451c0c31fa05fd6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "2467397625106c8ae933d267cec9337e67fe8bebe00ded4403be3db97fa20de0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/single_point/RUN_COMPLETE.json",
+      "sha256": "9ccd8479eac4bc0abd2c18868a9a5718f2c1d48d25812866ec4d4ac3a09893d8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6ce4d8c0a50e05a82ad0aaca106dad4cc8fc0ea859007f81bb1773fa77037ddc"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "950f076a8c14841f10b86a117822afa1e21ad4a9a28e54a9f16d10ab9efc69a2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "2467397625106c8ae933d267cec9337e67fe8bebe00ded4403be3db97fa20de0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "87ed0a21f8bf9a5618b6698af4f1c20d34e52e3919e526c57345a767674c9d90"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6ce4d8c0a50e05a82ad0aaca106dad4cc8fc0ea859007f81bb1773fa77037ddc"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "950f076a8c14841f10b86a117822afa1e21ad4a9a28e54a9f16d10ab9efc69a2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "2467397625106c8ae933d267cec9337e67fe8bebe00ded4403be3db97fa20de0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.10/tme/RUN_COMPLETE.json",
+      "sha256": "26a05dc3ec1c561568572b0b84111c372a83f6ff89caf6006bd3c2ebc6a741dc"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6ce4d8c0a50e05a82ad0aaca106dad4cc8fc0ea859007f81bb1773fa77037ddc"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "950f076a8c14841f10b86a117822afa1e21ad4a9a28e54a9f16d10ab9efc69a2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "6134725efc196bd4a2e2ceeded3c46e1766cf232e3cdd20b274d4b4241be0659"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/single_point/RUN_COMPLETE.json",
+      "sha256": "d27fa003de47cbc6d9eb06e4ab2d00fd85c5627bf9e7fb859dbe661681195609"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2057f204ffe0e295455ee24953923af4adfa9893c22b7c4ef5732e45ea2fabb8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "2703477b5e10d31c42d49a8bff4fcfa3d00b590d5d98df8e3f1d28ef389c4c59"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "6134725efc196bd4a2e2ceeded3c46e1766cf232e3cdd20b274d4b4241be0659"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "bacd0c9aedc41b9bfe6c220c024dc89b38e8880b7a7066d2084388b9de81bbb1"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2057f204ffe0e295455ee24953923af4adfa9893c22b7c4ef5732e45ea2fabb8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "2703477b5e10d31c42d49a8bff4fcfa3d00b590d5d98df8e3f1d28ef389c4c59"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "6134725efc196bd4a2e2ceeded3c46e1766cf232e3cdd20b274d4b4241be0659"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.25/tme/RUN_COMPLETE.json",
+      "sha256": "d6bdcea496dd5dc4cc4f46dfe2778a09428974b58b2e0dea75171c9a0e82d720"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2057f204ffe0e295455ee24953923af4adfa9893c22b7c4ef5732e45ea2fabb8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "2703477b5e10d31c42d49a8bff4fcfa3d00b590d5d98df8e3f1d28ef389c4c59"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "96759d6e9543709d19b5e2bcc868e3750924d55988d5a39c92ea16b83a7ddaed"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/single_point/RUN_COMPLETE.json",
+      "sha256": "876b82970402687e3434d217c638a7836205791efd27e727b35fab16d6ea5a9f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "46d3ad9c3880cb10c6d4895e059c14f2a6e7779ea0cc4341ad6978b55726d1b0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "7dca4f58bc850fe16c32300df03ac9ce1ff6e5bfaec443fc5b8579493fe639e5"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "96759d6e9543709d19b5e2bcc868e3750924d55988d5a39c92ea16b83a7ddaed"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "54cada688881b88f13318a3fe27a6523d473cd936202d7e814557857fc278f1f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "46d3ad9c3880cb10c6d4895e059c14f2a6e7779ea0cc4341ad6978b55726d1b0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "7dca4f58bc850fe16c32300df03ac9ce1ff6e5bfaec443fc5b8579493fe639e5"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "96759d6e9543709d19b5e2bcc868e3750924d55988d5a39c92ea16b83a7ddaed"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_0.50/tme/RUN_COMPLETE.json",
+      "sha256": "254acf6e68d40e5590c3b7536459372832c31000998d7bd6759f9f3a3442cb03"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "46d3ad9c3880cb10c6d4895e059c14f2a6e7779ea0cc4341ad6978b55726d1b0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "7dca4f58bc850fe16c32300df03ac9ce1ff6e5bfaec443fc5b8579493fe639e5"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "52d2c270a7e4da2c2051ad879bf55c2c45f1e0f26d30de9966a336f4bcaf57a3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/single_point/RUN_COMPLETE.json",
+      "sha256": "e17851ed60ae8921fe5b3820a6d6c905b289885c66f5152cbae3d5834d4ea782"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6fecd771465053e6da4c21b1de1c7e4f05e6cdc61254b66fed1903212fe9cd86"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "12ce7af7ffe2e48791822fa39c81de96788a4739938ac24b3169249373efc5e4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "52d2c270a7e4da2c2051ad879bf55c2c45f1e0f26d30de9966a336f4bcaf57a3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "2f3a8b7565117fd2845ae804dd345cb895a5c5e7fc20a4d91c37ae3115b10fe9"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6fecd771465053e6da4c21b1de1c7e4f05e6cdc61254b66fed1903212fe9cd86"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "12ce7af7ffe2e48791822fa39c81de96788a4739938ac24b3169249373efc5e4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "52d2c270a7e4da2c2051ad879bf55c2c45f1e0f26d30de9966a336f4bcaf57a3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen2_5_omni_7b/fraction_1.00/tme/RUN_COMPLETE.json",
+      "sha256": "5f46d59bccc1a53a09bcb9046792f56d07e2aec8fafec1b392d151a8b5548e6e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "6fecd771465053e6da4c21b1de1c7e4f05e6cdc61254b66fed1903212fe9cd86"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen2_5_omni_7b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "12ce7af7ffe2e48791822fa39c81de96788a4739938ac24b3169249373efc5e4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/BUDGET_COMPLETE.qwen3_vl_8b.json",
+      "sha256": "e66db7d8b2e9dd85440062e6c0d4cb74e9115d860f5920af0aeb77dd320fcb5b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/conflict_supervision_budget_ac_metrics.qwen3_vl_8b.csv",
+      "sha256": "d29252f300d92d9e57cb19d5bbc86204b6681292ccc2b55328cf44bb83eee17f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "c63dd8419765cbb2d6eb6409af5866ea86a4a13b602171d0e443e76dc1fe1b17"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/single_point/RUN_COMPLETE.json",
+      "sha256": "40c6806166d468244e67ee038ec5b18c439ec344eb21bd196922aab181c98c48"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "3090ed2a7de57996d9ea1a4d9d6b2775f831598c89bb84cc28fee4d8cd62751e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "46a50b9d9fa79d21cab1eba985b5eb0e3332c75a6a14ee16208257054e406dc6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "c63dd8419765cbb2d6eb6409af5866ea86a4a13b602171d0e443e76dc1fe1b17"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "11763d5777e0f99f39466cf1b2ad823c9f8c266b0333d9ead6330c74609f60a7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "3090ed2a7de57996d9ea1a4d9d6b2775f831598c89bb84cc28fee4d8cd62751e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "46a50b9d9fa79d21cab1eba985b5eb0e3332c75a6a14ee16208257054e406dc6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "c63dd8419765cbb2d6eb6409af5866ea86a4a13b602171d0e443e76dc1fe1b17"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.10/tme/RUN_COMPLETE.json",
+      "sha256": "d4bcfc062b563b8f6fae9042deb45636c987ff184636a08e52b19906e8f3bdd6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "3090ed2a7de57996d9ea1a4d9d6b2775f831598c89bb84cc28fee4d8cd62751e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "46a50b9d9fa79d21cab1eba985b5eb0e3332c75a6a14ee16208257054e406dc6"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "199dadafd72caaf9abaad4481e657592c39d5347d5dbd25164f82172501b0d7a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/single_point/RUN_COMPLETE.json",
+      "sha256": "0f465ca9de45b6697f34dd49544c0354efaa19abc2fb1c1cf972fc76681fa787"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "289a03a1f0252ed2a9eb7571effeee52b6825752e5e455f576f17b894427753a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "ff5d0c8914ca2fd01fd8334cb5f2da33cbaa061f1e843e32e42a9b257ed665f9"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "199dadafd72caaf9abaad4481e657592c39d5347d5dbd25164f82172501b0d7a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "9e3856aff4aa48a69062940dff6434ce77da5e901c19bde593e0109c8be8f11f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "289a03a1f0252ed2a9eb7571effeee52b6825752e5e455f576f17b894427753a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "ff5d0c8914ca2fd01fd8334cb5f2da33cbaa061f1e843e32e42a9b257ed665f9"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "199dadafd72caaf9abaad4481e657592c39d5347d5dbd25164f82172501b0d7a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.25/tme/RUN_COMPLETE.json",
+      "sha256": "07d969698abe0646c8e81d633bd2bdb1495b135072f61ff615f84cbe6c52ee5f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "289a03a1f0252ed2a9eb7571effeee52b6825752e5e455f576f17b894427753a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "ff5d0c8914ca2fd01fd8334cb5f2da33cbaa061f1e843e32e42a9b257ed665f9"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "929e2058310dd58fd6747a4981faac0c1655c1d492e8e163b020ebc0c9fb072a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/single_point/RUN_COMPLETE.json",
+      "sha256": "d754e1aab62a408fdc5f93df20580bf6fe2edf032143d5a04ee98d168d62a8b1"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2ce55d6f2172c89bc48e27970e1912370a7e31e9222c5c124011323b5aff9574"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "bdd472881fc279d7a556c6f3fdb096a751600627fbbcb8a02f6a437935ae867f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "929e2058310dd58fd6747a4981faac0c1655c1d492e8e163b020ebc0c9fb072a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "d716447896007b958da6e14f1951933df9736f0dbd3c1be50ffada9a49a582b4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2ce55d6f2172c89bc48e27970e1912370a7e31e9222c5c124011323b5aff9574"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "bdd472881fc279d7a556c6f3fdb096a751600627fbbcb8a02f6a437935ae867f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "929e2058310dd58fd6747a4981faac0c1655c1d492e8e163b020ebc0c9fb072a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_0.50/tme/RUN_COMPLETE.json",
+      "sha256": "7901a9e6284cbefddd5437c489063fa87cb9a69ae2a292ddc8ca57b169351995"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "2ce55d6f2172c89bc48e27970e1912370a7e31e9222c5c124011323b5aff9574"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "bdd472881fc279d7a556c6f3fdb096a751600627fbbcb8a02f6a437935ae867f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "c1a7705b9bed8d2158170c313f04de654a59bdf57f12ecfebc7ab3391b986d06"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/single_point/RUN_COMPLETE.json",
+      "sha256": "ea2981e166eb4629f2d46e3fe5ba48d97b6529537d3c9d09b044d82f8e8bba55"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "b7b9930d22c9f2a0d579b903528803cc17c8dc544070fb152190f55fe9d18ee3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "6bd6d48f700becae9133832cceca39e3f313e4434c152cc8d1428fae8d698ee0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "c1a7705b9bed8d2158170c313f04de654a59bdf57f12ecfebc7ab3391b986d06"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "d75e011f7aeca3faaf5119b27544014c8a2994775e72964eebe00e9a2f41372b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "b7b9930d22c9f2a0d579b903528803cc17c8dc544070fb152190f55fe9d18ee3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "6bd6d48f700becae9133832cceca39e3f313e4434c152cc8d1428fae8d698ee0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "c1a7705b9bed8d2158170c313f04de654a59bdf57f12ecfebc7ab3391b986d06"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/qwen3_vl_8b/fraction_1.00/tme/RUN_COMPLETE.json",
+      "sha256": "27cb09725d69b691c4d072d5aa4e35a160597e0bc19acd4655c5316a1251cd9e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "b7b9930d22c9f2a0d579b903528803cc17c8dc544070fb152190f55fe9d18ee3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/qwen3_vl_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "6bd6d48f700becae9133832cceca39e3f313e4434c152cc8d1428fae8d698ee0"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/BUDGET_COMPLETE.internvl3_5_8b.json",
+      "sha256": "7257e6b3bfea7ca41b3315db39fb831bb3a08da24adaac73c1dbff2138330222"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/conflict_supervision_budget_ac_metrics.internvl3_5_8b.csv",
+      "sha256": "71309c1776c7bf70608cef85453036f7dcebca8ec7197b70876a5c4f8e45c88a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "5c84cd6b476661bbc4f0cabcca0f4a928d76633ee811c35d0600ed3109340875"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/single_point/RUN_COMPLETE.json",
+      "sha256": "dde7deed45a41d7ae37b2fcfdeb7c79fa766c3e08032886bb9d942587013152f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "8c442e5e6f8511ff933f258f8e2d218db1f2af99cd5a42b5dee1f3c1e7a84ceb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "cd480d24af7b80121029b605d31a0d4ee91f9f87a52795c4b3eef3729fe5eae2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "5c84cd6b476661bbc4f0cabcca0f4a928d76633ee811c35d0600ed3109340875"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "494d9be295e7bdca41a8c1e0f401de15ca938238195a7b059443f0f6ab010875"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "8c442e5e6f8511ff933f258f8e2d218db1f2af99cd5a42b5dee1f3c1e7a84ceb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "cd480d24af7b80121029b605d31a0d4ee91f9f87a52795c4b3eef3729fe5eae2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/FRACTION_COMPLETE.json",
+      "sha256": "5c84cd6b476661bbc4f0cabcca0f4a928d76633ee811c35d0600ed3109340875"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.10/tme/RUN_COMPLETE.json",
+      "sha256": "8e532528afa42e5c64cad9f204db04b11bee140a5514edd0ccc94fdb2c8c82f7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "8c442e5e6f8511ff933f258f8e2d218db1f2af99cd5a42b5dee1f3c1e7a84ceb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.10/probe/RUN_COMPLETE.json",
+      "sha256": "cd480d24af7b80121029b605d31a0d4ee91f9f87a52795c4b3eef3729fe5eae2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "caa95aba5928e074d9f323588f08d0a1709413a1e47e739eb501c70d577afd6b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/single_point/RUN_COMPLETE.json",
+      "sha256": "06bf1c120f9d6f5eaf6e287a27be0228a1aef0f8d92ae13dc51a4c2b17cc8769"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "faad35776059573c5fafb0e4a7add1b3b3571cf3ac064fddaa6f1abf473e6cf3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "73c7bac04576e2cacb51606498f51bdd5bafb835bd774d460d22882deda9e03e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "caa95aba5928e074d9f323588f08d0a1709413a1e47e739eb501c70d577afd6b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "c2610b915e840fc9a1157c31d96470e2bfc2aa05aaf1feb64a31034896aed55b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "faad35776059573c5fafb0e4a7add1b3b3571cf3ac064fddaa6f1abf473e6cf3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "73c7bac04576e2cacb51606498f51bdd5bafb835bd774d460d22882deda9e03e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/FRACTION_COMPLETE.json",
+      "sha256": "caa95aba5928e074d9f323588f08d0a1709413a1e47e739eb501c70d577afd6b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.25/tme/RUN_COMPLETE.json",
+      "sha256": "247473f0e4198feded9061b0c81087f4635ecce5bb310cfc9f2d415ca28ca00c"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "faad35776059573c5fafb0e4a7add1b3b3571cf3ac064fddaa6f1abf473e6cf3"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.25/probe/RUN_COMPLETE.json",
+      "sha256": "73c7bac04576e2cacb51606498f51bdd5bafb835bd774d460d22882deda9e03e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "3a22aaf3e50c20bb73c468abe62d628efa26cf9a10976752bf0c26dbe519235a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/single_point/RUN_COMPLETE.json",
+      "sha256": "7bb7ff8304cfd1227444877972bc510bd2f41612c62741e1fc49da1ca8ad9887"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "eeaddb2dc93c5402f09ea6578d71a95459e5e0af6579b0a23b2607ce6f76c911"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "9a4a64bd3d1f73772d930d88d96b0efaca5035b34869a94171a91ca5151a0edb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "3a22aaf3e50c20bb73c468abe62d628efa26cf9a10976752bf0c26dbe519235a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "993ea1507794aa45d41d29e73a25b3eeb63839a2b4cfb228781e48ca1e47b3da"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "eeaddb2dc93c5402f09ea6578d71a95459e5e0af6579b0a23b2607ce6f76c911"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "9a4a64bd3d1f73772d930d88d96b0efaca5035b34869a94171a91ca5151a0edb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/FRACTION_COMPLETE.json",
+      "sha256": "3a22aaf3e50c20bb73c468abe62d628efa26cf9a10976752bf0c26dbe519235a"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_0.50/tme/RUN_COMPLETE.json",
+      "sha256": "588ac140c7f2a78f189f4500de541a3137e96fd4c65d2e3b30e740a12d5fe4d2"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "eeaddb2dc93c5402f09ea6578d71a95459e5e0af6579b0a23b2607ce6f76c911"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_0.50/probe/RUN_COMPLETE.json",
+      "sha256": "9a4a64bd3d1f73772d930d88d96b0efaca5035b34869a94171a91ca5151a0edb"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "efd548932ff0894f95488c860c0e289390ffff07f31e9a0278c9245231a1458b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/single_point/RUN_COMPLETE.json",
+      "sha256": "830f6a62f214c1f8eb3e5bc3bdebfb61af392fa2b8636494b7467a1913fe7b74"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "392cffe7962154c133d4826964fbcdd79db1055c75733cfbc59e9b23caa80de4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "dd2fb5f4e893d8a2a8f5e1ac2fac008c07945363ed04ebeb37ac91f8a9a75fa7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "efd548932ff0894f95488c860c0e289390ffff07f31e9a0278c9245231a1458b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/trajectory_mlp/RUN_COMPLETE.json",
+      "sha256": "5147284d4397e07abfb871db49acd55f9430c123d322acec5efd8449556334b8"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "392cffe7962154c133d4826964fbcdd79db1055c75733cfbc59e9b23caa80de4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "dd2fb5f4e893d8a2a8f5e1ac2fac008c07945363ed04ebeb37ac91f8a9a75fa7"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/FRACTION_COMPLETE.json",
+      "sha256": "efd548932ff0894f95488c860c0e289390ffff07f31e9a0278c9245231a1458b"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1/internvl3_5_8b/fraction_1.00/tme/RUN_COMPLETE.json",
+      "sha256": "0fdacb522820c60e822a5beecd35e939f7bc5fb91eb24e2271113190dd67e56e"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/FRACTION_PROBE_COMPLETE.json",
+      "sha256": "392cffe7962154c133d4826964fbcdd79db1055c75733cfbc59e9b23caa80de4"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1/internvl3_5_8b/fraction_1.00/probe/RUN_COMPLETE.json",
+      "sha256": "dd2fb5f4e893d8a2a8f5e1ac2fac008c07945363ed04ebeb37ac91f8a9a75fa7"
+    }
+  ]
+}

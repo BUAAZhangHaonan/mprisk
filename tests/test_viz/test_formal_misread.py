@@ -12,8 +12,11 @@ from mprisk.viz.formal_misread import (
     FORMAL_MODELS,
     PROBE_FIELDS,
     canonical_label_rows,
+    canonical_metric_rows,
     load_formal_root,
 )
+from mprisk.viz.misread_figures import export_misread_figures
+from scripts.build_misread_figure_adapters import materialize_label_adapter, write_csv
 
 
 def _sha(path: Path) -> str:
@@ -134,7 +137,7 @@ def test_completed_probe_root_fails_closed_on_artifact_mutation(tmp_path: Path) 
                 "accuracy": 0.7,
                 "macro_f1": 0.69,
                 "auprc": 0.72,
-                "latency_ms": 1.2,
+                "latency_ms": "",
                 "n_train": 10,
                 "n_val": 4,
                 "n_test": 6,
@@ -161,8 +164,39 @@ def test_completed_probe_root_fails_closed_on_artifact_mutation(tmp_path: Path) 
             ],
         },
     )
-    assert load_formal_root(root, kind="probes") is not None
+    formal = load_formal_root(root, kind="probes")
+    assert formal is not None
+    rows = canonical_metric_rows(formal, role="probe_metrics", fields=PROBE_FIELDS)
+    assert rows[0]["latency_ms"] is None
 
     metrics.write_text("corrupted\n", encoding="utf-8")
     with pytest.raises(ValueError, match="checksum mismatch"):
         load_formal_root(root, kind="probes")
+
+
+def test_canonical_adapter_copy_is_verified_and_csv_hashes_are_git_stable(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source-labels"
+    output = tmp_path / "canonical-labels"
+    _write_formal_labels(source)
+
+    result = materialize_label_adapter(source_root=source, output_root=output)
+
+    assert result == output.resolve()
+    assert _sha(result / "COMPLETE.json") == _sha(source / "COMPLETE.json")
+    metrics = tmp_path / "probe_metrics.csv"
+    write_csv(metrics, ("model", "accuracy"), [{"model": "qwen3_vl_8b", "accuracy": 0.75}])
+    assert b"\r\n" not in metrics.read_bytes()
+    assert metrics.read_bytes().endswith(b"\n")
+
+
+def test_misread_export_defaults_to_additive_canonical_roots() -> None:
+    defaults = export_misread_figures.__kwdefaults__
+
+    assert defaults is not None
+    assert defaults["input_root"] == "outputs/paper_exports/figures/misread"
+    assert defaults["output_root"] == "paper/figures/generated/misread"
+    assert defaults["labels_root"].endswith("/misread/adapters/labels")
+    assert defaults["probes_root"].endswith("/misread/adapters/probes")
+    assert defaults["budgets_root"].endswith("/misread/adapters/budgets")

@@ -1,0 +1,63 @@
+{
+  "input_artifacts": {
+    "delivery_manifest": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/datasets/delivery_20260716/manifests/unified_sample_manifest.jsonl",
+      "sha256": "353dcfa73bf327bb2cde2316689bd1470a0c1202866c050dcb85268a07c916c3"
+    },
+    "gemma4_12b_it.descriptions": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/gemma4_12b_it/descriptions.jsonl",
+      "sha256": "24a0febb69bd60afae011d255c10ceda32661942190643808ff03a119091e91f"
+    },
+    "gemma4_12b_it.judgments": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/gemma4_12b_it/judgments_single_flash.jsonl",
+      "sha256": "f9d06598e96c7cb693229b47d49e0503688b6d3316cb27bd6704b14c9a114268"
+    },
+    "internvl3_5_8b.descriptions": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/internvl3_5_8b/descriptions.jsonl",
+      "sha256": "3c22ab5fdcc8d954ce39782773e0f09cd35731ef400ee267005ec9c1958f839e"
+    },
+    "internvl3_5_8b.judgments": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/internvl3_5_8b/judgments_single_flash.jsonl",
+      "sha256": "c9427ed6f0b28cc082a02819ce23f94445edf598ce4b1b50fcd033bbbfddca0b"
+    },
+    "invalid_assets": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/datasets/delivery_20260716/manifests/invalid_assets.jsonl",
+      "sha256": "98bb527f553bec4f490320f61b40495d011b8ec095051f69fc5af37ed2c5e8de"
+    },
+    "qwen2_5_omni_7b.descriptions": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/qwen2_5_omni_7b/descriptions.jsonl",
+      "sha256": "e52ddd7967fd049f19e99eafcf129a77d2f12893aacb35f8fdbfea3a864ec61f"
+    },
+    "qwen2_5_omni_7b.judgments": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/qwen2_5_omni_7b/judgments_single_flash.jsonl",
+      "sha256": "412493aab36e65b6a3a4507d6af7d1dc32cdc31c19747a681499ad3b7aa01c77"
+    },
+    "qwen3_vl_8b.descriptions": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/qwen3_vl_8b/descriptions.jsonl",
+      "sha256": "6ed3300f23a62ddd2ba1d4ab16a180ddbd07a577f16527ff82a92310e6136d20"
+    },
+    "qwen3_vl_8b.judgments": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/v2/misread/qwen3_vl_8b/judgments_single_flash.jsonl",
+      "sha256": "cbe8cd878d135ffe9bc04cf477855be6bc26407114bcb0a5e9319c06f0673738"
+    },
+    "split_assignment": {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/datasets/delivery_20260716/splits/representation_split_assignment_v1.jsonl",
+      "sha256": "e4008c99e70c22e54120573799ce87998445a28de6e82639023581728446df41"
+    }
+  },
+  "judge_protocol": {
+    "confidence_threshold": 0.5,
+    "judge_model": "deepseek-v4-flash",
+    "manual_review_rule": "raw decision UNCERTAIN or confidence < threshold",
+    "n_flash": 1,
+    "pro_arbitration": false,
+    "temperature": 0.0
+  },
+  "output_policy": {
+    "blocked_assets_are_not_labels": true,
+    "manual_review_rows_have_null_imported_label": true,
+    "probe_requires_representative_model_and_finalized_label": true
+  },
+  "schema": "mprisk_misread_label_import_provenance_v1",
+  "source_read_only": true
+}

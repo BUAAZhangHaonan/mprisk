@@ -9,11 +9,17 @@ rewrite, or reinterpret source experiment files.
 
 from __future__ import annotations
 
+import argparse
 import csv
 import hashlib
 import json
+import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any
+
+from mprisk.data.misread_labels import verify_imported_labels
 
 MODELS = ("qwen2_5_omni_7b", "qwen3_vl_8b", "internvl3_5_8b")
 METHODS = ("Single-Point", "Trajectory MLP", "TME")
@@ -102,10 +108,46 @@ def read_csv(path: Path) -> list[dict[str, str]]:
 def write_csv(path: Path, fields: tuple[str, ...], rows: list[dict[str, Any]]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     return sha256(path)
+
+
+def _file_inventory(root: Path) -> dict[str, str]:
+    return {
+        str(path.relative_to(root)): sha256(path)
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def materialize_label_adapter(*, source_root: Path, output_root: Path) -> Path:
+    """Create a self-contained, byte-identical copy of the verified formal labels."""
+    source = source_root.expanduser().resolve()
+    output = output_root.expanduser().resolve()
+    verify_imported_labels(source)
+    source_inventory = _file_inventory(source)
+    if output.exists():
+        verify_imported_labels(output)
+        if _file_inventory(output) != source_inventory:
+            raise FileExistsError(
+                f"Refusing to replace a different canonical label adapter: {output}"
+            )
+        return output
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    staging_parent = Path(tempfile.mkdtemp(prefix=f".{output.name}.", dir=output.parent))
+    staging = staging_parent / output.name
+    try:
+        shutil.copytree(source, staging)
+        if _file_inventory(staging) != source_inventory:
+            raise RuntimeError("canonical label adapter copy failed byte verification")
+        os.replace(staging, output)
+    finally:
+        shutil.rmtree(staging_parent, ignore_errors=True)
+    verify_imported_labels(output)
+    return output
 
 
 def add_source(sources: list[dict[str, str]], path: Path, expected: str | None = None) -> None:
@@ -166,7 +208,7 @@ def probe_adapter(
                         "accuracy": values["accuracy"],
                         "macro_f1": values["macro_f1"],
                         "auprc": values["ap"],
-                        "latency_ms": "Pending",
+                        "latency_ms": None,
                         "n_train": provenance["sample_counts"]["relation_train"],
                         "n_val": provenance["sample_counts"]["relation_val"],
                         "n_test": provenance["sample_counts"]["official_test"],
@@ -349,13 +391,41 @@ def budget_adapter(
 
 def main() -> None:
     repo = Path(__file__).resolve().parents[1]
-    labels_root = repo / "outputs/labels/delivery_20260716_single_flash_v1"
-    queue_root = repo / "outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1"
-    conflict_root = (
-        repo / "outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1"
+    parser = argparse.ArgumentParser(
+        description="Build self-contained canonical adapters from verified Misread evidence."
     )
-    output = repo / "outputs/paper_exports/figures/misread/adapters"
+    parser.add_argument(
+        "--labels-root",
+        type=Path,
+        default=repo / "outputs/labels/delivery_20260716_single_flash_v1",
+    )
+    parser.add_argument(
+        "--queue-root",
+        type=Path,
+        default=repo
+        / "outputs/downstream/delivery_20260716/seed20260717/misread_budget_probe_v1",
+    )
+    parser.add_argument(
+        "--conflict-root",
+        type=Path,
+        default=repo
+        / "outputs/downstream/delivery_20260716/seed20260717/conflict_supervision_budget_v1",
+    )
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=repo / "outputs/paper_exports/figures/misread/adapters",
+    )
+    args = parser.parse_args()
+    source_labels_root = args.labels_root.expanduser().resolve()
+    queue_root = args.queue_root.expanduser().resolve()
+    conflict_root = args.conflict_root.expanduser().resolve()
+    output = args.output_root.expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
+    labels_root = materialize_label_adapter(
+        source_root=source_labels_root,
+        output_root=output / "labels",
+    )
     provenance = load_json(labels_root / "provenance.json")
     split_sha = provenance["input_artifacts"]["split_assignment"]["sha256"]
     probe_path, _ = probe_adapter(
@@ -375,9 +445,11 @@ def main() -> None:
     )
     manifest = {
         "schema": "mprisk_misread_figure_adapter_manifest_v1",
+        "source_labels_root": str(source_labels_root),
         "labels_root": str(labels_root),
         "probe_root": str(probe_path.parent),
         "budget_root": str(budget_path.parent),
+        "label_marker_sha256": sha256(labels_root / "COMPLETE.json"),
         "probe_marker_sha256": sha256(probe_path),
         "budget_marker_sha256": sha256(budget_path),
         "source_read_only": True,

@@ -1,0 +1,29 @@
+{
+  "artifacts": {
+    "labels/gemma4_12b_it.jsonl": {
+      "bytes": 1638926,
+      "sha256": "8a8b8d61642e87e9f6f0ba81e756754117ee2b00254ed91ba864a2dd4d292874"
+    },
+    "labels/internvl3_5_8b.jsonl": {
+      "bytes": 1575532,
+      "sha256": "71db38ff182d159ee5ffdf00a8e86831837ca33c7a4eff00829c21a1f9598fa2"
+    },
+    "labels/qwen2_5_omni_7b.jsonl": {
+      "bytes": 1637942,
+      "sha256": "bc62b1256c58477710a5b7d5c891fa6cb63e4432339cfb915cc6e3ff5bf8ef19"
+    },
+    "labels/qwen3_vl_8b.jsonl": {
+      "bytes": 1570436,
+      "sha256": "f04212bb7ae2ec51a882231b3867cfe3c9e6124602fc365035c3b15b31ee3e2c"
+    },
+    "provenance.json": {
+      "bytes": 3192,
+      "sha256": "1e20193f6dda2ed85ae5f2f0119964d488c91014c8b7a1b44855b257139da2f7"
+    },
+    "summary.json": {
+      "bytes": 4206,
+      "sha256": "40859c31ac7514bfb77746e89fdeccba153b2bffa71a2c6e3af9f6fe0959acf1"
+    }
+  },
+  "schema": "mprisk_artifact_checksums_v1"
+}

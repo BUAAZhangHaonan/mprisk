@@ -1,0 +1,11 @@
+{
+  "budget_marker_sha256": "92a48934c16c3f0e3d420a9f9b1983ab69d7f13473382413fb29e26dcd4c6d09",
+  "budget_root": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/budgets",
+  "label_marker_sha256": "89add11b4f6b73afa23fa4fffe62eadd062596ae78f4e60bbcf210892cbeb31f",
+  "labels_root": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/labels",
+  "probe_marker_sha256": "d6203dc754cd1611ca3e8688ee0b27e0a426caf06341c09b68efd89fe2075c4a",
+  "probe_root": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/misread/adapters/probes",
+  "schema": "mprisk_misread_figure_adapter_manifest_v1",
+  "source_labels_root": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/labels/delivery_20260716_single_flash_v1",
+  "source_read_only": true
+}

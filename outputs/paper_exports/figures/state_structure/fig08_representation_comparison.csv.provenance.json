@@ -1,0 +1,49 @@
+{
+  "figure_key": "fig08_representation_comparison",
+  "generated_command": [
+    "/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python",
+    "/home/team/zhanghaonan/mprisk-delivery-final-2/scripts/export_state_structure_figures.py"
+  ],
+  "included_sample_count": 912,
+  "misread_status": "Pending",
+  "representation_split": "official_test",
+  "representative_backbone": {
+    "model": "qwen3_vl_8b",
+    "protocol": "VT",
+    "seed": "20260717"
+  },
+  "sample_masks": {
+    "ac": "qwen3_vl_8b/VT/seed20260717/representation_split=official_test",
+    "conflict_retention": "Pending Conflict-retention sensitivity artifacts",
+    "misread": "Pending Misread annotations"
+  },
+  "schema": "mprisk_figure_input_provenance_v1",
+  "source_sample_count": 912,
+  "sources": [
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv",
+      "sha256": "c92c1d87b765870462252e89b8c3f3af317bddc05297e1e02539c6f3cb4ea90f"
+    },
+    {
+      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv.provenance.json",
+      "sha256": "94b5e5d2d5bbde130f4103eaea47315639ee52c06de23ff309d92420a01846cf"
+    }
+  ],
+  "state_structure": {
+    "figure_key": "fig08_representation_comparison",
+    "layout_source": "taffc_fig_templates visual grammar only",
+    "pending_misread_panels": true,
+    "row_count": 912,
+    "schema": "mprisk_state_structure_figure_export_v1",
+    "synthetic_data_used": false
+  },
+  "status": "Ready",
+  "umap": {
+    "metric": "cosine",
+    "min_dist": 0.1,
+    "n_neighbors": 15,
+    "package": "umap-learn",
+    "random_state": 20260716,
+    "version": "0.5.12"
+  }
+}
