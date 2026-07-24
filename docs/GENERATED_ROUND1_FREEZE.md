@@ -1,6 +1,6 @@
 # Generated round-one freeze
 
-`generated_round1_v1` is an immutable snapshot of all 652 accepted generated
+`generated_round1` is an immutable snapshot of all 652 accepted generated
 records. It is separate from `delivery_20260714`; the previous 4,754-row delivery
 and its 529 generated rows are not changed.
 
@@ -50,5 +50,5 @@ python scripts/freeze_generated_round1.py
 ```
 
 The builder writes `archive_manifest.jsonl`, `gt_eligible.jsonl`, and
-`provenance.json` under `data/frozen/generated_round1_v1`. Existing byte-identical
+`provenance.json` under `data/frozen/generated_round1`. Existing byte-identical
 outputs are accepted. Existing outputs with different bytes cause a hard failure.

@@ -141,7 +141,9 @@ class PromptConditionedManifest:
             tuple[str, str, str, str, str, str], PromptConditionedStateEntry
         ] = {}
         for entry in self.entries:
-            self._entries_by_key.setdefault(entry.key, entry)
+            if entry.key in self._entries_by_key:
+                raise ValueError(f"duplicate manifest key: {entry.key!r}")
+            self._entries_by_key[entry.key] = entry
 
     def lookup(
         self,

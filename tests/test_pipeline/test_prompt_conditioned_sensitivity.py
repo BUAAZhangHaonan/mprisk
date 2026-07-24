@@ -36,7 +36,7 @@ def _prompted_state(
     save_file({"hidden_states": hidden_states}, shard)
     return {
         **_entry_row(root, sample_id, condition, shard_path),
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "t0_token_index": -1,
     }
@@ -82,7 +82,7 @@ def _bundle(root, *, variant: bool) -> dict[str, object]:
         "sample_type": "Conflict",
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompts": prompts,
         "views": views,
     }

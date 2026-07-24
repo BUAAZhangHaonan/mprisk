@@ -69,16 +69,16 @@ def _prompt_set(path) -> None:
     path.write_text(
         """
 schema: mprisk_equiv_prompt_set_v1
-key: vt_primary_v1
+key: vt_primary
 protocol: vt
 version: v1
 active: true
 templates:
-  - prompt_id: vt_primary_v1_t01
+  - prompt_id: vt_primary_t01
     role: user
     enabled: true
     template_text: "Prompt one {sample_text}"
-  - prompt_id: vt_primary_v1_t02
+  - prompt_id: vt_primary_t02
     role: user
     enabled: true
     template_text: "Prompt two {sample_text}"
@@ -91,13 +91,13 @@ templates:
 def _prompt_cache_row(prompt_id: str) -> dict[str, str]:
     return {
         "model_key": "qwen3_vl_8b",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "protocol": "vt",
         "cache_key": prompt_cache_key(
             "qwen3_vl_8b",
             prompt_id,
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             protocol="vt",
         ),
     }
@@ -110,7 +110,7 @@ def _prompted_state_row(sample_id: str, condition: str, prompt_id: str) -> dict[
         "model_key": "qwen3_vl_8b",
         "protocol": "vt",
         "condition": condition,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": f"outputs/prompted/{sample_id}-{condition}-{prompt_id}.safetensors",
         "index_in_shard": 0,
@@ -128,7 +128,7 @@ def _prompted_state_rows(sample_id: str) -> list[dict[str, object]]:
     return [
         _prompted_state_row(sample_id, condition, prompt_id)
         for condition in ("M1", "M2", "M12")
-        for prompt_id in ("vt_primary_v1_t01", "vt_primary_v1_t02")
+        for prompt_id in ("vt_primary_t01", "vt_primary_t02")
     ]
 
 
@@ -138,14 +138,14 @@ def _read_jsonl(path) -> list[dict[str, object]]:
 
 def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_path) -> None:
     state_manifest = tmp_path / "state_dataset_manifest.jsonl"
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     write_jsonl(state_manifest, [_state_row("sample-ok")])
     _prompt_set(prompt_set)
     write_jsonl(
         prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
+        [_prompt_cache_row("vt_primary_t01"), _prompt_cache_row("vt_primary_t02")],
     )
     write_jsonl(prompted_manifest, _prompted_state_rows("sample-ok"))
 
@@ -173,7 +173,7 @@ def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_
     assert summary["missing_samples"] == 0
     assert summary["prompt_count"] == 2
     assert rows[0]["sample_id"] == "sample-ok"
-    assert rows[0]["prompt_set_key"] == "vt_primary_v1"
+    assert rows[0]["prompt_set_key"] == "vt_primary"
     assert rows[0]["metadata"]["split_group_id"] == "sample-ok"
     assert rows[0]["metadata"]["master_split"] == "train"
     assert rows[0]["metadata"]["representation_split"] == "relation_train"
@@ -182,32 +182,32 @@ def test_build_state_bundles_writes_prompt_conditioned_manifest_and_summary(tmp_
     assert rows[0]["metadata"]["split_assignment_sha256"] == "a" * 64
     assert rows[0]["view_labels"] == _view_labels()
     assert [prompt["prompt_id"] for prompt in rows[0]["prompts"]] == [
-        "vt_primary_v1_t01",
-        "vt_primary_v1_t02",
+        "vt_primary_t01",
+        "vt_primary_t02",
     ]
     for view_key in ("M1", "M2", "M12"):
         view = rows[0]["views"][view_key]
         assert view["state_cache"]["condition"] == view_key
-        assert set(view["prompts"]) == {"vt_primary_v1_t01", "vt_primary_v1_t02"}
-        assert view["prompts"]["vt_primary_v1_t01"]["prompt_cache"]["cache_key"]
+        assert set(view["prompts"]) == {"vt_primary_t01", "vt_primary_t02"}
+        assert view["prompts"]["vt_primary_t01"]["prompt_cache"]["cache_key"]
         assert (
-            view["prompts"]["vt_primary_v1_t01"]["prompt_conditioned_state"]["prompt_id"]
-            == "vt_primary_v1_t01"
+            view["prompts"]["vt_primary_t01"]["prompt_conditioned_state"]["prompt_id"]
+            == "vt_primary_t01"
         )
         assert (
-            view["prompts"]["vt_primary_v1_t02"]["prompt_conditioned_state"]["shard_path"]
-            != view["prompts"]["vt_primary_v1_t01"]["prompt_conditioned_state"]["shard_path"]
+            view["prompts"]["vt_primary_t02"]["prompt_conditioned_state"]["shard_path"]
+            != view["prompts"]["vt_primary_t01"]["prompt_conditioned_state"]["shard_path"]
         )
 
 
 def test_build_state_bundles_records_missing_prompt_cache_rows_per_sample(tmp_path) -> None:
     state_manifest = tmp_path / "state_dataset_manifest.jsonl"
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     write_jsonl(state_manifest, [_state_row("sample-a"), _state_row("sample-b")])
     _prompt_set(prompt_set)
-    write_jsonl(prompt_cache_manifest, [_prompt_cache_row("vt_primary_v1_t01")])
+    write_jsonl(prompt_cache_manifest, [_prompt_cache_row("vt_primary_t01")])
     write_jsonl(
         prompted_manifest,
         _prompted_state_rows("sample-a") + _prompted_state_rows("sample-b"),
@@ -229,21 +229,21 @@ def test_build_state_bundles_records_missing_prompt_cache_rows_per_sample(tmp_pa
 
     assert rows == []
     assert [row["sample_id"] for row in missing_rows] == ["sample-a", "sample-b"]
-    assert missing_rows[0]["missing_prompt_ids"] == ["vt_primary_v1_t02"]
+    assert missing_rows[0]["missing_prompt_ids"] == ["vt_primary_t02"]
     assert summary["complete_samples"] == 0
     assert summary["missing_samples"] == 2
 
 
 def test_iter_and_load_state_bundles_read_bundle_manifest(tmp_path) -> None:
     state_manifest = tmp_path / "state_dataset_manifest.jsonl"
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     write_jsonl(state_manifest, [_state_row("sample-ok")])
     _prompt_set(prompt_set)
     write_jsonl(
         prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
+        [_prompt_cache_row("vt_primary_t01"), _prompt_cache_row("vt_primary_t02")],
     )
     write_jsonl(prompted_manifest, _prompted_state_rows("sample-ok"))
     result = build_state_bundles(
@@ -266,16 +266,16 @@ def test_iter_and_load_state_bundles_read_bundle_manifest(tmp_path) -> None:
 
 def test_build_state_bundles_records_missing_prompt_conditioned_state_rows(tmp_path) -> None:
     state_manifest = tmp_path / "state_dataset_manifest.jsonl"
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     write_jsonl(state_manifest, [_state_row("sample-a")])
     _prompt_set(prompt_set)
     write_jsonl(
         prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
+        [_prompt_cache_row("vt_primary_t01"), _prompt_cache_row("vt_primary_t02")],
     )
-    write_jsonl(prompted_manifest, [_prompted_state_row("sample-a", "M1", "vt_primary_v1_t01")])
+    write_jsonl(prompted_manifest, [_prompted_state_row("sample-a", "M1", "vt_primary_t01")])
 
     result = build_state_bundles(
         state_dataset_manifest_path=state_manifest,
@@ -292,5 +292,5 @@ def test_build_state_bundles_records_missing_prompt_conditioned_state_rows(tmp_p
 
     assert rows == []
     assert missing_rows[0]["sample_id"] == "sample-a"
-    assert "M1:vt_primary_v1_t02" in missing_rows[0]["missing_prompt_conditioned_states"]
-    assert "M12:vt_primary_v1_t02" in missing_rows[0]["missing_prompt_conditioned_states"]
+    assert "M1:vt_primary_t02" in missing_rows[0]["missing_prompt_conditioned_states"]
+    assert "M12:vt_primary_t02" in missing_rows[0]["missing_prompt_conditioned_states"]

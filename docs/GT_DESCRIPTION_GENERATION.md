@@ -6,7 +6,7 @@ The task is named GT Description generation; DeepSeek is the current provider ad
 ## Annotation input
 
 `scripts/build_gt_annotation_input_pilot.py` creates a new immutable artifact under
-`data/frozen/generated_round1_v1/ground_truth_inputs/gt_annotation_input_v1/`.
+`data/frozen/generated_round1/ground_truth_inputs/gt_annotation_input_v1/`.
 It does not edit or read the old pilot as a fallback.
 
 Each `mprisk_gt_annotation_input_v1` row contains:
@@ -50,9 +50,9 @@ both the output schema and the annotation-input schema version.
 ```bash
 PYTHONPATH=src python scripts/build_gt_annotation_input_pilot.py
 PYTHONPATH=src python scripts/run_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml
+  --config configs/ground_truth/gt_description_generation_pilot.yaml
 PYTHONPATH=src python scripts/verify_gt_description_generation.py \
-  --config configs/ground_truth/gt_description_generation_pilot_v3.yaml \
+  --config configs/ground_truth/gt_description_generation_pilot.yaml \
   --require-complete
 ```
 

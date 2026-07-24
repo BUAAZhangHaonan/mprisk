@@ -28,6 +28,7 @@ from mprisk.ground_truth.providers.base import (
     GTDescriptionProvider,
     GTDescriptionProviderRequest,
     GTDescriptionProviderResponse,
+    PermanentProviderError,
     TransientProviderError,
 )
 from mprisk.ground_truth.providers.registry import (
@@ -443,7 +444,18 @@ async def run_gt_description_generation(
                         await sleep(config.retry_delays_seconds[retry_index])
                         continue
                     break
-                except Exception as exc:
+                except PermanentProviderError as exc:
+                    last_error = exc
+                    ledger.finish_attempt(
+                        sample_id,
+                        attempt,
+                        started,
+                        "failed",
+                        response=None if response is None else asdict(response),
+                        exc=exc,
+                    )
+                    break
+                except GTDescriptionValidationError as exc:
                     last_error = exc
                     ledger.finish_attempt(
                         sample_id,

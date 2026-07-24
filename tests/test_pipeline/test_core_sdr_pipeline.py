@@ -93,16 +93,16 @@ def _prompt_set(path) -> None:
     path.write_text(
         """
 schema: mprisk_equiv_prompt_set_v1
-key: vt_primary_v1
+key: vt_primary
 protocol: vt
 version: v1
 active: true
 templates:
-  - prompt_id: vt_primary_v1_t01
+  - prompt_id: vt_primary_t01
     role: user
     enabled: true
     template_text: "Prompt one {sample_text}"
-  - prompt_id: vt_primary_v1_t02
+  - prompt_id: vt_primary_t02
     role: user
     enabled: true
     template_text: "Prompt two {sample_text}"
@@ -115,13 +115,13 @@ templates:
 def _prompt_cache_row(prompt_id: str) -> dict[str, str]:
     return {
         "model_key": "qwen3_vl_8b",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "protocol": "vt",
         "cache_key": prompt_cache_key(
             "qwen3_vl_8b",
             prompt_id,
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             protocol="vt",
         ),
     }
@@ -146,7 +146,7 @@ def _prompted_entry(
         "model_key": "qwen3_vl_8b",
         "protocol": "vt",
         "condition": condition,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": shard_path,
         "index_in_shard": 0,
@@ -168,7 +168,7 @@ def _prompted_rows(root, sample_ids: list[str]) -> list[dict[str, object]]:
                     root,
                     sample_id,
                     condition,
-                    "vt_primary_v1_t01",
+                    "vt_primary_t01",
                     float(sample_index + condition_index),
                 )
             )
@@ -177,7 +177,7 @@ def _prompted_rows(root, sample_ids: list[str]) -> list[dict[str, object]]:
                     root,
                     sample_id,
                     condition,
-                    "vt_primary_v1_t02",
+                    "vt_primary_t02",
                     float(sample_index + condition_index + 1),
                 )
             )
@@ -214,13 +214,13 @@ def test_core_sdr_pipeline_rejects_raw_layernorm_as_final_representation(tmp_pat
         run_core_sdr_pipeline(
             model_key="qwen3_vl_8b",
             protocol="VT",
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             repr_key="raw_layernorm_mean",
             manifest_paths=[tmp_path / "missing.jsonl"],
             full_cache_root=tmp_path,
             prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
             prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
-            prompt_set=tmp_path / "vt_primary_v1.yaml",
+            prompt_set=tmp_path / "vt_primary.yaml",
             split_assignment=tmp_path / "missing-split.jsonl",
             output_root=tmp_path,
             thresholds={"kappa": 0.5, "tau": 0.01},
@@ -232,13 +232,13 @@ def test_core_sdr_pipeline_requires_checkpoint_for_tme_repr(tmp_path) -> None:
         run_core_sdr_pipeline(
             model_key="qwen3_vl_8b",
             protocol="VT",
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             repr_key=TME_PROXY_ANCHOR_V1,
             manifest_paths=[tmp_path / "missing.jsonl"],
             full_cache_root=tmp_path,
             prompt_cache_manifest=tmp_path / "prompt_cache_manifest.jsonl",
             prompt_conditioned_cache_manifest=tmp_path / "prompted_manifest.jsonl",
-            prompt_set=tmp_path / "vt_primary_v1.yaml",
+            prompt_set=tmp_path / "vt_primary.yaml",
             split_assignment=tmp_path / "missing-split.jsonl",
             output_root=tmp_path,
             thresholds={"kappa": 0.5, "tau": 0.01},
@@ -252,14 +252,14 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
     write_jsonl(labels, [_manifest_row("sample-conflict", "Conflict")])
     _write_full_cache_manifest(tmp_path, sample_ids)
 
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompted_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     checkpoint = tmp_path / "checkpoint.pt"
     _prompt_set(prompt_set)
     write_jsonl(
         prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
+        [_prompt_cache_row("vt_primary_t01"), _prompt_cache_row("vt_primary_t02")],
     )
     write_jsonl(prompted_manifest, _prompted_rows(tmp_path, sample_ids))
     model = SphericalTMEV1(
@@ -274,10 +274,10 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
         model_key="qwen3_vl_8b",
         protocol="vt",
         classification_objective="proxy_anchor_only",
-        prompt_set_key="vt_primary_v1",
+        prompt_set_key="vt_primary",
         prompt_set_artifact_sha256=hashlib.sha256(prompt_set.read_bytes()).hexdigest(),
         expected_prompt_count=2,
-        expected_prompt_ids=("vt_primary_v1_t01", "vt_primary_v1_t02"),
+        expected_prompt_ids=("vt_primary_t01", "vt_primary_t02"),
         hidden_dim=8,
         condition_dim=4,
         relation_dim=3,
@@ -298,7 +298,7 @@ def test_core_sdr_pipeline_rejects_unbound_thresholds_after_tme_export(tmp_path)
         run_core_sdr_pipeline(
             model_key="qwen3_vl_8b",
             protocol="VT",
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             repr_key=TME_PROXY_ANCHOR_V1,
             manifest_paths=[labels],
             full_cache_root=tmp_path,

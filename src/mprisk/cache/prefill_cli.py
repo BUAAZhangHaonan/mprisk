@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -75,28 +77,34 @@ def main(
     artifacts = []
     try:
         wrapper.load()
-        for request in requests:
-            result = wrapper.extract_prefill(request)
-            artifact = write_prefill_result(
-                result,
-                output_root=args.output_root,
-                manifest_path=args.cache_manifest,
-                overwrite=args.overwrite,
-            )
-            artifacts.append(
-                {
-                    "sample_id": request.sample_id,
-                    "condition": request.condition,
-                    "shape": [result.layer_count, result.hidden_dim],
-                    "t0_token_index": result.t0_token_index,
-                    "token_count": result.token_count,
-                    "shard_path": str(artifact.shard_path),
-                    "sidecar_path": str(artifact.sidecar_path),
-                    "checksum": artifact.checksum,
-                    "elapsed_seconds": result.provenance.get("elapsed_seconds"),
-                    "peak_gpu_memory_bytes": result.provenance.get("peak_gpu_memory_bytes"),
-                }
-            )
+        manifest_path = (
+            args.cache_manifest
+            if args.cache_manifest is not None
+            else args.output_root / "manifests" / "unified_full_cache_manifest.json"
+        ).expanduser().resolve()
+        with _manifest_lock(manifest_path):
+            for request in requests:
+                result = wrapper.extract_prefill(request)
+                artifact = write_prefill_result(
+                    result,
+                    output_root=args.output_root,
+                    manifest_path=args.cache_manifest,
+                    overwrite=args.overwrite,
+                )
+                artifacts.append(
+                    {
+                        "sample_id": request.sample_id,
+                        "condition": request.condition,
+                        "shape": [result.layer_count, result.hidden_dim],
+                        "t0_token_index": result.t0_token_index,
+                        "token_count": result.token_count,
+                        "shard_path": str(artifact.shard_path),
+                        "sidecar_path": str(artifact.sidecar_path),
+                        "checksum": artifact.checksum,
+                        "elapsed_seconds": result.provenance.get("elapsed_seconds"),
+                        "peak_gpu_memory_bytes": result.provenance.get("peak_gpu_memory_bytes"),
+                    }
+                )
     finally:
         wrapper.close()
     print(json.dumps({"status": "ok", "artifacts": artifacts}, ensure_ascii=False))
@@ -185,3 +193,16 @@ def _request_payload(request: PrefillRequest) -> dict[str, Any]:
 
 def _optional_string(value: Any) -> str | None:
     return None if value is None else str(value)
+
+
+@contextmanager
+def _manifest_lock(manifest_path: Path) -> Iterator[None]:
+    """Block concurrent writers from racing on the shared cache manifest."""
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = manifest_path.with_name(f".{manifest_path.name}.lock")
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

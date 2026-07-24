@@ -28,7 +28,7 @@ def _state(sample_id: str, condition: str, prompt_id: str) -> dict[str, object]:
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
         "condition": condition,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": f"cache/{sample_id}-{condition}-{prompt_id}.safetensors",
         "index_in_shard": 0,
@@ -47,7 +47,7 @@ def _bundle(sample_id: str = "sample-1", sample_type: str = "Conflict") -> dict[
         "sample_type": sample_type,
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompts": [{"prompt_id": prompt_id} for prompt_id in prompt_ids],
         "views": {
             condition: {
@@ -73,7 +73,7 @@ def _bundle(sample_id: str = "sample-1", sample_type: str = "Conflict") -> dict[
 
 def _prompt_contract() -> dict[str, object]:
     return {
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_set_artifact_sha256": "b" * 64,
         "expected_prompt_count": 2,
         "expected_prompt_ids": ("p1", "p2"),

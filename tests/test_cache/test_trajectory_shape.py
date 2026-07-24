@@ -43,7 +43,7 @@ def _write_hidden_states(tmp_path, name: str, array: np.ndarray) -> None:
 
 def test_extract_t0_trajectory_validates_expected_shape(tmp_path) -> None:
     _write_hidden_states(tmp_path, "M1", np.zeros((1, 3, 4, 3), dtype=np.float32))
-    entry = _entry(tmp_path, "M1", layer_count=2)
+    entry = _entry(tmp_path, "M1", layer_count=2, metadata={"tensor_key": "hidden_states", "t0_token_index": 0})
 
     with pytest.raises(ValueError, match="layer_count"):
         extract_t0_trajectory(entry)
@@ -53,7 +53,7 @@ def test_extract_t0_trajectory_rejects_nan_values(tmp_path) -> None:
     hidden_states = np.zeros((1, 2, 4, 3), dtype=np.float32)
     hidden_states[0, 0, 3, 2] = np.nan
     _write_hidden_states(tmp_path, "M1", hidden_states)
-    entry = _entry(tmp_path, "M1")
+    entry = _entry(tmp_path, "M1", metadata={"tensor_key": "hidden_states", "t0_token_index": 3})
 
     with pytest.raises(ValueError, match="finite"):
         extract_t0_trajectory(entry)
@@ -64,16 +64,16 @@ def test_bundle_three_views_returns_trajectories_and_shared_meta(tmp_path) -> No
         _write_hidden_states(tmp_path, condition, np.ones((1, 2, 4, 3), dtype=np.float32))
 
     bundle = bundle_three_views(
-        _entry(tmp_path, "M1"),
-        _entry(tmp_path, "M2"),
-        _entry(tmp_path, "M12"),
+        _entry(tmp_path, "M1", metadata={"tensor_key": "hidden_states", "t0_token_index": 3}),
+        _entry(tmp_path, "M2", metadata={"tensor_key": "hidden_states", "t0_token_index": 3}),
+        _entry(tmp_path, "M12", metadata={"tensor_key": "hidden_states", "t0_token_index": 3}),
     )
 
     assert bundle.sample_id == "sample-1"
     assert bundle.trajectory_meta == {
         "layer_count": 2,
         "hidden_dim": 3,
-        "t0_token_index": -1,
+        "t0_token_index": 3,
     }
     assert len(bundle.m1_trajectory) == 2
     assert len(bundle.m2_trajectory) == 2

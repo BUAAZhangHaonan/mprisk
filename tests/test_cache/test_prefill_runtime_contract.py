@@ -14,11 +14,11 @@ from mprisk.models.wrapper_registry import get_wrapper
 from mprisk.prompts.template_bank import load_equiv_prompt_set
 
 ASSET_CONFIG = Path("configs/assets/model_assets.yaml")
-PROMPT_CONFIG = Path("configs/cache/prefill_main_p8_v1.yaml")
+PROMPT_CONFIG = Path("configs/cache/prefill_main_p8.yaml")
 SMOKE_ROOT = Path("data/frozen/prefill_smoke_v1")
 ALT_PROMPT_CONFIGS = {
-    20260715: Path("configs/cache/prefill_p8_seed20260715_v1.yaml"),
-    20260716: Path("configs/cache/prefill_p8_seed20260716_v1.yaml"),
+    20260715: Path("configs/cache/prefill_p8_seed20260715.yaml"),
+    20260716: Path("configs/cache/prefill_p8_seed20260716.yaml"),
 }
 
 
@@ -41,7 +41,7 @@ def test_fixed_prefill_models_resolve_from_versioned_asset_config() -> None:
 
 def test_main_prompt_config_freezes_p8_seed_for_vt_and_va() -> None:
     config = yaml.safe_load(PROMPT_CONFIG.read_text(encoding="utf-8"))
-    assert config["schema"] == "mprisk_prefill_main_p8_v1"
+    assert config["schema"] == "mprisk_prefill_main_p8"
     assert config["seed"] == 20260717
     assert config["seed_semantics"] == "immutable_prompt_subset_selection_seed_not_run_date"
     assert set(config["models"]) == {

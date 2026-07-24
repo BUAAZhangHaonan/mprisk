@@ -1,0 +1,18 @@
+schema: mprisk_v2_pipeline_v1
+seed: 20260717
+output_root: outputs/v2
+split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_va.jsonl
+kappa_quantile: 0.95
+tau_quantile: 0.95
+max_epochs: 300
+patience: 30
+device: cuda:0
+
+models:
+  qwen2_5_omni_7b:
+    protocol: va
+    cache_root: outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717
+    prompt_set: configs/prompts/equiv_sets/va_main_p8_seed20260717.yaml
+    prompt_set_key: va_main_p8_seed20260717
+    main_manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl
+    train_config: configs/experiments/seed_runs/seed20260717/qwen2_5_omni_7b_tme_proxy_anchor.yaml

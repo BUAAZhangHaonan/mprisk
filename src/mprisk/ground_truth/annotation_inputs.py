@@ -97,10 +97,10 @@ def build_gt_annotation_input_pilot(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Build the deterministic two-per-sample-type/protocol pilot in memory."""
     root = Path(repo_root).resolve()
-    input_root = root / "data/frozen/generated_round1_v1"
+    input_root = root / "data/frozen/generated_round1"
     archive_path = input_root / "archive_manifest.jsonl"
     assignment_path = input_root / "archetype_semantic_assignments_v1.jsonl"
-    dictionary_path = input_root / "archetype_canonical_meanings_v1.jsonl"
+    dictionary_path = input_root / "archetype_canonical_meanings.jsonl"
     archive_rows = _read_jsonl(archive_path)
     assignments = _index(_read_jsonl(assignment_path), "sample_id")
     meanings = _index(_read_jsonl(dictionary_path), "archetype_semantic_id")

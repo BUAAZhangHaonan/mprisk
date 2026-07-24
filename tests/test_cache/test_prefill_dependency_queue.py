@@ -23,7 +23,7 @@ from mprisk.cache.prefill_dependency_queue import (
     wait_for_main_gate,
 )
 
-QUEUE_CONFIG = Path("configs/cache/prefill_followup_p8_queue_v1.yaml")
+QUEUE_CONFIG = Path("configs/cache/prefill_followup_p8_queue.yaml")
 
 
 def _write_ledger(path: Path, statuses: list[str]) -> None:
@@ -161,7 +161,7 @@ def test_versioned_followup_manifest_freezes_six_ordered_jobs() -> None:
         53808,
     ] * 2
     assert len({job.output_root for job in queue.followup_jobs}) == 6
-    assert queue.lock_path.name == "prefill_followup_p8_queue_v1.lock"
+    assert queue.lock_path.name == "prefill_followup_p8_queue.lock"
     assert queue.main_gate.upstream.tmux_session == "mprisk-main-p8-queue"
     assert len(queue.main_gate.upstream.heartbeat_paths) == 10
 
@@ -206,7 +206,7 @@ def test_capacity_gate_projects_artifact_bytes_and_hard_blocks_above_limit(
         **{**vars(safe_filesystem), "f_bavail": 400}
     )
     reserved = evaluate_capacity(queue, statvfs_fn=lambda _: reserved_filesystem)
-    assert reserved.projected_utilization == pytest.approx(980 / 900)
+    assert reserved.projected_utilization == pytest.approx(1080 / 1000)
 
     roomy_filesystem = SimpleNamespace(
         **{

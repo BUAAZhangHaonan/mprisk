@@ -11,9 +11,9 @@ from mprisk.prompts.template_bank import EquivPromptSet, load_equiv_prompt_set
 @pytest.mark.parametrize(
     ("path", "key", "protocol"),
     [
-        ("configs/prompts/equiv_sets/vt_primary_v1.yaml", "vt_primary_v1", "vt"),
-        ("configs/prompts/equiv_sets/va_aux_v1.yaml", "va_aux_v1", "va"),
-        ("configs/prompts/equiv_sets/it_aux_v1.yaml", "it_aux_v1", "it"),
+        ("configs/prompts/equiv_sets/vt_primary.yaml", "vt_primary", "vt"),
+        ("configs/prompts/equiv_sets/va_aux.yaml", "va_aux", "va"),
+        ("configs/prompts/equiv_sets/it_aux.yaml", "it_aux", "it"),
     ],
 )
 def test_loads_equiv_prompt_set_from_yaml(path: str, key: str, protocol: str) -> None:
@@ -29,7 +29,7 @@ def test_loads_equiv_prompt_set_from_yaml(path: str, key: str, protocol: str) ->
 
 
 def test_compiler_renders_template_with_sample_fields() -> None:
-    prompt_set = load_equiv_prompt_set(Path("configs/prompts/equiv_sets/va_aux_v1.yaml"))
+    prompt_set = load_equiv_prompt_set(Path("configs/prompts/equiv_sets/va_aux.yaml"))
     template = prompt_set.enabled_templates()[0]
 
     rendered = compile_prompt(

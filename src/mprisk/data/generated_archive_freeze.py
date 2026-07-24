@@ -42,7 +42,7 @@ class SilentCopyOverride(StrictModel):
 
 class FreezeConfig(StrictModel):
     schema_name: Literal["mprisk_generated_archive_freeze_config_v1"]
-    freeze_id: Literal["generated_round1_v1"]
+    freeze_id: Literal["generated_round1"]
     source_root: Path
     output_root: Path
     external_media_root: Path

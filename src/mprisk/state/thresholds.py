@@ -10,12 +10,22 @@ from mprisk.state.identity import homogeneous_identity
 from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 
 
-def quantile(values: list[float], q: float) -> float:
+def quantile_nearest_rank(values: list[float], q: float) -> float:
+    """Return the q-th quantile using the nearest-rank method.
+
+    Nearest-rank method, NOT numpy linear interpolation: ranks are rounded to
+    the closest integer index, so the result is always an element of ``values``.
+    """
     if not values:
         raise ValueError("Cannot compute quantile of empty values")
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * q)))
     return ordered[index]
+
+
+# Deprecated alias kept for one release cycle; prefer quantile_nearest_rank.
+def quantile(values: list[float], q: float) -> float:
+    return quantile_nearest_rank(values, q)
 
 
 def calibrate_aligned_thresholds(

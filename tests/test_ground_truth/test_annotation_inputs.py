@@ -85,7 +85,7 @@ def test_frozen_new_pilot_matches_the_builder_without_legacy_input() -> None:
     expected, _ = build_gt_annotation_input_pilot(ROOT)
     path = (
         ROOT
-        / "data/frozen/generated_round1_v1/ground_truth_inputs/"
+        / "data/frozen/generated_round1/ground_truth_inputs/"
         "gt_annotation_input_v1/pilot.jsonl"
     )
     actual = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]

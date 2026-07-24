@@ -16,7 +16,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--representation-split",
         default="official_test",
-        choices=("relation_val", "aligned_calibration", "official_test"),
+        choices=("relation_train", "relation_val", "aligned_calibration", "official_test"),
     )
     args = parser.parse_args(argv)
     result = export_frozen_baseline_representations(

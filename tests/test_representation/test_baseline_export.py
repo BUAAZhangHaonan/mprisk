@@ -33,7 +33,7 @@ def _condition_row(
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
         "condition": condition,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": f"cache/{sample_id}-{condition}-{prompt_id}.safetensors",
         "index_in_shard": 0,
@@ -60,7 +60,7 @@ def _official_test_dataset(tmp_path: Path) -> Path:
                     "label_id": int(sample_type == "Conflict"),
                     "model_key": "qwen3_vl_8b",
                     "protocol": "VT",
-                    "prompt_set_key": "vt_primary_v1",
+                    "prompt_set_key": "vt_primary",
                     "prompt_set_artifact_sha256": "b" * 64,
                     "prompt_id": prompt_id,
                     "split_group_id": f"group-{sample_id}",
@@ -91,7 +91,7 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
         model_key="qwen3_vl_8b",
         protocol="vt",
         classification_objective="inverse_frequency_cross_entropy",
-        prompt_set_key="vt_primary_v1",
+        prompt_set_key="vt_primary",
         prompt_set_artifact_sha256="b" * 64,
         expected_prompt_count=8,
         expected_prompt_ids=tuple(f"p{index:02d}" for index in range(1, 9)),
@@ -247,9 +247,9 @@ def test_single_point_export_rejects_hidden_projection_checkpoint_drift(
 @pytest.mark.parametrize(
     "config_name",
     [
-        "representation_qwen2_5_omni_7b_single_point_v1.yaml",
-        "representation_qwen3_vl_8b_single_point_v1.yaml",
-        "representation_internvl3_5_8b_single_point_v1.yaml",
+        "representation_qwen2_5_omni_7b_single_point.yaml",
+        "representation_qwen3_vl_8b_single_point.yaml",
+        "representation_internvl3_5_8b_single_point.yaml",
     ],
 )
 def test_single_point_configs_pin_direct_linear_architecture(config_name: str) -> None:

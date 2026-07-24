@@ -20,7 +20,7 @@ def main() -> int:
         "--manifest",
         type=Path,
         default=Path(
-            "data/frozen/generated_round1_v1/ground_truth_inputs/"
+            "data/frozen/generated_round1/ground_truth_inputs/"
             "gt_annotation_input_v1/pilot.jsonl"
         ),
     )
@@ -28,7 +28,7 @@ def main() -> int:
         "--provenance",
         type=Path,
         default=Path(
-            "data/frozen/generated_round1_v1/ground_truth_inputs/"
+            "data/frozen/generated_round1/ground_truth_inputs/"
             "gt_annotation_input_v1/pilot.provenance.json"
         ),
     )

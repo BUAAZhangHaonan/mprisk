@@ -366,7 +366,8 @@ def evaluate_capacity(
     filesystem = statvfs_fn(gate.filesystem_path)
     block_size = int(filesystem.f_frsize)
     total_bytes = int(filesystem.f_blocks) * block_size
-    used_bytes = (int(filesystem.f_blocks) - int(filesystem.f_bfree)) * block_size
+    # f_bavail consistent across used/free
+    used_bytes = (int(filesystem.f_blocks) - int(filesystem.f_bavail)) * block_size
     free_bytes = int(filesystem.f_bavail) * block_size
     total_inodes = int(filesystem.f_files)
     free_inodes = int(filesystem.f_favail)
@@ -659,7 +660,10 @@ class InotifyArtifactWatcher:
                 raw_name = data[offset : offset + name_length]
                 offset += name_length
                 name = os.fsdecode(raw_name.split(b"\0", 1)[0])
-                if name and (self.watch_dirs[wd] / name).resolve() in self.targets:
+                watch_dir = self.watch_dirs.get(wd)
+                if watch_dir is None:
+                    continue
+                if name and (watch_dir / name).resolve() in self.targets:
                     return
 
     def close(self) -> None:
@@ -820,10 +824,17 @@ def _gate_artifacts(queue: QueueManifest) -> tuple[Path, ...]:
     return tuple(paths)
 
 
+_artifact_stats_cache: dict[tuple[str, float], tuple[int, int, int]] = {}
+
+
 def _artifact_stats(root: Path) -> tuple[int, int, int]:
     manifest = root / "manifest.jsonl"
     if not manifest.is_file():
         return 0, 0, 0
+    cache_key = (str(manifest.resolve()), manifest.stat().st_mtime)
+    cached = _artifact_stats_cache.get(cache_key)
+    if cached is not None:
+        return cached
     total_bytes = 0
     file_count = 0
     task_count = 0
@@ -840,7 +851,9 @@ def _artifact_stats(root: Path) -> tuple[int, int, int]:
             total_bytes += artifact.stat().st_size
             file_count += 1
         task_count += 1
-    return total_bytes, file_count, task_count
+    result = (total_bytes, file_count, task_count)
+    _artifact_stats_cache[cache_key] = result
+    return result
 
 
 def _capacity_payload(status: CapacityStatus) -> dict[str, Any]:

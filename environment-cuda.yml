@@ -1,0 +1,40 @@
+name: mprisk
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pip>=24.2
+  - ca-certificates
+  - certifi
+  - openssl
+  - pip:
+      # Core scientific stack (pinned to the versions validated on the
+      # production host: 6403, driver 595.71.05, CUDA 13.2).
+      - numpy==2.2.4
+      - scipy==1.15.2
+      - pandas==2.2.3
+      - pyarrow==19.0.1
+      - scikit-learn==1.6.1
+      - matplotlib==3.10.1
+      - seaborn==0.13.2
+      # Config + serialization.
+      - pyyaml==6.0.2
+      - pydantic==2.11.2
+      - jsonschema==4.23.0
+      - rich==14.0.0
+      - tqdm==4.67.1
+      - safetensors==0.5.3
+      # HTTP + async (judge_misread.py hits the DeepSeek API).
+      - httpx==0.28.1
+      # Dev tooling.
+      - pytest==8.3.5
+      - pytest-cov==6.1.1
+      - ruff==0.11.2
+      # Torch with CUDA 13.0 runtime (matches driver 595.x / CUDA 13.2).
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - torch==2.13.0+cu130
+      # Training-side extras.
+      - accelerate==1.14.0
+variables:
+  PYTHONNOUSERSITE: "1"

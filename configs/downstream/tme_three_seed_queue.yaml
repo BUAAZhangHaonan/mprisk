@@ -1,0 +1,34 @@
+schema: mprisk_downstream_queue_v1
+version: v1
+training_config_root: configs/experiments/seed_runs
+output_root: outputs/downstream/three_seed_v1
+lock_path: outputs/downstream/runtime_locks/three_seed_v1.lock
+poll_seconds: 60
+retention_seed: 20260717
+retention_fractions: [0.10, 0.25, 0.50, 1.00]
+resource_gate:
+  physical_gpu: 1
+  device: cuda:0
+  max_gpu_memory_fraction: 0.85
+  max_external_gpu_context_memory_mib: 512
+  allowed_external_gpu_contexts:
+    - process_name: /home/team/lvshuyang/anaconda3/envs/comfyui/bin/python
+      command_substring: /home/team/lvshuyang/anaconda3/envs/comfyui/bin/python main.py --listen 127.0.0.1 --port 8188
+      max_process_count: 1
+      max_gpu_memory_mib_per_process: 512
+  producer_tmux_sessions:
+    - mprisk-main-p8-queue
+    - mprisk-followup-p8-queue
+  producer_command_substrings:
+    - scripts/run_prefill_dependency_queue.py --config configs/cache/prefill_followup_p8_queue.yaml
+    - scripts/extract_prefill_batch.py
+jobs:
+  - {seed: 20260717, model_key: qwen3_vl_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml, cache_root: outputs/prefill_cache/qwen3_vl_8b/vt_main_p8_seed20260717, expected_tasks: 60288}
+  - {seed: 20260717, model_key: internvl3_5_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml, cache_root: outputs/prefill_cache/internvl3_5_8b/vt_main_p8_seed20260717, expected_tasks: 60288}
+  - {seed: 20260717, model_key: qwen2_5_omni_7b, protocol: va, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_va.jsonl, source_manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl, prompt_set: configs/prompts/equiv_sets/va_main_p8_seed20260717.yaml, cache_root: outputs/prefill_cache/qwen2_5_omni_7b/va_main_p8_seed20260717, expected_tasks: 53808}
+  - {seed: 20260715, model_key: qwen3_vl_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260715.yaml, cache_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260715, expected_tasks: 60288}
+  - {seed: 20260715, model_key: internvl3_5_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260715.yaml, cache_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260715, expected_tasks: 60288}
+  - {seed: 20260715, model_key: qwen2_5_omni_7b, protocol: va, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_va.jsonl, source_manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl, prompt_set: configs/prompts/equiv_sets/va_p8_seed20260715.yaml, cache_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260715, expected_tasks: 53808}
+  - {seed: 20260716, model_key: qwen3_vl_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260716.yaml, cache_root: outputs/prefill_cache/qwen3_vl_8b/vt_p8_seed20260716, expected_tasks: 60288}
+  - {seed: 20260716, model_key: internvl3_5_8b, protocol: vt, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl, source_manifest: data/processed/manifests/protocol_manifests/vt_primary.jsonl, prompt_set: configs/prompts/equiv_sets/vt_p8_seed20260716.yaml, cache_root: outputs/prefill_cache/internvl3_5_8b/vt_p8_seed20260716, expected_tasks: 60288}
+  - {seed: 20260716, model_key: qwen2_5_omni_7b, protocol: va, split_assignment: data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_va.jsonl, source_manifest: data/processed/manifests/protocol_manifests/va_aux.jsonl, prompt_set: configs/prompts/equiv_sets/va_p8_seed20260716.yaml, cache_root: outputs/prefill_cache/qwen2_5_omni_7b/va_p8_seed20260716, expected_tasks: 53808}

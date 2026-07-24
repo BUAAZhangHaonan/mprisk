@@ -141,10 +141,13 @@ def write_prefill_result(
             encoding="utf-8",
         )
 
+    # Rename order: shard first, manifest second, sidecar LAST.
+    # The sidecar carries the checksum, so its absence is the atomic
+    # "in-progress" marker for crash-recovery (see _recover_entry).
     os.replace(tmp_shard, shard)
-    os.replace(tmp_sidecar, sidecar)
     if tmp_manifest is not None:
         os.replace(tmp_manifest, manifest)
+    os.replace(tmp_sidecar, sidecar)
     return PrefillCacheArtifact(
         shard_path=shard,
         sidecar_path=sidecar,

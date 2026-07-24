@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import warnings
 from collections.abc import Mapping, Sequence
 from statistics import stdev
 from typing import Any
@@ -146,23 +147,45 @@ def _synchronous_prompt_bootstrap_se(
     seed = int.from_bytes(hashlib.sha256(signature).digest()[:8], "big")
     random = np.random.default_rng(seed)
     estimates = np.empty(BOOTSTRAP_REPLICATES, dtype=np.float64)
+    any_antipodal = False
     for replicate in range(BOOTSTRAP_REPLICATES):
         indexes = random.integers(0, len(prompt_ids), size=len(prompt_ids))
         sampled_ids = [prompt_ids[index] for index in indexes]
-        centers = {
-            condition: spherical_center(
-                [embeddings[condition][prompt_id] for prompt_id in sampled_ids]
+        try:
+            centers = {
+                condition: spherical_center(
+                    [embeddings[condition][prompt_id] for prompt_id in sampled_ids]
+                )
+                for condition in CONDITIONS
+            }
+            distance_to_v = spherical_distance(centers["M12"], centers["M1"])
+            distance_to_ta = spherical_distance(centers["M12"], centers["M2"])
+            modality_distance = spherical_distance(centers["M1"], centers["M2"])
+            estimates[replicate] = _signed_r(
+                distance_to_v,
+                distance_to_ta,
+                modality_distance,
             )
-            for condition in CONDITIONS
-        }
-        distance_to_v = spherical_distance(centers["M12"], centers["M1"])
-        distance_to_ta = spherical_distance(centers["M12"], centers["M2"])
-        modality_distance = spherical_distance(centers["M1"], centers["M2"])
-        estimates[replicate] = _signed_r(
-            distance_to_v,
-            distance_to_ta,
-            modality_distance,
+        except ValueError:
+            any_antipodal = True
+            estimates[replicate] = float("nan")
+    if any_antipodal:
+        valid = estimates[np.isfinite(estimates)]
+        if valid.size >= 2:
+            warnings.warn(
+                "spherical bootstrap encountered antipodal resamples; "
+                "R_bootstrap_se uses the non-antipodal subset",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return float(valid.std(ddof=1))
+        warnings.warn(
+            "spherical bootstrap encountered antipodal embeddings in every resample; "
+            "R_bootstrap_se is unreliable and reported as 0",
+            RuntimeWarning,
+            stacklevel=2,
         )
+        return 0.0
     return float(estimates.std(ddof=1))
 
 

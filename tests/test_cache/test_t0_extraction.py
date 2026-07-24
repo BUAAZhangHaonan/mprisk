@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from safetensors.numpy import save_file
 
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
@@ -25,10 +26,10 @@ def _entry(tmp_path, *, metadata=None) -> HiddenStateEntry:
     )
 
 
-def test_t0_token_index_defaults_to_last_conditioning_token(tmp_path) -> None:
+def test_t0_token_index_returns_none_when_metadata_absent(tmp_path) -> None:
     entry = _entry(tmp_path)
 
-    assert t0_token_index(entry) == -1
+    assert t0_token_index(entry) is None
 
 
 def test_t0_token_index_uses_metadata_override(tmp_path) -> None:
@@ -42,12 +43,23 @@ def test_extract_t0_trajectory_reads_sample_from_safetensors_shard(tmp_path) -> 
     shard.parent.mkdir(parents=True)
     hidden_states = np.arange(2 * 2 * 4 * 3, dtype=np.float32).reshape(2, 2, 4, 3)
     save_file({"hidden_states": hidden_states}, shard)
-    entry = _entry(tmp_path, metadata={"tensor_key": "hidden_states"})
+    entry = _entry(tmp_path, metadata={"tensor_key": "hidden_states", "t0_token_index": 3})
 
     trajectory = extract_t0_trajectory(entry)
 
-    np.testing.assert_array_equal(trajectory, hidden_states[0, :, -1, :])
+    np.testing.assert_array_equal(trajectory, hidden_states[0, :, 3, :])
     assert trajectory.dtype == np.float32
+
+
+def test_extract_t0_trajectory_requires_t0_metadata_for_3d_shard(tmp_path) -> None:
+    shard = tmp_path / "shards/m1.safetensors"
+    shard.parent.mkdir(parents=True)
+    hidden_states = np.arange(2 * 2 * 4 * 3, dtype=np.float32).reshape(2, 2, 4, 3)
+    save_file({"hidden_states": hidden_states}, shard)
+    entry = _entry(tmp_path, metadata={"tensor_key": "hidden_states"})
+
+    with pytest.raises(ValueError, match="t0_token_index metadata required"):
+        extract_t0_trajectory(entry)
 
 
 def test_extract_t0_trajectory_supports_metadata_token_override(tmp_path) -> None:

@@ -6,14 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-try:
-    from scripts.assign_state_patterns import StatePatternResult, assign_state_patterns
-    from scripts.compute_sdr_scores import SdrScoreResult, compute_sdr_scores
-except ModuleNotFoundError:
-    from assign_state_patterns import StatePatternResult, assign_state_patterns
-    from compute_sdr_scores import SdrScoreResult, compute_sdr_scores
+from assign_state_patterns import StatePatternResult, assign_state_patterns
+from compute_sdr_scores import SdrScoreResult, compute_sdr_scores
 
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 from mprisk.cache.prefill_extract import extract_t0_trajectory

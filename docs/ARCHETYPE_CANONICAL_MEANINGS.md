@@ -1,8 +1,8 @@
 # Archetype canonical meanings
 
-`archetype_canonical_meanings_v1` binds every generated round-one sample to one
+`archetype_canonical_meanings` binds every generated round-one sample to one
 scene-independent semantic archetype. It is derived only from the immutable
-`generated_round1_v1` snapshot and the prompt-make source definitions whose
+`generated_round1` snapshot and the prompt-make source definitions whose
 SHA-256 values were locked by the archive-freeze provenance.
 
 - A meanings use the official `ARCHETYPES_GLM` `desc`, `gt`, and `surface`

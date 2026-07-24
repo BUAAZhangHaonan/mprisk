@@ -39,7 +39,7 @@ def _write_inputs(tmp_path: Path, count: int = 8) -> tuple[Path, Path]:
         )
         diagnostic_rows.append(
             {
-                "schema_name": "mprisk_diagnostic_affect_description_v2",
+                "schema_name": "mprisk_diagnostic_affect_description",
                 "run_id": "diagnostic-affect-test-v2",
                 "sample_id": sample_id,
                 "DIAGNOSTIC_AFFECT_DESCRIPTION": f"Diagnostic description {index}.",
@@ -68,7 +68,7 @@ def _config(tmp_path: Path, references: Path, diagnostics: Path) -> MisreadJudge
         gt_description_schema_name="mprisk_gt_description_v1",
         gt_input_schema_version="gt_annotation_input_v1",
         diagnostic_affect_description_schema_name=(
-            "mprisk_diagnostic_affect_description_v2"
+            "mprisk_diagnostic_affect_description"
         ),
         diagnostic_run_id="diagnostic-affect-test-v2",
         gt_description_manifest_path=references,

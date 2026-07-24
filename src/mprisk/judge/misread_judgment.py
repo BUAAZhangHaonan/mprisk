@@ -64,7 +64,7 @@ class MisreadJudgeConfig(BaseModel):
     gt_description_schema_name: Literal["mprisk_gt_description_v1"]
     gt_input_schema_version: Literal["gt_annotation_input_v1"]
     diagnostic_affect_description_schema_name: Literal[
-        "mprisk_diagnostic_affect_description_v2"
+        "mprisk_diagnostic_affect_description"
     ]
     diagnostic_run_id: str
     gt_description_manifest_path: Path
@@ -559,7 +559,7 @@ def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run blinded Misread judgment.")
     parser.add_argument(
-        "--config", type=Path, default=Path("configs/judge/misread_judgment_v2.yaml")
+        "--config", type=Path, default=Path("configs/judge/misread_judgment.yaml")
     )
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--import-human", type=Path)

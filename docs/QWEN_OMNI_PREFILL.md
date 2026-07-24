@@ -78,7 +78,7 @@ CUDA_VISIBLE_DEVICES=1 PYTHONNOUSERSITE=1 \
   /home/team/zhanghaonan/.venvs/mprisk-qwen-omni/bin/python \
   scripts/extract_prefill_batch.py \
   --manifest data/processed/manifests/protocol_manifests/va_aux.jsonl \
-  --prompt-set configs/prompts/equiv_sets/va_aux_v1.yaml \
+  --prompt-set configs/prompts/equiv_sets/va_aux.yaml \
   --prompt-variable 'question=<APPROVED_CANONICAL_QUESTION>' \
   --protocol va --conditions M1 M2 M12 \
   --joint-audio-mode embedded_video \

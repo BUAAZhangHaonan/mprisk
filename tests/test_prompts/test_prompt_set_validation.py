@@ -70,11 +70,11 @@ templates:
 
 def test_compile_prompt_reports_missing_sample_field() -> None:
     template = PromptTemplate(
-        prompt_id="vt_primary_v1_t01",
+        prompt_id="vt_primary_t01",
         template_text="Text: {sample_text}\nQuestion: {question}",
         role="user",
         enabled=True,
     )
 
-    with pytest.raises(ValueError, match="vt_primary_v1_t01.*question"):
+    with pytest.raises(ValueError, match="vt_primary_t01.*question"):
         compile_prompt(template, {"sample_text": "The speaker sounds tense."})

@@ -17,7 +17,7 @@ def main() -> int:
     parser.add_argument(
         "--config",
         type=Path,
-        default=repo_root / "configs/labels/archetype_canonical_meanings_v1.yaml",
+        default=repo_root / "configs/labels/archetype_canonical_meanings.yaml",
     )
     args = parser.parse_args()
     result = build_archetype_canonical_meanings(

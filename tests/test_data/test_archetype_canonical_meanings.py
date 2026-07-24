@@ -14,11 +14,11 @@ from mprisk.data.archetype_canonical_meanings import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-FROZEN = ROOT / "data/frozen/generated_round1_v1"
-DICTIONARY = FROZEN / "archetype_canonical_meanings_v1.jsonl"
+FROZEN = ROOT / "data/frozen/generated_round1"
+DICTIONARY = FROZEN / "archetype_canonical_meanings.jsonl"
 ASSIGNMENTS = FROZEN / "archetype_semantic_assignments_v1.jsonl"
 REVIEW_QUEUE = FROZEN / "archetype_canonical_review_queue_v1.jsonl"
-PROVENANCE = FROZEN / "archetype_canonical_meanings_v1.provenance.json"
+PROVENANCE = FROZEN / "archetype_canonical_meanings.provenance.json"
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
@@ -172,7 +172,7 @@ def test_invalid_official_description_creates_review_item_without_fallback(
         archetype_source=(tmp_path / "glm_client.py", "b" * 64),
         c_template_source=(tmp_path / "c_type_batch.py", "c" * 64),
         freeze_provenance_sha="d" * 64,
-        dictionary_id="archetype_canonical_meanings_v1",
+        dictionary_id="archetype_canonical_meanings",
         max_words=30,
     )
     assert rows == []

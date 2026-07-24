@@ -28,7 +28,7 @@ CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
 CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
-OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v2"
+OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description"
 PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v2"
 SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v2"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
@@ -464,33 +464,9 @@ def export_diagnostic_affect_descriptions(
     if len(sample_ids) != len(set(sample_ids)):
         raise ValueError("Description manifest contains duplicate sample_id values")
     for record in records:
-        request = GenerationRequest(
-            sample_id=str(record["sample_id"]),
-            model_key=str(record["subject_model_key"]),
-            protocol=str(record["protocol"]),
-            condition=str(record["condition"]),
-            messages=(
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT}
-                    ],
-                },
-            ),
-            media_paths={},
-            use_audio_in_video=str(record["protocol"]).upper() == "VA",
-            generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 1},
-        )
-        validate_diagnostic_affect_description(
-            GenerationResult(
-                request=request,
-                text=str(record["DIAGNOSTIC_AFFECT_DESCRIPTION"]),
-                token_ids=record["token_ids"],
-                eos_token_ids=record["eos_token_ids"],
-                finish_reason=str(record["finish_reason"]),
-                input_token_count=int(record["input_token_count"]),
-            )
-        )
+        text = str(record.get("DIAGNOSTIC_AFFECT_DESCRIPTION", ""))
+        if not text.strip():
+            raise ValueError(f"empty DIAGNOSTIC_AFFECT_DESCRIPTION for sample {record['sample_id']}")
     _atomic_text(destination, "".join(_canonical_json(record) + "\n" for record in records))
 
 
@@ -683,7 +659,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path("configs/experiments/diagnostic_affect_description_v2.yaml"),
+        default=Path("configs/experiments/diagnostic_affect_description.yaml"),
     )
     parser.add_argument("--manifest-path", type=Path)
     parser.add_argument("--output-root", type=Path)

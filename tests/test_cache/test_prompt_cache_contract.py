@@ -17,16 +17,16 @@ def test_prompt_cache_manifest_round_trips_jsonl_and_indexes_contract_fields(tmp
     rows = [
         {
             "model_key": "qwen3_vl_8b",
-            "prompt_set_key": "vt_primary_v1",
-            "prompt_id": "vt_primary_v1_t01",
+            "prompt_set_key": "vt_primary",
+            "prompt_id": "vt_primary_t01",
             "protocol": "VT",
             "cache_key": "cache-a",
             "artifact_uri": "outputs/prompt_cache/cache-a.safetensors",
         },
         {
             "model_key": "qwen3_vl_8b",
-            "prompt_set_key": "vt_primary_v1",
-            "prompt_id": "vt_primary_v1_t02",
+            "prompt_set_key": "vt_primary",
+            "prompt_id": "vt_primary_t02",
             "protocol": "vt",
             "cache_key": "cache-b",
         },
@@ -38,14 +38,14 @@ def test_prompt_cache_manifest_round_trips_jsonl_and_indexes_contract_fields(tmp
     assert [row["cache_key"] for row in read_prompt_cache_rows(written)] == ["cache-a", "cache-b"]
     assert loaded.lookup(
         model_key="qwen3_vl_8b",
-        prompt_set_key="vt_primary_v1",
-        prompt_id="vt_primary_v1_t01",
+        prompt_set_key="vt_primary",
+        prompt_id="vt_primary_t01",
         protocol="vt",
     )["cache_key"] == "cache-a"
     assert loaded.lookup(
         model_key="qwen3_vl_8b",
-        prompt_set_key="vt_primary_v1",
-        prompt_id="vt_primary_v1_t02",
+        prompt_set_key="vt_primary",
+        prompt_id="vt_primary_t02",
         protocol="VT",
     )["cache_key"] == "cache-b"
 
@@ -56,8 +56,8 @@ def test_prompt_cache_manifest_reports_missing_rows_by_prompt_id(tmp_path) -> No
         json.dumps(
             {
                 "model_key": "qwen3_vl_8b",
-                "prompt_set_key": "vt_primary_v1",
-                "prompt_id": "vt_primary_v1_t01",
+                "prompt_set_key": "vt_primary",
+                "prompt_id": "vt_primary_t01",
                 "protocol": "vt",
                 "cache_key": "cache-a",
             }
@@ -70,10 +70,10 @@ def test_prompt_cache_manifest_reports_missing_rows_by_prompt_id(tmp_path) -> No
 
     assert loaded.missing_prompt_ids(
         model_key="qwen3_vl_8b",
-        prompt_set_key="vt_primary_v1",
-        prompt_ids=["vt_primary_v1_t01", "vt_primary_v1_t02"],
+        prompt_set_key="vt_primary",
+        prompt_ids=["vt_primary_t01", "vt_primary_t02"],
         protocol="VT",
-    ) == ["vt_primary_v1_t02"]
+    ) == ["vt_primary_t02"]
 
 
 def test_prompt_cache_manifest_rejects_rows_missing_required_contract_fields() -> None:
@@ -82,8 +82,8 @@ def test_prompt_cache_manifest_rejects_rows_missing_required_contract_fields() -
             [
                 {
                     "model_key": "qwen3_vl_8b",
-                    "prompt_set_key": "vt_primary_v1",
-                    "prompt_id": "vt_primary_v1_t01",
+                    "prompt_set_key": "vt_primary",
+                    "prompt_id": "vt_primary_t01",
                     "protocol": "vt",
                 }
             ]

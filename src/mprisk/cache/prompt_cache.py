@@ -26,7 +26,10 @@ class PromptCacheManifest:
         self.rows = [_validate_prompt_cache_row(row) for row in rows]
         self._rows_by_key: dict[tuple[str, str, str, str], dict[str, Any]] = {}
         for row in self.rows:
-            self._rows_by_key.setdefault(_row_key(row), row)
+            key = _row_key(row)
+            if key in self._rows_by_key:
+                raise ValueError(f"duplicate manifest key: {key!r}")
+            self._rows_by_key[key] = row
 
     def lookup(
         self,

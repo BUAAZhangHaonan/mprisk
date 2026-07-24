@@ -127,7 +127,7 @@ Missing `master_split` or registered `representation_split` fields are fatal; tr
 never hashes the full dataset into a new split.
 
 The pre-registered split rule is in
-`configs/splits/representation_split_v1.yaml`. Official train is unchanged and is the
+`configs/splits/representation_split.yaml`. Official train is unchanged and is the
 only encoder-training partition. Official test is unchanged and is reserved for final
 evaluation. The registered scope is all 4,754 valid `Conflict`/`Aligned` rows in the
 VT and VA protocol manifests. The legacy `use_in_main` field is retained as provenance
@@ -144,7 +144,7 @@ Rebuild and verify the versioned assignment:
 
 ```bash
 python scripts/build_representation_splits.py \
-  --config configs/splits/representation_split_v1.yaml \
+  --config configs/splits/representation_split.yaml \
   --output-dir data/processed/manifests/splits/representation_v1
 ```
 
@@ -231,11 +231,11 @@ Run the trained representation smoke pipeline:
 
 ```bash
 python scripts/run_representation_training_smoke.py \
-  --bundle-manifest outputs/state_bundles/qwen3_vl_8b/VT/vt_primary_v1/bundle_manifest.jsonl \
-  --config configs/experiments/representation_qwen3_vl_8b_tme_proxy_anchor_v1.yaml \
+  --bundle-manifest outputs/state_bundles/qwen3_vl_8b/VT/vt_primary/bundle_manifest.jsonl \
+  --config configs/experiments/representation_qwen3_vl_8b_tme_proxy_anchor.yaml \
   --model-key qwen3_vl_8b \
   --protocol VT \
-  --prompt-set-key vt_primary_v1 \
+  --prompt-set-key vt_primary \
   --output-root . \
   --device cuda \
   --thresholds outputs/states/calibration/qwen3_vl_8b_vt_thresholds.json
@@ -296,7 +296,7 @@ python scripts/build_prompt_conditioned_cache.py \
   --source-manifest outputs/prompt_conditioned_cache/source_rows.jsonl \
   --model-key qwen3_vl_8b \
   --protocol VT \
-  --prompt-set-key vt_primary_v1
+  --prompt-set-key vt_primary
 ```
 
 Run the bundle builder:
@@ -304,10 +304,10 @@ Run the bundle builder:
 ```bash
 python scripts/build_state_bundles.py \
   --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
-  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
-  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
-  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
-  --prompt-set-key vt_primary_v1 \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary.yaml \
+  --prompt-set-key vt_primary \
   --model-key qwen3_vl_8b \
   --protocol VT
 ```
@@ -317,10 +317,10 @@ Run the smoke chain:
 ```bash
 python scripts/run_state_measurement_smoke.py \
   --state-dataset-manifest outputs/state_data/qwen3_vl_8b/VT/state_dataset_manifest.jsonl \
-  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
-  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
-  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
-  --prompt-set-key vt_primary_v1 \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary.yaml \
+  --prompt-set-key vt_primary \
   --model-key qwen3_vl_8b \
   --protocol VT \
   --repr-key raw_layernorm_mean
@@ -332,16 +332,16 @@ Run the minimal core SDR pipeline from final manifests and cache manifests:
 python scripts/run_core_sdr_pipeline.py \
   --model-key qwen3_vl_8b \
   --protocol VT \
-  --prompt-set-key vt_primary_v1 \
+  --prompt-set-key vt_primary \
   --repr-key tme_proxy_anchor_v1 \
   --manifest-paths data/processed/manifests/conflict_manifest.jsonl data/processed/manifests/aligned_manifest.jsonl \
   --full-cache-root . \
-  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary_v1/manifest.jsonl \
-  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl \
-  --prompt-set configs/prompts/equiv_sets/vt_primary_v1.yaml \
+  --prompt-cache-manifest outputs/prompt_cache/qwen3_vl_8b/vt_primary/manifest.jsonl \
+  --prompt-conditioned-cache-manifest outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary/manifest.jsonl \
+  --prompt-set configs/prompts/equiv_sets/vt_primary.yaml \
   --split-assignment data/processed/manifests/splits/representation_v1/representation_split_assignment_v1.jsonl \
   --output-root . \
-  --checkpoint outputs/representation_train/qwen3_vl_8b/VT/vt_primary_v1/tme_proxy_anchor_v1/best_checkpoint.pt \
+  --checkpoint outputs/representation_train/qwen3_vl_8b/VT/vt_primary/tme_proxy_anchor_v1/best_checkpoint.pt \
   --thresholds outputs/states/calibration/qwen3_vl_8b_vt_thresholds.json
 ```
 

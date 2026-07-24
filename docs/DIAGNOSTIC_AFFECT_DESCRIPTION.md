@@ -27,7 +27,7 @@ The strict config schema is `mprisk_diagnostic_affect_description_config_v2`. It
 The subject model's family is resolved through the existing model asset registry and wrapper
 registry. Diagnostic code does not select a Qwen, InternVL, or other family by name.
 
-The output schema is `mprisk_diagnostic_affect_description_v2`. Every manifest row and provenance
+The output schema is `mprisk_diagnostic_affect_description`. Every manifest row and provenance
 record uses `schema_name` and carries the immutable `run_id`. Its semantic output field is
 `DIAGNOSTIC_AFFECT_DESCRIPTION`. A SQLite ledger binds the config, asset registry, source manifest,
 model identity, prompt, condition, dataset, split, and generation policy. Resume fails if that
@@ -37,10 +37,10 @@ identity changes. JSONL and JSON artifacts are written atomically and checksumme
 
 ```bash
 PYTHONPATH=src python scripts/generate_diagnostic_affect_descriptions.py \
-  --config configs/experiments/diagnostic_affect_description_v2.yaml
+  --config configs/experiments/diagnostic_affect_description.yaml
 
 PYTHONPATH=src python scripts/generate_diagnostic_affect_descriptions.py \
-  --config configs/experiments/diagnostic_affect_description_v2.yaml \
+  --config configs/experiments/diagnostic_affect_description.yaml \
   --smoke --output-root outputs/diagnostic_affect/smoke
 ```
 

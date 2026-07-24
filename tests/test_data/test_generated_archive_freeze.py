@@ -145,9 +145,9 @@ def frozen_fixture(tmp_path: Path) -> tuple[Path, Path]:
     tool.chmod(0o755)
     config = {
         "schema_name": "mprisk_generated_archive_freeze_config_v1",
-        "freeze_id": "generated_round1_v1",
+        "freeze_id": "generated_round1",
         "source_root": str(source_root),
-        "output_root": "data/frozen/generated_round1_v1",
+        "output_root": "data/frozen/generated_round1",
         "external_media_root": str(tmp_path / "external-media"),
         "official_archetypes_path": str(archetypes),
         "official_c_templates_path": str(c_templates),

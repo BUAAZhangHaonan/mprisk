@@ -51,7 +51,7 @@ def _prompted_entry(
         "model_key": "qwen3_vl_8b",
         "protocol": "vt",
         "condition": condition,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": shard_path,
         "index_in_shard": 0,
@@ -68,10 +68,10 @@ def _prompted_rows(root, sample_id: str) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for condition in ("M1", "M2", "M12"):
         rows.append(
-            _prompted_entry(root, sample_id, condition, "vt_primary_v1_t01", [1.0, 0.0, 0.0])
+            _prompted_entry(root, sample_id, condition, "vt_primary_t01", [1.0, 0.0, 0.0])
         )
         rows.append(
-            _prompted_entry(root, sample_id, condition, "vt_primary_v1_t02", [0.0, 1.0, 0.0])
+            _prompted_entry(root, sample_id, condition, "vt_primary_t02", [0.0, 1.0, 0.0])
         )
     return rows
 
@@ -107,16 +107,16 @@ def _prompt_set(path) -> None:
     path.write_text(
         """
 schema: mprisk_equiv_prompt_set_v1
-key: vt_primary_v1
+key: vt_primary
 protocol: vt
 version: v1
 active: true
 templates:
-  - prompt_id: vt_primary_v1_t01
+  - prompt_id: vt_primary_t01
     role: user
     enabled: true
     template_text: "Prompt one {sample_text}"
-  - prompt_id: vt_primary_v1_t02
+  - prompt_id: vt_primary_t02
     role: user
     enabled: true
     template_text: "Prompt two {sample_text}"
@@ -129,13 +129,13 @@ templates:
 def _prompt_cache_row(prompt_id: str) -> dict[str, str]:
     return {
         "model_key": "qwen3_vl_8b",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "protocol": "vt",
         "cache_key": prompt_cache_key(
             "qwen3_vl_8b",
             prompt_id,
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             protocol="vt",
         ),
     }
@@ -143,14 +143,14 @@ def _prompt_cache_row(prompt_id: str) -> dict[str, str]:
 
 def test_state_measurement_smoke_exports_embeddings_sdr_and_patterns(tmp_path) -> None:
     state_manifest = tmp_path / "state_dataset_manifest.jsonl"
-    prompt_set = tmp_path / "vt_primary_v1.yaml"
+    prompt_set = tmp_path / "vt_primary.yaml"
     prompt_cache_manifest = tmp_path / "prompt_cache_manifest.jsonl"
     prompt_conditioned_manifest = tmp_path / "prompt_conditioned_manifest.jsonl"
     write_jsonl(state_manifest, [_state_row(tmp_path, "sample-1")])
     _prompt_set(prompt_set)
     write_jsonl(
         prompt_cache_manifest,
-        [_prompt_cache_row("vt_primary_v1_t01"), _prompt_cache_row("vt_primary_v1_t02")],
+        [_prompt_cache_row("vt_primary_t01"), _prompt_cache_row("vt_primary_t02")],
     )
     write_jsonl(prompt_conditioned_manifest, _prompted_rows(tmp_path, "sample-1"))
 
@@ -162,7 +162,7 @@ def test_state_measurement_smoke_exports_embeddings_sdr_and_patterns(tmp_path) -
             prompt_set_path=prompt_set,
             model_key="qwen3_vl_8b",
             protocol="VT",
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             repr_key="raw_layernorm_mean",
             output_root=tmp_path / "outputs",
             thresholds={"kappa": 0.5, "tau": 0.01, "delta": 0.2},

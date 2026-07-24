@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=Path,
-        default=repo_root / "configs/data/generated_round1_v1.yaml",
+        default=repo_root / "configs/data/generated_round1.yaml",
     )
     return parser.parse_args()
 

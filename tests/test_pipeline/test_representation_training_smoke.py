@@ -29,7 +29,7 @@ def _prompted_state(
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
         "condition": view_key,
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "prompt_id": prompt_id,
         "shard_path": shard_path,
         "index_in_shard": 0,
@@ -45,7 +45,7 @@ def _prompted_state(
 def _bundle(
     root, sample_id: str, sample_type: str, offset: float, master_split: str
 ) -> dict[str, object]:
-    prompt_ids = ["vt_primary_v1_t01", "vt_primary_v1_t02"]
+    prompt_ids = ["vt_primary_t01", "vt_primary_t02"]
     base_vectors = {
         "M1": [1.0 + offset, 0.0, 0.1],
         "M2": [0.0, 1.0 + offset, 0.1],
@@ -56,7 +56,7 @@ def _bundle(
         "sample_type": sample_type,
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "view_labels": {
             "M1": {"label": "positive", "specific_affect": "joy", "is_clear": True},
             "M2": {"label": "negative", "specific_affect": "anger", "is_clear": True},
@@ -124,16 +124,16 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
         yaml.safe_dump(
             {
                 "schema": "mprisk_representation_training_v3",
-                "key": "qwen3_vl_8b_tme_proxy_anchor_v1",
+                "key": "qwen3_vl_8b_tme_proxy_anchor",
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",
                 "model_key": "qwen3_vl_8b",
                 "protocol": "vt",
                 "classification_objective": "proxy_anchor_only",
-                "prompt_set_key": "vt_primary_v1",
+                "prompt_set_key": "vt_primary",
                 "prompt_set_artifact_sha256": "b" * 64,
                 "expected_prompt_count": 2,
-                "expected_prompt_ids": ["vt_primary_v1_t01", "vt_primary_v1_t02"],
+                "expected_prompt_ids": ["vt_primary_t01", "vt_primary_t02"],
                 "hidden_dim": 8,
                 "condition_dim": 4,
                 "relation_dim": 3,
@@ -158,7 +158,7 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
             config_path=config_path,
             model_key="qwen3_vl_8b",
             protocol="VT",
-            prompt_set_key="vt_primary_v1",
+            prompt_set_key="vt_primary",
             output_root=output_root,
             thresholds={"kappa": 0.5, "tau": 0.01},
         )

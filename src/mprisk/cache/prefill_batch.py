@@ -78,7 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--internvl-max-num", type=int, default=1)
     parser.add_argument("--model-key", default="qwen2_5_omni_7b")
     parser.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
-    parser.add_argument("--family", choices=("qwen_omni", "qwen_vl", "internvl"))
+    parser.add_argument("--family", choices=("qwen_omni", "qwen_vl", "qwen3_5", "internvl", "gemma_4"))
     parser.add_argument("--model-path", type=Path)
     parser.add_argument("--device", default="cuda:1")
     parser.add_argument("--dtype", default="bfloat16", choices=("bfloat16",))
@@ -453,10 +453,15 @@ def _request_for_task(args: argparse.Namespace, task: BatchTask) -> PrefillReque
 
 def _recover_entry(request: PrefillRequest, prompt_root: Path) -> RecoveredArtifact | None:
     paths = prefill_artifact_paths(request, output_root=prompt_root)
-    existing = (paths.shard_path.is_file(), paths.sidecar_path.is_file())
-    if existing == (False, False):
+    shard_exists = paths.shard_path.is_file()
+    sidecar_exists = paths.sidecar_path.is_file()
+    if not shard_exists and not sidecar_exists:
         return None
-    if existing != (True, True):
+    # Shard without sidecar = crashed mid-write; delete the orphan and re-extract.
+    if shard_exists and not sidecar_exists:
+        paths.shard_path.unlink(missing_ok=True)
+        return None
+    if not shard_exists and sidecar_exists:
         raise RuntimeError(f"Incomplete cache artifact pair for {request.sample_id}")
     payload = _read_json(paths.sidecar_path)
     if payload.get("schema") != "mprisk_prefill_cache_sidecar_v1":

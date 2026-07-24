@@ -192,7 +192,7 @@ def test_split_assignment_includes_valid_ac_rows_regardless_of_legacy_main_flag(
 
 def test_registered_split_artifact_matches_sources_and_exact_counts(tmp_path) -> None:
     root = Path(__file__).resolve().parents[2]
-    config = root / "configs/splits/representation_split_v1.yaml"
+    config = root / "configs/splits/representation_split.yaml"
     committed_root = root / "data/processed/manifests/splits/representation_v1"
     rebuilt = build_representation_split_assignment(
         config_path=config,

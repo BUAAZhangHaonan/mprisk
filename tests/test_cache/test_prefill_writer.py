@@ -29,8 +29,8 @@ def _result() -> PrefillResult:
     return PrefillResult(
         request=request,
         trajectory=np.arange(6, dtype=np.float32).reshape(2, 3),
-        token_count=4,
-        t0_token_index=3,
+        token_count=1,
+        t0_token_index=0,
         provenance={"model_class": "Qwen2_5OmniThinkerForConditionalGeneration"},
     )
 
@@ -43,7 +43,7 @@ def test_prefill_writer_round_trips_through_full_cache_manifest(tmp_path) -> Non
     assert sidecar["request"]["use_audio_in_video"] is True
     assert sidecar["request"]["prompt_set_key"] == "main_p8"
     assert sidecar["entry"]["prompt_id"] == "p01"
-    assert sidecar["entry"]["metadata"]["t0_token_index"] == 3
+    assert sidecar["entry"]["metadata"]["t0_token_index"] == 0
 
     manifest = load_full_cache_manifest(
         tmp_path,

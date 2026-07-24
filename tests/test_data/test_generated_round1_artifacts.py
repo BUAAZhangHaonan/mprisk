@@ -6,7 +6,7 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-FROZEN = ROOT / "data/frozen/generated_round1_v1"
+FROZEN = ROOT / "data/frozen/generated_round1"
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

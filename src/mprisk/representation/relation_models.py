@@ -11,6 +11,11 @@ SINGLE_POINT_BINARY_V1 = "single_point_binary_v1"
 TRAJECTORY_MLP_BINARY_V1 = "trajectory_mlp_binary_v1"
 TME_PROXY_ANCHOR_V1 = "tme_proxy_anchor_v1"
 TME_ARCHITECTURE_V1 = "layer_l2_gru_linear_relation_v1"
+# LSTM variant of TME_ARCHITECTURE_V1: same I/O contract, but the 1-layer GRU
+# sequence module is replaced by a 2-layer uni-directional LSTM. Everything
+# else (Layer-L2, projection, OrderedLinearRelationV1, PA loss path) is
+# identical to SphericalTMEV1.
+TME_ARCHITECTURE_LSTM_V1 = "layer_l2_lstm_linear_relation_v1"
 REPRESENTATION_KEYS = (
     SINGLE_POINT_BINARY_V1,
     TRAJECTORY_MLP_BINARY_V1,
@@ -74,18 +79,26 @@ def _validate_three_condition_trajectories(trajectories: torch.Tensor) -> None:
 
 
 class SinglePointBinaryClassifierV1(nn.Module):
-    """Ordinary A/C classifier over the final-layer point of all conditions."""
+    """A/C classifier over the final-layer hidden state of the M12 condition.
+
+    Takes the M12 trajectory (condition index 2), last layer only, and feeds
+    it directly to a Linear(hidden_dim, 2) head with no intermediate layer.
+    The penultimate dimension is the raw hidden_dim (e.g. 4096 for Qwen3-VL).
+    """
 
     architecture_version = SINGLE_POINT_BINARY_V1
 
+    M12_CONDITION_INDEX = 2
+    LAST_LAYER_INDEX = -1
+
     def __init__(self, *, input_dim: int) -> None:
         super().__init__()
-        self.penultimate_dim = 3 * input_dim
-        self.classifier = nn.Linear(self.penultimate_dim, 2)
+        self.penultimate_dim = input_dim
+        self.classifier = nn.Linear(input_dim, 2)
 
     def forward_features(self, trajectories: torch.Tensor) -> torch.Tensor:
         _validate_three_condition_trajectories(trajectories)
-        return trajectories[:, :, -1, :].flatten(start_dim=1)
+        return trajectories[:, self.M12_CONDITION_INDEX, self.LAST_LAYER_INDEX, :]
 
     def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.forward_features(trajectories))
@@ -285,6 +298,144 @@ class SphericalTMEV1(nn.Module):
         return condition_z, relation_r
 
 
+class SequentialTrajectoryEncoderLSTMV1(nn.Module):
+    """LSTM variant of :class:`SequentialTrajectoryEncoderV1`.
+
+    The ONLY difference vs the GRU encoder is the sequence module:
+    ``nn.GRU(num_layers=1)`` is replaced with ``nn.LSTM(num_layers=2)``
+    (uni-directional). Layer-L2 normalization, dropout, projection, and
+    final L2 normalization are identical line-by-line.
+
+    State-dict keys live under ``condition_encoder.sequence.*`` (PyTorch
+    names them ``weight_ih_l0``, ``weight_hh_l0``, ``weight_ih_l1``,
+    ``weight_hh_l1``, ... plus the matching biases). The presence of the
+    ``_l1`` layer is what lets :func:`mprisk_viz.baselines._infer_tme_dims_from_state`
+    distinguish a multi-layer LSTM checkpoint from a single-layer GRU
+    checkpoint (which only has ``_l0``).
+    """
+
+    architecture_version = TME_ARCHITECTURE_LSTM_V1
+
+    def __init__(
+        self,
+        *,
+        input_dim: int,
+        sequence_hidden_dim: int,
+        embed_dim: int,
+        num_lstm_layers: int = 2,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        if input_dim <= 0 or sequence_hidden_dim <= 0 or embed_dim <= 0:
+            raise ValueError("encoder dimensions must be positive")
+        if num_lstm_layers < 1:
+            raise ValueError("num_lstm_layers must be >= 1")
+        if not 0.0 <= dropout < 1.0:
+            raise ValueError("dropout must be in [0, 1)")
+        self.input_dim = input_dim
+        self.num_lstm_layers = int(num_lstm_layers)
+        # Inter-layer dropout only kicks in when num_layers > 1. We still
+        # expose the ``dropout`` parameter so the forward path applies the
+        # same pre-projection dropout as the GRU encoder.
+        lstm_dropout = float(dropout) if self.num_lstm_layers > 1 else 0.0
+        self.sequence = nn.LSTM(
+            input_size=input_dim,
+            hidden_size=sequence_hidden_dim,
+            num_layers=self.num_lstm_layers,
+            batch_first=True,
+            dropout=lstm_dropout,
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.projection = nn.Linear(sequence_hidden_dim, embed_dim)
+
+    @staticmethod
+    def normalize_layers(
+        trajectories: torch.Tensor,
+        *,
+        sample_ids: Sequence[str] | None = None,
+    ) -> torch.Tensor:
+        if trajectories.shape[-1] == 0:
+            raise ValueError("hidden dimension must be non-empty")
+        return strict_l2_normalize(
+            trajectories,
+            stage="tme_layer_input",
+            sample_ids=sample_ids,
+        )
+
+    def forward(
+        self,
+        trajectories: torch.Tensor,
+        *,
+        sample_ids: Sequence[str] | None = None,
+    ) -> torch.Tensor:
+        if trajectories.ndim < 3 or trajectories.shape[-1] != self.input_dim:
+            raise ValueError("condition trajectories must end in the configured hidden dimension")
+        leading = trajectories.shape[:-2]
+        layer_count = trajectories.shape[-2]
+        normalized = self.normalize_layers(trajectories, sample_ids=sample_ids)
+        flat = normalized.reshape(-1, layer_count, self.input_dim)
+        # nn.LSTM returns (output, (h_n, c_n)). h_n shape:
+        # [num_layers, batch, hidden]. Take the last layer's hidden state,
+        # mirroring how the GRU encoder takes hidden[-1].
+        _sequence, (h_n, _c_n) = self.sequence(flat)
+        projected = self.projection(self.dropout(h_n[-1]))
+        projected = projected.reshape(*leading, -1)
+        return strict_l2_normalize(
+            projected,
+            stage="tme_z_projection",
+            sample_ids=sample_ids,
+        )
+
+
+class SphericalTME_LSTM(nn.Module):
+    """Three shared condition encodings followed by the ordered linear relation map.
+
+    Identical to :class:`SphericalTMEV1` except the per-condition encoder
+    is :class:`SequentialTrajectoryEncoderLSTMV1` (multi-layer LSTM instead
+    of single-layer GRU). The relation head (:class:`OrderedLinearRelationV1`)
+    and the three-condition forward contract are unchanged, so PA loss and
+    D supervision plug in without any caller-side change.
+    """
+
+    architecture_version = TME_ARCHITECTURE_LSTM_V1
+
+    def __init__(
+        self,
+        *,
+        input_dim: int,
+        sequence_hidden_dim: int,
+        condition_dim: int,
+        relation_dim: int,
+        num_lstm_layers: int = 2,
+        dropout: float = 0.0,
+    ) -> None:
+        super().__init__()
+        self.condition_encoder = SequentialTrajectoryEncoderLSTMV1(
+            input_dim=input_dim,
+            sequence_hidden_dim=sequence_hidden_dim,
+            embed_dim=condition_dim,
+            num_lstm_layers=num_lstm_layers,
+            dropout=dropout,
+        )
+        self.relation = OrderedLinearRelationV1(relation_dim=relation_dim)
+
+    def forward(
+        self,
+        trajectories: torch.Tensor,
+        *,
+        sample_ids: Sequence[str] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        _validate_three_condition_trajectories(trajectories)
+        condition_z = self.condition_encoder(trajectories, sample_ids=sample_ids)
+        relation_r = self.relation(
+            condition_z[:, 0],
+            condition_z[:, 1],
+            condition_z[:, 2],
+            sample_ids=sample_ids,
+        )
+        return condition_z, relation_r
+
+
 def build_representation_model(
     repr_key: str,
     *,
@@ -294,6 +445,7 @@ def build_representation_model(
     condition_dim: int = 64,
     relation_dim: int = 32,
     dropout: float = 0.0,
+    encoder_type: str = "gru",
 ) -> nn.Module:
     if repr_key == SINGLE_POINT_BINARY_V1:
         return SinglePointBinaryClassifierV1(input_dim=input_dim)
@@ -305,11 +457,21 @@ def build_representation_model(
             dropout=dropout,
         )
     if repr_key == TME_PROXY_ANCHOR_V1:
-        return SphericalTMEV1(
-            input_dim=input_dim,
-            sequence_hidden_dim=hidden_dim,
-            condition_dim=condition_dim,
-            relation_dim=relation_dim,
-            dropout=dropout,
-        )
+        if encoder_type == "gru":
+            return SphericalTMEV1(
+                input_dim=input_dim,
+                sequence_hidden_dim=hidden_dim,
+                condition_dim=condition_dim,
+                relation_dim=relation_dim,
+                dropout=dropout,
+            )
+        if encoder_type == "lstm":
+            return SphericalTME_LSTM(
+                input_dim=input_dim,
+                sequence_hidden_dim=hidden_dim,
+                condition_dim=condition_dim,
+                relation_dim=relation_dim,
+                dropout=dropout,
+            )
+        raise ValueError(f"unknown encoder_type: {encoder_type!r} (expected 'gru' or 'lstm')")
     raise ValueError(f"Unknown representation key: {repr_key}")

@@ -59,7 +59,7 @@ qwen-omni = [
 where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "curation/tests"]
+testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.ruff]

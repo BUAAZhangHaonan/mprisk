@@ -19,8 +19,8 @@ def _entry(tmp_path, **overrides) -> PromptConditionedStateEntry:
         "model_key": "qwen3_vl_8b",
         "protocol": "VT",
         "condition": "m1",
-        "prompt_set_key": "vt_primary_v1",
-        "prompt_id": "vt_primary_v1_t01",
+        "prompt_set_key": "vt_primary",
+        "prompt_id": "vt_primary_t01",
         "shard_path": "shards/prompted.safetensors",
         "index_in_shard": 2,
         "layer_count": 3,
@@ -45,14 +45,14 @@ def test_entry_normalizes_protocol_and_condition(tmp_path) -> None:
         "qwen3_vl_8b",
         "vt",
         "M12",
-        "vt_primary_v1",
-        "vt_primary_v1_t01",
+        "vt_primary",
+        "vt_primary_t01",
     )
 
 
 def test_manifest_round_trips_jsonl(tmp_path) -> None:
     manifest_path = tmp_path / "manifest.jsonl"
-    entries = [_entry(tmp_path), _entry(tmp_path, sample_id="sample-2", prompt_id="vt_primary_v1_t02")]
+    entries = [_entry(tmp_path), _entry(tmp_path, sample_id="sample-2", prompt_id="vt_primary_t02")]
 
     written = write_prompt_conditioned_manifest(manifest_path, entries)
     loaded_entries = read_prompt_conditioned_entries(written)
@@ -67,9 +67,9 @@ def test_manifest_round_trips_jsonl(tmp_path) -> None:
 def test_manifest_lookup_uses_full_prompt_conditioned_key(tmp_path) -> None:
     manifest = PromptConditionedManifest(
         [
-            _entry(tmp_path, condition="M1", prompt_id="vt_primary_v1_t01"),
-            _entry(tmp_path, condition="M2", prompt_id="vt_primary_v1_t01"),
-            _entry(tmp_path, condition="M1", prompt_id="vt_primary_v1_t02"),
+            _entry(tmp_path, condition="M1", prompt_id="vt_primary_t01"),
+            _entry(tmp_path, condition="M2", prompt_id="vt_primary_t01"),
+            _entry(tmp_path, condition="M1", prompt_id="vt_primary_t02"),
         ]
     )
 
@@ -78,20 +78,20 @@ def test_manifest_lookup_uses_full_prompt_conditioned_key(tmp_path) -> None:
         model_key="qwen3_vl_8b",
         protocol="VT",
         condition="m2",
-        prompt_set_key="vt_primary_v1",
-        prompt_id="vt_primary_v1_t01",
+        prompt_set_key="vt_primary",
+        prompt_id="vt_primary_t01",
     )
 
     assert found is not None
     assert found.condition == "M2"
-    assert found.prompt_id == "vt_primary_v1_t01"
+    assert found.prompt_id == "vt_primary_t01"
     assert manifest.lookup(
         sample_id="sample-1",
         model_key="qwen3_vl_8b",
         protocol="VT",
         condition="m12",
-        prompt_set_key="vt_primary_v1",
-        prompt_id="vt_primary_v1_t01",
+        prompt_set_key="vt_primary",
+        prompt_id="vt_primary_t01",
     ) is None
 
 
@@ -126,8 +126,8 @@ def test_load_prompt_conditioned_manifest_lookup(tmp_path) -> None:
         model_key="qwen3_vl_8b",
         protocol="vt",
         condition="M1",
-        prompt_set_key="vt_primary_v1",
-        prompt_id="vt_primary_v1_t01",
+        prompt_set_key="vt_primary",
+        prompt_id="vt_primary_t01",
     ) is not None
 
 
@@ -141,8 +141,8 @@ def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_miss
             "model_key": "qwen3_vl_8b",
             "protocol": "VT",
             "condition": "m1",
-            "prompt_set_key": "vt_primary_v1",
-            "prompt_id": "vt_primary_v1_t01",
+            "prompt_set_key": "vt_primary",
+            "prompt_id": "vt_primary_t01",
             "artifact_uri": "existing/prompted-m1.safetensors",
             "index_in_shard": "0",
             "layer_count": "2",
@@ -158,8 +158,8 @@ def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_miss
             "model_key": "qwen3_vl_8b",
             "protocol": "VT",
             "condition": "m2",
-            "prompt_set_key": "vt_primary_v1",
-            "prompt_id": "vt_primary_v1_t01",
+            "prompt_set_key": "vt_primary",
+            "prompt_id": "vt_primary_t01",
             "index_in_shard": "0",
             "layer_count": "2",
             "hidden_dim": "3",
@@ -178,12 +178,12 @@ def test_build_prompt_conditioned_cache_mode_a_exports_manifest_summary_and_miss
         output_root=tmp_path / "outputs/prompt_conditioned_cache",
         model_key="qwen3_vl_8b",
         protocol="VT",
-        prompt_set_key="vt_primary_v1",
+        prompt_set_key="vt_primary",
     )
 
     assert result.manifest_path == (
         tmp_path
-        / "outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary_v1/manifest.jsonl"
+        / "outputs/prompt_conditioned_cache/qwen3_vl_8b/vt/vt_primary/manifest.jsonl"
     )
     rows = [
         json.loads(line)

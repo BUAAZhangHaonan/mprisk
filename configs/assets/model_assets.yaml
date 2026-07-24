@@ -43,6 +43,20 @@ models:
     thinking: {supported: true, enabled: false, disable_argument: enable_thinking=false}
     policy: {allow_thinking: false}
     status: available
+  - key: gemma4_12b_it
+    display_name: Gemma-4-12B-IT
+    family: gemma_4
+    hf_model_id: google/gemma-4-12b-it
+    local_path: /home/team/lvshuyang/Models/gemma-4-12B-it
+    parameter_scale: 12B
+    panel_group: va_vta
+    protocols: [va]
+    input_modalities: [text, image, video, audio]
+    video_mode: native_video
+    max_video_frames: null
+    thinking: {supported: false, enabled: false, disable_argument: null}
+    policy: {allow_thinking: false}
+    status: available
   - key: internvl3_5_8b
     display_name: InternVL3.5-8B
     family: internvl

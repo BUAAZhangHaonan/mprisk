@@ -15,7 +15,7 @@ def _bundle(sample_id: str = "case-1") -> dict[str, object]:
         "sample_type": "Conflict",
         "model_key": "toy-model",
         "protocol": "VT",
-        "prompt_set_key": "vt_primary_v1",
+        "prompt_set_key": "vt_primary",
         "repr_key": "tme_proxy_anchor_v1",
         "embeddings": {
             "M1": {"p1": [1.0, 0.0], "p2": [1.0, 0.0]},
@@ -37,7 +37,7 @@ def test_compute_state_row_emits_metadata_measures_and_pattern() -> None:
     assert row["sample_type"] == "Conflict"
     assert row["model_key"] == "toy-model"
     assert row["protocol"] == "VT"
-    assert row["prompt_set_key"] == "vt_primary_v1"
+    assert row["prompt_set_key"] == "vt_primary"
     assert row["repr_key"] == "tme_proxy_anchor_v1"
     assert row["S_M1"] == pytest.approx(0.0)
     assert row["S_M2"] == pytest.approx(0.0)

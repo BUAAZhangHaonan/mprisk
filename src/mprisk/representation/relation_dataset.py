@@ -80,6 +80,7 @@ def build_relation_dataset(
             "relation_val": "val",
             "aligned_calibration": "val",
             "official_test": "test",
+            "cross_domain_test": "cross_domain_test",
         }
         if expected_master.get(representation_split) != master_split:
             raise ValueError("representation_split mismatches master_split")
