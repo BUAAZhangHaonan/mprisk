@@ -12,9 +12,8 @@ from typing import Any
 
 import torch
 
-from mprisk.utils.io import sha256_file as _sha256
+from mprisk.utils.io import read_jsonl as _read_jsonl, sha256_file as _sha256, write_json, write_jsonl
 from mprisk.representation.relation_models import strict_l2_normalize
-from mprisk.utils.io import write_json, write_jsonl
 
 T_CRITICAL_DF2_975 = 4.302652729911275
 
@@ -503,18 +502,6 @@ def _mean_sd_ci(values: list[float]) -> tuple[float, float, float, float]:
     sd = math.sqrt(sum((value - mean) ** 2 for value in values) / 2)
     half_width = T_CRITICAL_DF2_975 * sd / math.sqrt(3)
     return mean, sd, mean - half_width, mean + half_width
-
-
-def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    rows = []
-    with Path(path).open(encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                row = json.loads(line)
-                if not isinstance(row, dict):
-                    raise ValueError(f"JSONL row is not an object: {path}")
-                rows.append(row)
-    return rows
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> Path:
