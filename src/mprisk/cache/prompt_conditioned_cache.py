@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from mprisk.cache._row_helpers import field_present, optional_string
 from mprisk.cache.hidden_state_cache import (
     HiddenStateEntry,
     normalize_condition,
@@ -204,12 +205,12 @@ def prompt_conditioned_entry_from_row(
     if not isinstance(row, dict):
         raise ValueError("prompt-conditioned cache row must be a JSON object")
     clean = dict(row)
-    if "shard_path" not in clean and _present(clean.get("artifact_uri")):
+    if "shard_path" not in clean and field_present(clean.get("artifact_uri")):
         clean["shard_path"] = clean["artifact_uri"]
     if "cache_root" not in clean and default_cache_root is not None:
         clean["cache_root"] = default_cache_root
     for field in REQUIRED_PROMPT_CONDITIONED_FIELDS:
-        if not _present(clean.get(field)):
+        if not field_present(clean.get(field)):
             raise ValueError(f"prompt-conditioned cache row missing required field {field}")
 
     metadata = _metadata_from_row(clean)
@@ -227,7 +228,7 @@ def prompt_conditioned_entry_from_row(
         token_count=clean["token_count"],
         t0_token_index=clean["t0_token_index"],
         cache_root=clean["cache_root"],
-        checksum=_optional_string(clean.get("checksum")),
+        checksum=optional_string(clean.get("checksum")),
         metadata=metadata,
     )
 
@@ -266,17 +267,7 @@ def _metadata_from_row(row: dict[str, Any]) -> dict[str, Any]:
         {
             key: value
             for key, value in row.items()
-            if key not in ENTRY_FIELDS and _present(value)
+            if key not in ENTRY_FIELDS and field_present(value)
         }
     )
     return metadata
-
-
-def _optional_string(value: Any) -> str | None:
-    if not _present(value):
-        return None
-    return str(value)
-
-
-def _present(value: Any) -> bool:
-    return value is not None and value != ""

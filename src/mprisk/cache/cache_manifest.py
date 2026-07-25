@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
+from mprisk.cache._row_helpers import field_present, optional_string
 from mprisk.cache.hidden_state_cache import (
     HiddenStateEntry,
     normalize_condition,
@@ -251,7 +252,7 @@ def _read_ledger(path: Path) -> list[dict[str, str]]:
 
 def _can_materialize_entry(row: dict[str, Any]) -> bool:
     return all(
-        _present(row.get(field))
+        field_present(row.get(field))
         for field in (
             "sample_id",
             "model_key",
@@ -264,7 +265,7 @@ def _can_materialize_entry(row: dict[str, Any]) -> bool:
             "hidden_dim",
             "token_count",
         )
-    ) and _present(row.get("shard_path") or row.get("artifact_uri"))
+    ) and field_present(row.get("shard_path") or row.get("artifact_uri"))
 
 
 def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntry:
@@ -273,7 +274,7 @@ def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntr
         {
             key: value
             for key, value in row.items()
-            if key not in ENTRY_FIELDS and _present(value)
+            if key not in ENTRY_FIELDS and field_present(value)
         }
     )
     shard_path = row.get("shard_path") or row.get("artifact_uri")
@@ -290,19 +291,9 @@ def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntr
         hidden_dim=int(row["hidden_dim"]),
         token_count=int(row["token_count"]),
         cache_root=row.get("cache_root") or cache_root,
-        checksum=_optional_string(row.get("checksum")),
+        checksum=optional_string(row.get("checksum")),
         metadata=metadata,
     )
-
-
-def _optional_string(value: Any) -> str | None:
-    if not _present(value):
-        return None
-    return str(value)
-
-
-def _present(value: Any) -> bool:
-    return value is not None and value != ""
 
 
 def _resolution_to_dict(resolution: CacheResolution) -> dict[str, Any]:
