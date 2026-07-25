@@ -14,13 +14,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
+from mprisk.ground_truth.providers.base import (
+    GTDescriptionProviderRequest,
+    PermanentProviderError,
+    TransientProviderError,
+)
+from mprisk.ground_truth.providers.registry import get_provider as _get_gt_provider
 
 from mprisk.utils.api_runner import SqliteLedgerBase
 from mprisk.utils.io import atomic_write_bytes as _atomic_bytes, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
+
+# DeepSeek chat-completions envelope settings shared with the GT Description
+# provider. ``env_file`` is unused here because ``load_api_key`` reads the key
+# directly from ``DEEPSEEK_API_KEY``; we pass a placeholder path that satisfies
+# the provider settings schema without ever being read on disk.
+_MISREAD_JUDGE_MAX_TOKENS = 256
+_MISREAD_JUDGE_PROVIDER_SETTINGS_PLACEHOLDER_ENV_FILE = Path(
+    "/nonexistent-misread-judge.env"
+)
 MISREAD_JUDGMENT_PROMPT = (
     "Compare the reference description with the diagnostic affect description. Return MISREAD "
     "when the diagnostic is led by surface cues, contradicts the primary affect, wrongly "
@@ -166,37 +180,74 @@ def build_tasks(config: MisreadJudgeConfig) -> list[MisreadJudgeTask]:
 
 
 class MisreadJudgeClient:
+    """Thin wrapper around the shared ``DeepSeekProvider`` for misread judgment.
+
+    The judging pipeline historically duplicated the DeepSeek chat-completions
+    envelope (HTTP call, retry classification, response validation). It now
+    delegates to ``ground_truth.providers.registry`` so envelope validation,
+    retryable/permanent error classification, and HTTP timeouts live in one
+    place. The misread-specific bits (fixed model, judge prompt, blinded
+    payload, response-shape contract for ``validate_misread_judgment_response``)
+    stay here.
+    """
+
     def __init__(self, config: MisreadJudgeConfig, api_key: str) -> None:
         self.config = config
-        self.client = httpx.AsyncClient(timeout=httpx.Timeout(config.request_timeout_seconds))
-        self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # ``api_key`` is read from DEEPSEEK_API_KEY by ``load_api_key``; the
+        # provider would otherwise re-read it. We inject it via env so the
+        # shared provider's ``load_api_key`` finds it without touching disk.
+        os.environ["DEEPSEEK_API_KEY"] = api_key
+        provider_settings = {
+            "api_url": config.api_url,
+            "api_key_env": "DEEPSEEK_API_KEY",
+            "env_file": _MISREAD_JUDGE_PROVIDER_SETTINGS_PLACEHOLDER_ENV_FILE,
+            "temperature": config.temperature,
+            "max_tokens": _MISREAD_JUDGE_MAX_TOKENS,
+            "thinking": "disabled",
+            "request_timeout_seconds": config.request_timeout_seconds,
+        }
+        self._provider = _get_gt_provider(
+            "deepseek", config.judge_model, provider_settings
+        )
 
     async def complete(self, task: MisreadJudgeTask) -> str:
-        try:
-            response = await self.client.post(
-                self.config.api_url, headers=self.headers, json=task.request
+        messages = task.request.get("messages")
+        if (
+            not isinstance(messages, list)
+            or len(messages) != 2
+            or messages[0].get("role") != "system"
+            or messages[1].get("role") != "user"
+        ):
+            raise MisreadJudgmentValidationError(
+                "Misread judge request must carry system+user messages"
             )
-        except (httpx.TimeoutException, httpx.TransportError) as exc:
-            raise RuntimeError(type(exc).__name__) from exc
-        if response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code}")
+        system_prompt = messages[0].get("content")
+        user_content = messages[1].get("content")
+        if not isinstance(system_prompt, str) or not isinstance(user_content, str):
+            raise MisreadJudgmentValidationError(
+                "Misread judge request messages must be string content"
+            )
         try:
-            payload = response.json()
+            model_input = json.loads(user_content)
         except json.JSONDecodeError as exc:
-            raise MisreadJudgmentValidationError("API response envelope is not JSON") from exc
-        if payload.get("model") != self.config.judge_model:
-            raise MisreadJudgmentValidationError("API response model does not match fixed model")
-        choices = payload.get("choices")
-        if not isinstance(choices, list) or len(choices) != 1:
-            raise MisreadJudgmentValidationError("API response must contain exactly one choice")
-        message = choices[0].get("message") if isinstance(choices[0], dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(content, str):
-            raise MisreadJudgmentValidationError("API response has no string content")
-        return content
+            raise MisreadJudgmentValidationError(
+                "Misread judge user content must be canonical JSON"
+            ) from exc
+        request = GTDescriptionProviderRequest(
+            model=self.config.judge_model,
+            system_prompt=system_prompt,
+            model_input=model_input,
+        )
+        try:
+            response = await self._provider.complete(request)
+        except TransientProviderError as exc:
+            raise RuntimeError(str(exc) or type(exc).__name__) from exc
+        except PermanentProviderError as exc:
+            raise MisreadJudgmentValidationError(str(exc)) from exc
+        return response.content
 
     async def close(self) -> None:
-        await self.client.aclose()
+        await self._provider.close()
 
 
 class MisreadJudgeLedger(SqliteLedgerBase):
