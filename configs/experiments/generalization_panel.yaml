@@ -1,4 +1,0 @@
-schema: mprisk_experiment_v1
-key: generalization_panel
-datasets: [cmu_mosi, cmu_mosei, dfew, generated_conflict, generated_aligned]
-models: []
