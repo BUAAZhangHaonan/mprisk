@@ -764,24 +764,33 @@ def _materialize(
         output_root / "attempts.jsonl",
         "".join(_canonical_json(row) + "\n" for row in ledger.attempt_records()),
     )
-    _atomic_json(output_root / "summary.json", ledger.summary())
-    _atomic_json(
+    _atomic_text(
+        output_root / "summary.json",
+        json.dumps(ledger.summary(), ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+    )
+    _atomic_text(
         output_root / "provenance.json",
-        {
-            "schema_name": PROVENANCE_SCHEMA,
-            "run_id": signature["run_id"],
-            "canonical_prompt": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
-            "signature": signature,
-            "artifacts": {
-                name: {"path": filename, "sha256": _sha256(output_root / filename)}
-                for name, filename in {
-                    "manifest": "manifest.jsonl",
-                    "failures": "failures.jsonl",
-                    "attempts": "attempts.jsonl",
-                    "summary": "summary.json",
-                }.items()
+        json.dumps(
+            {
+                "schema_name": PROVENANCE_SCHEMA,
+                "run_id": signature["run_id"],
+                "canonical_prompt": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
+                "signature": signature,
+                "artifacts": {
+                    name: {"path": filename, "sha256": _sha256(output_root / filename)}
+                    for name, filename in {
+                        "manifest": "manifest.jsonl",
+                        "failures": "failures.jsonl",
+                        "attempts": "attempts.jsonl",
+                        "summary": "summary.json",
+                    }.items()
+                },
             },
-        },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
     )
 
 
@@ -876,10 +885,6 @@ def _model_weight_map_sha256(model_path: Path) -> str:
             raise FileNotFoundError(f"No model weight files or index found in {model_path}")
         entries = {path.name: _sha256(path) for path in weight_files}
     return _hash_text(_canonical_json(entries))
-
-
-def _atomic_json(path: Path, value: Any) -> None:
-    _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
 
 def _select_smoke_sample_ids(

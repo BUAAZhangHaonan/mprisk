@@ -477,12 +477,14 @@ def import_human_decisions(config: MisreadJudgeConfig, path: str | Path) -> None
         provided[sample_id] = final
     if set(provided) != queued:
         raise ValueError("Human decisions must exactly cover the review queue")
-    _atomic_jsonl(
+    _atomic_bytes(
         config.output_root / "human_decisions.jsonl",
-        [
-            {"sample_id": sample_id, "final_decision": provided[sample_id]}
-            for sample_id in sorted(provided)
-        ],
+        _jsonl(
+            [
+                {"sample_id": sample_id, "final_decision": provided[sample_id]}
+                for sample_id in sorted(provided)
+            ]
+        ),
     )
 
 
@@ -521,7 +523,7 @@ def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
     if {row["sample_id"] for row in output} != expected_ids:
         raise ValueError("Final Misread labels must cover every configured sample")
     labels_path = config.output_root / "misread_labels.jsonl"
-    _atomic_jsonl(labels_path, output)
+    _atomic_bytes(labels_path, _jsonl(output))
     label_counts = Counter(row["misread_label"] for row in output)
     source_artifact_names = ["judgments.jsonl", "human_review_queue.jsonl"]
     if human_path.is_file():
@@ -730,9 +732,5 @@ def _required_text(row: dict[str, Any], key: str) -> str:
 
 def _jsonl(rows: Sequence[dict[str, Any]]) -> bytes:
     return "".join(_canonical_json(row) + "\n" for row in rows).encode()
-
-
-def _atomic_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
-    _atomic_bytes(path, _jsonl(rows))
 
 

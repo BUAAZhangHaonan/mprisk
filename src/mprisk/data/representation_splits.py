@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from mprisk.utils.io import read_jsonl as _read_jsonl, sha256_file as _sha256, write_json as write_json
+from mprisk.utils.io import atomic_write_text as _atomic_text, read_jsonl as _read_jsonl, sha256_file as _sha256, write_json as write_json
 
 CONFIG_SCHEMA = "mprisk_representation_split_config_v1"
 ASSIGNMENT_SCHEMA = "mprisk_representation_split_assignment_v1"
@@ -44,7 +43,10 @@ def build_representation_split_assignment(
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     manifest_path = output_root / "representation_split_assignment_v1.jsonl"
-    _atomic_jsonl(manifest_path, manifest_rows)
+    _atomic_text(
+        manifest_path,
+        "".join(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n" for row in manifest_rows),
+    )
     manifest_sha256 = _sha256(manifest_path)
     assignment_checksum = hashlib.sha256(
         json.dumps(assignment, sort_keys=True, separators=(",", ":")).encode()
@@ -308,15 +310,5 @@ def _required_text(row: dict[str, Any], field: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"split source field {field} must be non-empty text")
     return value
-
-
-def _atomic_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        for row in rows:
-            handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
 
 
