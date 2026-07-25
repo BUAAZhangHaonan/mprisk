@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import sqlite3
@@ -21,6 +20,14 @@ import numpy as np
 from safetensors.numpy import load_file
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.utils.io import (
+    atomic_write_text as _atomic_text,
+    canonical_json as _canonical_json,
+    hash_text as _hash_text,
+    read_json_object as _read_json,
+    read_jsonl as _read_jsonl,
+    sha256_file as _sha256,
+)
 from mprisk.cache.prefill_writer import (
     prefill_artifact_paths,
     write_full_cache_manifest,
@@ -225,7 +232,7 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
                     "protocol": args.protocol,
                     "model_key": args.model_key,
                 }
-                task_id = hashlib.sha256(_canonical_json(identity).encode()).hexdigest()
+                task_id = _hash_text(_canonical_json(identity))
                 tasks.append(
                     BatchTask(
                         task_id=task_id,
@@ -633,21 +640,6 @@ def _template_fields(template: PromptTemplate) -> set[str]:
     return {field for _, field, _, _ in string.Formatter().parse(template.template_text) if field}
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    rows = []
-    with path.open(encoding="utf-8") as handle:
-        for number, line in enumerate(handle, 1):
-            if not line.strip():
-                continue
-            value = json.loads(line)
-            if not isinstance(value, dict):
-                raise ValueError(f"Manifest line {number} must be a JSON object")
-            rows.append(value)
-    return rows
-
-
 def _probe_durations(rows: list[dict[str, Any]], workers: int) -> list[float]:
     if workers <= 0:
         raise ValueError("--ffprobe-workers must be positive")
@@ -728,34 +720,5 @@ def _parse_condition_seconds(items: Sequence[str]) -> dict[str, float]:
     return parsed
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"Expected JSON object: {path}")
-    return value
-
-
 def _atomic_json(path: Path, value: Any) -> None:
     _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-
-
-def _atomic_text(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    with temporary.open("w", encoding="utf-8") as handle:
-        handle.write(value)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(temporary, path)
