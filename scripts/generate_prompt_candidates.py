@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import random
@@ -14,6 +13,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from mprisk.prompts.pool import CANONICAL_PROMPT, RAW_POOL_SIZE
+from mprisk.utils.io import sha256_file
 
 _VERB_GROUPS = (
     ("Describe", "Summarize", "State"),
@@ -78,14 +78,6 @@ def write_generation_plan(plan: PromptCandidateGenerationPlan, path: str | Path)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(asdict(plan), indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return output
-
-
-def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(chunk_size), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def model_hashes(model_path: Path) -> dict[str, Any]:
