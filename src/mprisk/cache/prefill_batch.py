@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sqlite3
 import string
 import subprocess
 import traceback
@@ -20,6 +19,7 @@ import numpy as np
 from safetensors.numpy import load_file
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.utils.api_runner import SqliteLedgerBase
 from mprisk.utils.io import (
     atomic_write_text as _atomic_text,
     canonical_json as _canonical_json,
@@ -268,40 +268,44 @@ def build_batch_plan(args: argparse.Namespace) -> BatchPlan:
     return BatchPlan(tasks, prompt_ids, unresolved, rows, signature)
 
 
-class BatchLedger:
+class BatchLedger(SqliteLedgerBase):
+    # BatchLedger gates prepare() on the signature first; only after that
+    # match does it flip running->pending and (optionally) failed->pending.
+    # The base class therefore must NOT do those resets in __init__.
+    running_to_pending_sql = ""
+    failed_to_pending_sql = None
+
+    _SCHEMA_SQL = """
+        CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS tasks (
+          task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL, model_key TEXT NOT NULL,
+          protocol TEXT NOT NULL, prompt_set_key TEXT NOT NULL, prompt_id TEXT NOT NULL,
+          condition TEXT NOT NULL, sample_type TEXT NOT NULL, use_in_main INTEGER NOT NULL,
+          annotation_count INTEGER NOT NULL, split TEXT NOT NULL, source_dataset TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
+          attempts INTEGER NOT NULL DEFAULT 0, error_type TEXT, error_message TEXT,
+          traceback TEXT, layer_count INTEGER, hidden_dim INTEGER, token_count INTEGER,
+          t0_token_index INTEGER, elapsed_seconds REAL, peak_gpu_memory_bytes INTEGER,
+          checksum TEXT, entry_json TEXT
+        );
+    """
+
+    #: SQL to clear failed payload alongside the status flip on retry.
+    _CLEAR_FAILED_PAYLOAD_SQL = (
+        "UPDATE tasks SET status='pending', error_type=NULL, error_message=NULL, "
+        "traceback=NULL WHERE status='failed'"
+    )
+
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS tasks (
-              task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL, model_key TEXT NOT NULL,
-              protocol TEXT NOT NULL, prompt_set_key TEXT NOT NULL, prompt_id TEXT NOT NULL,
-              condition TEXT NOT NULL, sample_type TEXT NOT NULL, use_in_main INTEGER NOT NULL,
-              annotation_count INTEGER NOT NULL, split TEXT NOT NULL, source_dataset TEXT NOT NULL,
-              status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
-              attempts INTEGER NOT NULL DEFAULT 0, error_type TEXT, error_message TEXT,
-              traceback TEXT, layer_count INTEGER, hidden_dim INTEGER, token_count INTEGER,
-              t0_token_index INTEGER, elapsed_seconds REAL, peak_gpu_memory_bytes INTEGER,
-              checksum TEXT, entry_json TEXT
-            );
-            """
-        )
+        super().__init__(path, schema_sql=self._SCHEMA_SQL)
 
     def prepare(self, plan: BatchPlan, *, retry_failed: bool) -> None:
-        signature = _canonical_json(plan.signature)
         with self.connection:
-            row = self.connection.execute(
-                "SELECT value FROM metadata WHERE key='signature'"
-            ).fetchone()
-            if row is not None and row["value"] != signature:
-                raise ValueError("Existing batch ledger signature does not match this run")
-            self.connection.execute(
-                "INSERT OR IGNORE INTO metadata(key,value) VALUES('signature',?)", (signature,)
+            self.check_metadata_signature(
+                key="signature",
+                value=plan.signature,
+                retry_failed=False,  # we run a payload-clearing variant below
+                error_message="Existing batch ledger signature does not match this run",
             )
             self.connection.executemany(
                 """INSERT OR IGNORE INTO tasks(
@@ -332,10 +336,7 @@ class BatchLedger:
                 raise ValueError("Existing batch ledger task set does not match this run")
             self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
             if retry_failed:
-                self.connection.execute(
-                    """UPDATE tasks SET status='pending', error_type=NULL, error_message=NULL,
-                       traceback=NULL WHERE status='failed'"""
-                )
+                self.connection.execute(self._CLEAR_FAILED_PAYLOAD_SQL)
 
     def pending_tasks(self, plan: BatchPlan) -> Iterator[BatchTask]:
         by_id = {task.task_id: task for task in plan.tasks}
@@ -422,12 +423,7 @@ class BatchLedger:
         ]
 
     def summary(self) -> dict[str, Any]:
-        counts = {
-            row["status"]: row["n"]
-            for row in self.connection.execute(
-                "SELECT status,COUNT(*) AS n FROM tasks GROUP BY status"
-            ).fetchall()
-        }
+        counts = self.status_counts()
         return {
             "total": sum(counts.values()),
             **{key: counts.get(key, 0) for key in ("pending", "running", "completed", "failed")},
