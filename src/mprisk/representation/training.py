@@ -16,7 +16,6 @@ import yaml
 from torch import nn
 from torch.nn import functional as F
 
-from mprisk.cache.prefill_extract import extract_t0_trajectory
 from mprisk.representation.losses import ModalitySplitRankingLoss, ProxyAnchorLoss
 from mprisk.representation.relation_models import (
     TME_PROXY_ANCHOR_V1,
@@ -25,14 +24,9 @@ from mprisk.representation.relation_models import (
 from mprisk.utils.io import write_json
 
 from mprisk.representation.config import (
-    TRAINING_CONFIG_SCHEMA,
-    REGISTERED_SPLITS,
     TrainingConfig,
     TrainingResult,
-    FrozenRepresentationExportResult,
-    FrozenBaselineExportResult,
     _Sample,
-    load_training_config,
     _validate_config,
 )
 from mprisk.representation._io_utils import (
@@ -49,7 +43,6 @@ from mprisk.representation.checkpoints import (
 )
 
 from mprisk.representation.data import (
-    _baseline_feature_definition,
     _batches,
     _load_trajectory_batch,
     _read_relation_rows,
@@ -59,38 +52,18 @@ from mprisk.representation.data import (
     _validate_checkpoint_architecture,
     _validate_prompt_contract,
     _validate_registered_splits,
-    _vector_values,
 )
 from mprisk.representation.evaluation import (
-    _aggregate_sample_outputs,
     _encode_prompt_groups,
     _evaluate,
-    _sample_level_predictions,
     _state_checkpoint_feasibility,
     _state_separation_summary,
-)
-from mprisk.representation.export import (
-    _append_frozen_row,
-    _baseline_export_row,
-    _empty_frozen_bundle,
-    _finalize_frozen_bundle,
-    _frozen_row,
-    _stream_baseline_exports,
-    _stream_frozen_exports,
-    export_frozen_baseline_representations,
-    export_frozen_representations,
 )
 
 # canonical_rerun_v2 (20260721): added "cross_domain_test" so
 # _validate_registered_splits accepts ch_sims_v2 rows BEFORE the
 # exclude_prefix filter runs (Stage B bug: validator failed early on
 # ch_sims rows that legitimately carry this representation_split).
-
-
-
-
-
-
 
 def train_trajectory_encoder(
     *,
@@ -124,7 +97,6 @@ def train_trajectory_encoder(
         row for row in rows if row["representation_split"] in {"relation_train", "relation_val"}
     ]
     if exclude_prefix:
-        before = len(training_rows)
         # canonical_rerun_v2: exclude_prefix applies only to relation_train
         # so val can keep both Aligned (ch_sims) and Conflict (gen) labels.
         kept = []
@@ -627,26 +599,6 @@ def train_trajectory_encoder(
         resumed_from=resumed_from_path,
     )
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def _train_epoch(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
@@ -753,7 +705,6 @@ def _train_epoch(
         )
     return metrics
 
-
 def _sample_prompt_augmentations(
     samples: list[_Sample],
     *,
@@ -822,13 +773,6 @@ def _class_balanced_full_prompt_batches(
         batches.append(batch_rows)
     return batches
 
-
-
-
-
-
-
-
 def _batch_loss_and_outputs(
     model: nn.Module,
     objective: ProxyAnchorLoss | None,
@@ -888,15 +832,6 @@ def _sample_label_counts(samples: list[_Sample]) -> dict[str, int]:
         "Conflict": sum(label == 1 for label in labels_by_sample.values()),
     }
 
-
-
-
-
-
-
-
-
-
 def _training_signature(dataset_path: str | Path, config: TrainingConfig) -> str:
     config_payload = asdict(config)
     config_payload.pop("max_epochs")
@@ -914,11 +849,3 @@ def _training_signature(dataset_path: str | Path, config: TrainingConfig) -> str
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-
-
-
-
-
-
-
-
