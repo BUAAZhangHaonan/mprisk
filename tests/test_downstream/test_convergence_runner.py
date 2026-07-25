@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from mprisk.experiments import downstream
+from mprisk.experiments import downstream, training_tasks
 from mprisk.representation.training import TrainingConfig
 
 
@@ -35,7 +35,7 @@ def test_runner_extends_epoch_boundary_until_early_stopping(tmp_path, monkeypatc
             last_checkpoint_path=last,
         )
 
-    monkeypatch.setattr(downstream, "train_trajectory_encoder", fake_train)
+    monkeypatch.setattr(training_tasks, "train_trajectory_encoder", fake_train)
     result = downstream._train_until_converged(
         dataset_path=tmp_path / "dataset.jsonl",
         config=config,
