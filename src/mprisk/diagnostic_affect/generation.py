@@ -6,7 +6,6 @@ import argparse
 import json
 import os
 import re
-import sqlite3
 import time
 import traceback
 from collections.abc import Callable, Iterable, Sequence
@@ -20,6 +19,7 @@ from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.models.base_wrapper import GenerationRequest, GenerationResult
 from mprisk.models.wrapper_registry import get_wrapper
 
+from mprisk.utils.api_runner import SqliteLedgerBase
 from mprisk.utils.io import atomic_write_text as _atomic_text, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
 CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
@@ -209,56 +209,55 @@ def validate_diagnostic_affect_description(result: GenerationResult) -> None:
         raise ValueError("Generated description must contain exactly one sentence")
 
 
-class DiagnosticAffectDescriptionLedger:
+class DiagnosticAffectDescriptionLedger(SqliteLedgerBase):
     """SQLite resume state with an immutable per-run signature."""
 
+    running_to_pending_sql = ""
+    failed_to_pending_sql = None
+
+    _SCHEMA_SQL = """
+        CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS tasks (
+          task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL UNIQUE, protocol TEXT NOT NULL,
+          input_sha256 TEXT NOT NULL, media_sha256 TEXT NOT NULL, prompt_sha256 TEXT NOT NULL,
+          request_json TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
+          attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, provenance_json TEXT,
+          error_type TEXT, error_message TEXT, traceback TEXT, elapsed_seconds REAL
+        );
+        CREATE TABLE IF NOT EXISTS attempts (
+          task_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
+          finished_at TEXT, outcome TEXT NOT NULL, result_json TEXT,
+          error_type TEXT, error_message TEXT, traceback TEXT,
+          PRIMARY KEY(task_id,attempt)
+        );
+    """
+
+    #: When retry_failed is requested, also clear the per-failure payload so
+    #: the next run sees a clean failure surface.
+    _CLEAR_FAILED_PAYLOAD_SQL = (
+        "UPDATE tasks SET status='pending',error_type=NULL,error_message=NULL,"
+        "traceback=NULL WHERE status='failed'"
+    )
+
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS tasks (
-              task_id TEXT PRIMARY KEY, sample_id TEXT NOT NULL UNIQUE, protocol TEXT NOT NULL,
-              input_sha256 TEXT NOT NULL, media_sha256 TEXT NOT NULL, prompt_sha256 TEXT NOT NULL,
-              request_json TEXT NOT NULL,
-              status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed')),
-              attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, provenance_json TEXT,
-              error_type TEXT, error_message TEXT, traceback TEXT, elapsed_seconds REAL
-            );
-            CREATE TABLE IF NOT EXISTS attempts (
-              task_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
-              finished_at TEXT, outcome TEXT NOT NULL, result_json TEXT,
-              error_type TEXT, error_message TEXT, traceback TEXT,
-              PRIMARY KEY(task_id,attempt)
-            );
-            """
-        )
+        super().__init__(path, schema_sql=self._SCHEMA_SQL)
 
     def prepare(self, signature: dict[str, Any], *, retry_failed: bool = False) -> None:
-        encoded = _canonical_json(signature)
         with self.connection:
-            row = self.connection.execute(
-                "SELECT value FROM metadata WHERE key='signature'"
-            ).fetchone()
-            if row is not None and row["value"] != encoded:
-                raise ValueError("Existing description ledger signature does not match this run")
-            self.connection.execute(
-                "INSERT OR IGNORE INTO metadata(key,value) VALUES('signature',?)", (encoded,)
+            self.check_metadata_signature(
+                key="signature",
+                value=signature,
+                retry_failed=retry_failed,
+                error_message="Existing description ledger signature does not match this run",
+                clear_failed_payload=retry_failed,
+                clear_failed_payload_sql=self._CLEAR_FAILED_PAYLOAD_SQL,
             )
             self.connection.execute(
                 "UPDATE attempts SET outcome='interrupted',finished_at=? WHERE outcome='running'",
                 (_now(),),
             )
             self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
-            if retry_failed:
-                self.connection.execute(
-                    "UPDATE tasks SET status='pending',error_type=NULL,error_message=NULL,"
-                    "traceback=NULL WHERE status='failed'"
-                )
 
     def add_tasks(self, tasks: Sequence[DiagnosticAffectDescriptionTask]) -> None:
         with self.connection:
@@ -439,12 +438,7 @@ class DiagnosticAffectDescriptionLedger:
         ]
 
     def summary(self) -> dict[str, int]:
-        counts = {
-            row["status"]: row["n"]
-            for row in self.connection.execute(
-                "SELECT status,COUNT(*) AS n FROM tasks GROUP BY status"
-            )
-        }
+        counts = self.status_counts()
         return {
             "total": sum(counts.values()),
             **{key: counts.get(key, 0) for key in ("pending", "running", "completed", "failed")},
