@@ -5,43 +5,28 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import random
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import torch
 import yaml
-from scipy.stats import mannwhitneyu
-from sklearn.metrics import average_precision_score, f1_score
 from torch import nn
 from torch.nn import functional as F
 
-from mprisk.cache.prefill_extract import extract_t0_trajectory
-from mprisk.cache.prompt_conditioned_cache import prompt_conditioned_entry_from_row
 from mprisk.representation.losses import ModalitySplitRankingLoss, ProxyAnchorLoss
-from mprisk.representation.relation_dataset import CONDITIONS, _reject_forbidden_fields
 from mprisk.representation.relation_models import (
-    REPRESENTATION_KEYS,
-    SINGLE_POINT_BINARY_V1,
-    TME_ARCHITECTURE_LSTM_V1,
-    TME_ARCHITECTURE_V1,
     TME_PROXY_ANCHOR_V1,
-    TRAJECTORY_MLP_BINARY_V1,
     build_representation_model,
-    strict_l2_normalize,
 )
 from mprisk.utils.io import write_json
 
 from mprisk.representation.config import (
-    TRAINING_CONFIG_SCHEMA,
-    REGISTERED_SPLITS,
     TrainingConfig,
     TrainingResult,
     FrozenRepresentationExportResult,
-    FrozenBaselineExportResult,
     _Sample,
     load_training_config,
     _validate_config,
@@ -60,7 +45,6 @@ from mprisk.representation.checkpoints import (
 )
 
 from mprisk.representation.data import (
-    _baseline_feature_definition,
     _batches,
     _load_trajectory_batch,
     _read_relation_rows,
@@ -70,16 +54,11 @@ from mprisk.representation.data import (
     _validate_checkpoint_architecture,
     _validate_prompt_contract,
     _validate_registered_splits,
-    _vector_values,
 )
 from mprisk.representation.evaluation import (
-    _ac_aux_metrics,
     _aggregate_sample_outputs,
-    _balanced_accuracy,
     _encode_prompt_groups,
     _evaluate,
-    _group_prompt_condition_z,
-    _pooled_effect_size,
     _sample_level_predictions,
     _state_checkpoint_feasibility,
     _state_separation_summary,

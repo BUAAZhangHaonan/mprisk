@@ -27,7 +27,6 @@ Output (per stage):
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import sys
 import time
@@ -37,14 +36,6 @@ import numpy as np
 import torch
 torch.set_num_threads(4)
 import torch.nn as nn
-import torch.nn.functional as F
-from sklearn.metrics import (
-    accuracy_score,
-    average_precision_score,
-    balanced_accuracy_score,
-    f1_score,
-    roc_auc_score,
-)
 
 HERE = Path(__file__).resolve().parent
 PROJ_ROOT = HERE.parent.parent
@@ -55,14 +46,10 @@ for _p in (str(V2_SRC), str(HERE)):
 
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
-from mprisk.cache.hidden_state_cache import normalize_protocol  # noqa: E402
 from mprisk.cache.prefill_extract import extract_t0_trajectory  # noqa: E402
-from mprisk.data.manifests import read_final_manifest  # noqa: E402
 from _trainer_lib import (  # noqa: E402  # P5-B/P7-C shared helpers
-    CONDITIONS, COND_IDX,
     _load_prompt_ids, _scan_cache, _load_split_assignment,
     _load_sample_type_map, _load_misread_labels, _domain_of,
-    _balanced_per_class_acc, _eval_loss,
     _train_classifier,  # P7-C: identical loop, was duplicated
 )
 
