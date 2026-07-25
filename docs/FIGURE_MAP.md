@@ -63,11 +63,11 @@ python scripts/build_run_status.py \
 snapshots, cache complete/failed/missing counts, experiment outcomes, PDF paths, and
 Pending inputs. Missing runtime evidence remains explicitly unrecorded or Pending.
 
-## Canonical Additive Exports
+## Canonical Exports
 
-The canonical exporters never replace the registered root figures or either historical
-`template_v2` / `template_v3_misread` export. They materialize checked snapshots and
-figures in separate additive directories:
+The canonical exporters materialize checked compact inputs and vector figures in
+dedicated directories. Superseded `template_v2` and `template_v3_misread` artifacts
+are retained only in the formal delivery bundle's `repo_artifact_archive/`:
 
 | Export | Checked inputs | Generated figures |
 |---|---|---|

@@ -1055,6 +1055,12 @@ def _render_representation_comparison(
     provenance: dict[str, Any],
     output_path: Path,
 ) -> None:
+    """Render Fig. 8 from registered compact UMAP coordinates.
+
+    The high-dimensional frozen features remain in the delivery archive.  The
+    repository stores only the deterministic projection and original-space
+    diagnostics needed to reproduce the vector figure.
+    """
     _require_columns(
         rows,
         {
@@ -1066,11 +1072,14 @@ def _render_representation_comparison(
             "sample_id",
             "sample_type",
             "representation_split",
-            "feature",
+            "umap_x",
+            "umap_y",
+            "silhouette_original",
+            "knn5_purity_original",
             "status",
         },
     )
-    ac_rows = [row for row in rows if row["panel"] == "ac"]
+    ac_rows = [row for row in rows if row["panel"] == "ac_umap"]
     if not ac_rows or any(
         row["representation_split"] != "official_test"
         or row["status"] != STATUS_READY
@@ -1080,7 +1089,8 @@ def _render_representation_comparison(
         for row in ac_rows
     ):
         raise ValueError(
-            "Fig. 8 requires Ready qwen3_vl_8b/VT/seed20260717 official_test features"
+            "Fig. 8 requires Ready qwen3_vl_8b/VT/seed20260717 "
+            "official_test compact coordinates"
         )
     sample_sets: dict[str, set[tuple[str, str]]] = {}
     for representation in ("Single-Point", "Trajectory MLP", "TME"):
@@ -1088,14 +1098,11 @@ def _render_representation_comparison(
         sample_keys = [(row["sample_id"], row["sample_type"]) for row in selected]
         if len(sample_keys) != len(set(sample_keys)):
             raise ValueError(f"Fig. 8 {representation} contains duplicate sample rows")
+        if {row["sample_type"] for row in selected} != {"Aligned", "Conflict"}:
+            raise ValueError(f"Fig. 8 {representation} requires both Aligned and Conflict")
         sample_sets[representation] = set(sample_keys)
     if len({frozenset(samples) for samples in sample_sets.values()}) != 1:
         raise ValueError("Fig. 8 representations require exact held-out sample correspondence")
-    try:
-        from umap import UMAP
-    except ImportError as exc:
-        raise RuntimeError("Fig. 8 requires pinned umap-learn; PCA fallback is forbidden") from exc
-    import numpy as np
 
     umap_version = importlib.metadata.version("umap-learn")
     expected_umap = {"package": "umap-learn", "version": umap_version, **UMAP_CONFIG}
@@ -1109,6 +1116,7 @@ def _render_representation_comparison(
         raise ValueError("Fig. 8 provenance must lock the registered representative backbone")
     if provenance.get("umap") != expected_umap:
         raise ValueError("Fig. 8 provenance must lock the installed UMAP version and parameters")
+
     figure, axes = plt.subplots(2, 3, figsize=(11.0, 7.2))
     figure.subplots_adjust(
         left=0.07,
@@ -1119,32 +1127,27 @@ def _render_representation_comparison(
         hspace=0.38,
     )
     for column, representation in enumerate(("Single-Point", "Trajectory MLP", "TME")):
-        selected = [
-            row
-            for row in ac_rows
-            if row["representation"] == representation
-        ]
-        if len(selected) <= UMAP_CONFIG["n_neighbors"]:
-            raise ValueError("Fig. 8 UMAP requires more samples than fixed n_neighbors")
-        decoded = [json.loads(str(row["feature"])) for row in selected]
-        if any(not isinstance(feature, list) or not feature for feature in decoded):
-            raise ValueError(f"Fig. 8 {representation} features must be non-empty vectors")
-        dimensions = {len(feature) for feature in decoded}
-        if len(dimensions) != 1:
-            raise ValueError(f"Fig. 8 {representation} features must have one fixed dimension")
-        features = np.asarray(decoded, dtype=float)
-        if features.ndim != 2 or features.shape[0] != len(selected):
-            raise ValueError(f"Fig. 8 {representation} features must have one fixed dimension")
-        if not np.isfinite(features).all():
-            raise ValueError(f"Fig. 8 {representation} features must be finite")
-        if {row["sample_type"] for row in selected} != {"Aligned", "Conflict"}:
-            raise ValueError(f"Fig. 8 {representation} requires both Aligned and Conflict")
-        projection = UMAP(**UMAP_CONFIG).fit_transform(features)
+        selected = [row for row in ac_rows if row["representation"] == representation]
         for sample_type, color in (("Aligned", "#2a9d8f"), ("Conflict", "#d1495b")):
-            indexes = [i for i, row in enumerate(selected) if row["sample_type"] == sample_type]
+            subset = [row for row in selected if row["sample_type"] == sample_type]
             axes[0, column].scatter(
-                projection[indexes, 0], projection[indexes, 1], color=color, label=sample_type, s=14
+                [float(row["umap_x"]) for row in subset],
+                [float(row["umap_y"]) for row in subset],
+                color=color,
+                label=sample_type,
+                s=14,
             )
+        silhouette = float(selected[0]["silhouette_original"])
+        purity = float(selected[0]["knn5_purity_original"])
+        axes[0, column].text(
+            0.97,
+            0.95,
+            f"Original-space\nSilhouette = {silhouette:.3f}\n5-NN purity = {purity:.3f}",
+            transform=axes[0, column].transAxes,
+            ha="right",
+            va="top",
+            fontsize=8,
+        )
         axes[0, column].set_title(f"{representation} | UMAP")
         axes[0, column].set_xlabel("UMAP-1")
         axes[0, column].set_ylabel("UMAP-2")
@@ -1172,7 +1175,6 @@ def _render_representation_comparison(
     )
     figure.savefig(output_path, format="pdf")
     plt.close(figure)
-
 
 def _render_evidence_table(title: str, rows: list[dict[str, Any]], output_path: Path) -> None:
     figure, axis = plt.subplots(figsize=(8.0, 4.5), constrained_layout=True)

@@ -30,7 +30,7 @@ figures:
     output: paper/figures/generated/fig07_misread_bias.pdf
   fig08_representation_comparison:
     title: Held-Out Representation Geometry and Misread Sensitivity
-    input: outputs/paper_exports/figures/fig08_representation_comparison.csv
+    input: outputs/paper_exports/figures/state_structure/fig08_representation_comparison.csv
     output: paper/figures/generated/fig08_representation_comparison.pdf
   fig09_conflict_case:
     title: End-to-End Conflict Case

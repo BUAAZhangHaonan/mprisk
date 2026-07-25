@@ -1,8 +1,12 @@
 {
   "figure_key": "fig08_representation_comparison",
   "generated_command": [
-    "/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python",
-    "/home/team/zhanghaonan/mprisk-delivery-final-2/scripts/export_state_structure_figures.py"
+    "python",
+    "scripts/export_state_structure_figures.py",
+    "--input-root",
+    "outputs/paper_exports/figures/state_structure",
+    "--output-root",
+    "paper/figures/generated/state_structure"
   ],
   "included_sample_count": 912,
   "misread_status": "Pending",
@@ -21,12 +25,16 @@
   "source_sample_count": 912,
   "sources": [
     {
-      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv",
-      "sha256": "c92c1d87b765870462252e89b8c3f3af317bddc05297e1e02539c6f3cb4ea90f"
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1/qwen3_vl_8b/single_point_binary_v1/official_test/frozen_baseline_representations.jsonl",
+      "sha256": "1b1f8e1c28ec261aa86a0dd144a29389cab22d474bc02022bad156f0b7aa877b"
     },
     {
-      "path": "/home/team/zhanghaonan/mprisk-delivery-final-2/outputs/paper_exports/figures/fig08_representation_comparison.csv.provenance.json",
-      "sha256": "94b5e5d2d5bbde130f4103eaea47315639ee52c06de23ff309d92420a01846cf"
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/representation_baselines_v1/qwen3_vl_8b/trajectory_mlp_binary_v1/official_test/frozen_baseline_representations.jsonl",
+      "sha256": "cef12ea457efdae83766f82f2b82096ba3e31e81fe723d9467d9bed176a48c97"
+    },
+    {
+      "path": "/home/team/zhanghaonan/TAFFC/mprisk/outputs/downstream/delivery_20260716/seed20260717/tme_ablation_v1/qwen3_vl_8b/tme_pa_dstrong_v2/official_test/frozen_tme_representations.jsonl",
+      "sha256": "95fd955d231c29b82a36a05d7a82e286fc1e4ae53281a8a23d38ce307c08ae55"
     }
   ],
   "state_structure": {

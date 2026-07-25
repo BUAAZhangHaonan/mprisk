@@ -395,12 +395,12 @@ def test_fig4_uses_real_csv_and_run_status_reports_ready_vs_pending(tmp_path) ->
     assert "placeholder" not in text.casefold()
 
 
-def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
+def test_fig8_rejects_duplicate_compact_sample_rows(tmp_path) -> None:
     rows = []
     for representation in ("Single-Point", "Trajectory MLP", "TME"):
         rows.extend(
             {
-                "panel": "ac",
+                "panel": "ac_umap",
                 "representation": representation,
                 "model": "qwen3_vl_8b",
                 "protocol": "VT",
@@ -408,7 +408,10 @@ def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
                 "sample_id": "duplicate",
                 "sample_type": "Aligned",
                 "representation_split": "official_test",
-                "feature": "[0.1, 0.2]",
+                "umap_x": "0.1",
+                "umap_y": "0.2",
+                "silhouette_original": "0.3",
+                "knn5_purity_original": "0.8",
                 "status": "Ready",
             }
             for _ in range(2)
@@ -417,28 +420,19 @@ def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
         _render_representation_comparison("Fig. 8", rows, {}, tmp_path / "fig08.pdf")
 
 
-def test_ready_fig8_renders_real_ac_and_pending_misread_panels(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_ready_fig8_renders_compact_ac_and_pending_misread_panels(
+    tmp_path: Path,
 ) -> None:
     import importlib.metadata
 
-    import numpy as np
-    import umap
-
-    class FakeUMAP:
-        def __init__(self, **kwargs: object) -> None:
-            assert kwargs == UMAP_CONFIG
-
-        def fit_transform(self, features: np.ndarray) -> np.ndarray:
-            return features[:, :2]
-
-    monkeypatch.setattr(umap, "UMAP", FakeUMAP)
     rows = []
-    for representation in ("Single-Point", "Trajectory MLP", "TME"):
+    for representation_index, representation in enumerate(
+        ("Single-Point", "Trajectory MLP", "TME")
+    ):
         for index in range(16):
             rows.append(
                 {
-                    "panel": "ac",
+                    "panel": "ac_umap",
                     "representation": representation,
                     "model": "qwen3_vl_8b",
                     "protocol": "VT",
@@ -446,7 +440,10 @@ def test_ready_fig8_renders_real_ac_and_pending_misread_panels(
                     "sample_id": f"sample-{index}",
                     "sample_type": "Aligned" if index < 8 else "Conflict",
                     "representation_split": "official_test",
-                    "feature": json.dumps([float(index), float(index % 3), 0.5]),
+                    "umap_x": str(float(index)),
+                    "umap_y": str(float(index % 3)),
+                    "silhouette_original": str(0.1 + representation_index * 0.1),
+                    "knn5_purity_original": str(0.7 + representation_index * 0.1),
                     "status": "Ready",
                 }
             )
@@ -479,7 +476,7 @@ def test_ready_fig8_renders_real_ac_and_pending_misread_panels(
     assert extracted.count("AUPRC") >= 3
     assert extracted.count("UMAP-1") == 3
     assert extracted.count("UMAP-2") == 3
-
+    assert extracted.count("Original-space") == 3
 
 def test_versioned_map_has_final_ten_figures_and_three_tables() -> None:
     root = Path(__file__).resolve().parents[2]
