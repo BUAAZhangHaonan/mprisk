@@ -21,6 +21,13 @@ from mprisk.models.base_wrapper import (
     PrefillResult,
 )
 
+from mprisk.models._torch_commons import (
+    load_config_json,
+    move_inputs_to_device,
+    require_attention_mask,
+    validate_contract_dims,
+)
+
 MAX_VIDEO_FRAMES: int = 16
 _FFMPEG_AVAILABLE: bool = shutil.which("ffmpeg") is not None
 _TEMP_FILES_TO_CLEAN: list[str] = []
@@ -165,8 +172,8 @@ class Gemma4Wrapper(BaseModelWrapper):
         if media["images"] is not None:
             processor_kwargs["images"] = media["images"]
         model_inputs = self.processor(**processor_kwargs)
-        model_inputs = _move_inputs_to_device(model_inputs, self.device)
-        attention_mask = _require_attention_mask(model_inputs)
+        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Gemma-4")
+        attention_mask = require_attention_mask(model_inputs, wrapper_label="Gemma-4")
         token_count = int(attention_mask.shape[-1])
         non_padding = torch.nonzero(attention_mask[0] != 0, as_tuple=False).flatten()
         if non_padding.numel() == 0:
@@ -469,46 +476,22 @@ def _video_to_frames_with_audio(video_path: str, *, max_frames: int = MAX_VIDEO_
 
 
 def _load_model_contract(model_path: Path) -> dict[str, Any]:
-    config_path = model_path / "config.json"
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Gemma-4 config is missing: {config_path}")
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    if payload.get("model_type") != "gemma4_unified":
-        raise ValueError(
-            f"Unexpected model_type in {config_path}: {payload.get('model_type')!r}"
-        )
+    payload = load_config_json(
+        model_path, expected_model_type="gemma4_unified", wrapper_label="Gemma-4"
+    )
     text = payload.get("text_config")
     if not isinstance(text, dict):
+        config_path = model_path / "config.json"
         raise ValueError(f"Gemma-4 text_config missing from {config_path}")
     contract = {
         "num_hidden_layers": int(text["num_hidden_layers"]),
         "hidden_size": int(text["hidden_size"]),
         "torch_dtype": str(payload.get("dtype") or payload.get("torch_dtype") or ""),
     }
-    if contract["num_hidden_layers"] <= 0 or contract["hidden_size"] <= 0:
-        raise ValueError(f"Invalid Gemma-4 dimensions: {contract}")
+    validate_contract_dims(contract, wrapper_label="Gemma-4")
     if not contract["torch_dtype"]:
+        config_path = model_path / "config.json"
         raise ValueError(f"Gemma-4 dtype missing from {config_path}")
     return contract
-
-
-def _move_inputs_to_device(model_inputs: Any, device: str) -> Any:
-    if hasattr(model_inputs, "to"):
-        return model_inputs.to(device)
-    if not isinstance(model_inputs, Mapping):
-        raise TypeError("Gemma-4 processor output must be a BatchFeature or mapping")
-    return {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in model_inputs.items()
-    }
-
-
-def _require_attention_mask(model_inputs: Any) -> Any:
-    attention_mask = model_inputs.get("attention_mask")
-    if attention_mask is None:
-        raise ValueError("Gemma-4 processor output must include attention_mask")
-    if attention_mask.ndim != 2 or int(attention_mask.shape[0]) != 1:
-        raise ValueError("Gemma-4 prefill extraction requires batch size exactly one")
-    return attention_mask
 
 

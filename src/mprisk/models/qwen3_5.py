@@ -12,6 +12,15 @@ from typing import Any
 from mprisk.utils.io import sha256_file as _sha256
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
 
+from mprisk.models._torch_commons import (
+    load_config_json,
+    move_inputs_to_device,
+    require_attention_mask,
+    token_position,
+    trajectory_from_outputs,
+    validate_contract_dims,
+)
+
 
 class Qwen3_5Wrapper(BaseModelWrapper):
     """Extract all Qwen3-VL language-block states at the first reply position."""
@@ -114,9 +123,9 @@ class Qwen3_5Wrapper(BaseModelWrapper):
             [dict(message) for message in request.messages],
             **template_kwargs,
         )
-        model_inputs = _move_inputs_to_device(model_inputs, self.device)
-        attention_mask = _require_attention_mask(model_inputs)
-        token_count, t0_token_index = _token_position(attention_mask)
+        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Qwen3.5-9B")
+        attention_mask = require_attention_mask(model_inputs, wrapper_label="Qwen3.5-9B")
+        token_count, t0_token_index = token_position(attention_mask)
 
         track_cuda = self.device.startswith("cuda") and torch.cuda.is_available()
         if track_cuda:
@@ -129,12 +138,12 @@ class Qwen3_5Wrapper(BaseModelWrapper):
                 return_dict=True,
                 logits_to_keep=1,
             )
-        trajectory = _trajectory_from_outputs(
-            outputs,
+        trajectory = trajectory_from_outputs(outputs,
             t0_token_index=t0_token_index,
             layer_count=self.expected_layer_count,
             hidden_dim=self.expected_hidden_dim,
-        )
+            wrapper_label="Qwen3.5-9B",
+    )
         peak_gpu_bytes = (
             int(torch.cuda.max_memory_allocated(torch.device(self.device))) if track_cuda else None
         )
@@ -210,24 +219,22 @@ class Qwen3_5Wrapper(BaseModelWrapper):
 
 
 def _load_model_contract(model_path: Path) -> dict[str, Any]:
-    config_path = model_path / "config.json"
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Qwen3.5-9B config is missing: {config_path}")
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    if payload.get("model_type") != "qwen3_5":
-        raise ValueError(f"Unexpected model_type in {config_path}: {payload.get('model_type')!r}")
+    payload = load_config_json(
+        model_path, expected_model_type="qwen3_5", wrapper_label="Qwen3.5-9B"
+    )
     if payload.get("architectures") != ["Qwen3_5ForConditionalGeneration"]:
+        config_path = model_path / "config.json"
         raise ValueError(f"Unexpected Qwen3.5-9B architecture in {config_path}")
     text = payload.get("text_config")
     if not isinstance(text, dict):
+        config_path = model_path / "config.json"
         raise ValueError(f"Qwen3.5-9B text_config is missing from {config_path}")
     contract = {
         "num_hidden_layers": int(text["num_hidden_layers"]),
         "hidden_size": int(text["hidden_size"]),
         "torch_dtype": str(text.get("dtype") or text.get("torch_dtype") or ""),
     }
-    if contract["num_hidden_layers"] <= 0 or contract["hidden_size"] <= 0:
-        raise ValueError(f"Invalid Qwen3.5-9B dimensions: {contract}")
+    validate_contract_dims(contract, wrapper_label="Qwen3.5-9B")
     return contract
 
 
@@ -254,60 +261,5 @@ def _request_video_fps(request: PrefillRequest) -> float | None:
     if len(values) > 1:
         raise ValueError("Qwen3.5-9B request cannot mix video fps values")
     return next(iter(values), None)
-
-
-def _move_inputs_to_device(model_inputs: Any, device: str) -> Any:
-    if hasattr(model_inputs, "to"):
-        return model_inputs.to(device)
-    if not isinstance(model_inputs, Mapping):
-        raise TypeError("Qwen3.5-9B processor output must be a BatchFeature or mapping")
-    return {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in model_inputs.items()
-    }
-
-
-def _require_attention_mask(model_inputs: Any) -> Any:
-    attention_mask = model_inputs.get("attention_mask")
-    if attention_mask is None or attention_mask.ndim != 2 or int(attention_mask.shape[0]) != 1:
-        raise ValueError("Qwen3.5-9B extraction requires one two-dimensional attention_mask")
-    return attention_mask
-
-
-def _token_position(attention_mask: Any) -> tuple[int, int]:
-    import torch
-
-    token_count = int(attention_mask.shape[-1])
-    non_padding = torch.nonzero(attention_mask[0] != 0, as_tuple=False).flatten()
-    if non_padding.numel() == 0:
-        raise ValueError("attention_mask contains no conditioning tokens")
-    return token_count, int(non_padding[-1].item())
-
-
-def _trajectory_from_outputs(
-    outputs: Any,
-    *,
-    t0_token_index: int,
-    layer_count: int,
-    hidden_dim: int,
-) -> Any:
-    import torch
-
-    hidden_states = getattr(outputs, "hidden_states", None)
-    expected_state_count = layer_count + 1
-    if hidden_states is None or len(hidden_states) != expected_state_count:
-        actual = None if hidden_states is None else len(hidden_states)
-        raise ValueError(f"Expected {expected_state_count} hidden-state tensors, got {actual}")
-    trajectory = torch.stack(
-        [state[0, t0_token_index, :] for state in hidden_states[1:]], dim=0
-    )
-    if tuple(trajectory.shape) != (layer_count, hidden_dim):
-        raise ValueError(
-            f"Expected Qwen3.5-9B trajectory shape {(layer_count, hidden_dim)}, "
-            f"got {tuple(trajectory.shape)}"
-        )
-    if not torch.isfinite(trajectory).all().item():
-        raise ValueError("Qwen3.5-9B trajectory contains non-finite values")
-    return trajectory
 
 

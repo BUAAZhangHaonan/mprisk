@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 from mprisk.data.generated_archive_freeze import _canonical_json, _sha256
+from mprisk.utils.api_runner import SqliteLedgerBase
 from mprisk.utils.io import atomic_write_bytes as _atomic_write, now_iso as _now, read_jsonl as _read_jsonl
 from mprisk.ground_truth.annotation_inputs import (
     GT_INPUT_SCHEMA_VERSION,
@@ -224,33 +225,32 @@ def prepare_tasks(
     return tasks
 
 
-class GTDescriptionGenerationLedger:
+class GTDescriptionGenerationLedger(SqliteLedgerBase):
+    # GT Description generation gates a run on the in-row ledger_signature
+    # columns rather than a ``metadata.signature`` row, so the base-class
+    # signature helper is unused here.
+    running_to_pending_sql = "update tasks set status='pending' where status='running'"
+    failed_to_pending_sql = None  # stage rejects retry_failed (handled by caller)
+
+    _SCHEMA_SQL = """
+        create table if not exists tasks (
+          sample_id text primary key, task_order integer not null,
+          source_archive text not null, sample_type text not null,
+          input_hash text not null, prompt_hash text not null,
+          request_json text not null, annotation_input_json text not null,
+          status text not null, attempts integer not null default 0,
+          result_json text, error_type text, error_message text,
+          created_at text not null, updated_at text not null
+        );
+        create table if not exists attempts (
+          sample_id text not null, attempt integer not null, started_at text not null,
+          ended_at text not null, outcome text not null, response_json text,
+          error_type text, error_message text, primary key(sample_id, attempt)
+        );
+    """
+
     def __init__(self, path: Path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.path = path
-        self.db = sqlite3.connect(path)
-        self.db.row_factory = sqlite3.Row
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.executescript(
-            """
-            create table if not exists tasks (
-              sample_id text primary key, task_order integer not null,
-              source_archive text not null, sample_type text not null,
-              input_hash text not null, prompt_hash text not null,
-              request_json text not null, annotation_input_json text not null,
-              status text not null, attempts integer not null default 0,
-              result_json text, error_type text, error_message text,
-              created_at text not null, updated_at text not null
-            );
-            create table if not exists attempts (
-              sample_id text not null, attempt integer not null, started_at text not null,
-              ended_at text not null, outcome text not null, response_json text,
-              error_type text, error_message text, primary key(sample_id, attempt)
-            );
-            """
-        )
-        self.db.execute("update tasks set status='pending' where status='running'")
-        self.db.commit()
+        super().__init__(path, schema_sql=self._SCHEMA_SQL, synchronous="")
 
     def prepare(self, tasks: list[GTDescriptionGenerationTask]) -> None:
         now = _now()
@@ -263,7 +263,7 @@ class GTDescriptionGenerationLedger:
                 }
             )
             annotation_input_json = _canonical_json(task.annotation_input_row)
-            existing = self.db.execute(
+            existing = self.connection.execute(
                 """select input_hash,prompt_hash,request_json,annotation_input_json
                    from tasks where sample_id=?""",
                 (task.sample_id,),
@@ -278,7 +278,7 @@ class GTDescriptionGenerationLedger:
                 if tuple(existing) != expected:
                     raise ValueError(f"Ledger signature mismatch: {task.sample_id}")
                 continue
-            self.db.execute(
+            self.connection.execute(
                 "insert into tasks values (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     task.sample_id,
@@ -298,9 +298,9 @@ class GTDescriptionGenerationLedger:
                     now,
                 ),
             )
-        self.db.commit()
+        self.connection.commit()
         expected_ids = {task.sample_id for task in tasks}
-        actual_ids = {str(row[0]) for row in self.db.execute("select sample_id from tasks")}
+        actual_ids = {str(row[0]) for row in self.connection.execute("select sample_id from tasks")}
         if actual_ids != expected_ids:
             unexpected = sorted(actual_ids - expected_ids)
             missing = sorted(expected_ids - actual_ids)
@@ -313,7 +313,7 @@ class GTDescriptionGenerationLedger:
         placeholders = ",".join("?" for _ in statuses)
         return [
             str(row[0])
-            for row in self.db.execute(
+            for row in self.connection.execute(
                 f"select sample_id from tasks where status in ({placeholders}) "
                 "order by task_order",
                 statuses,
@@ -321,18 +321,18 @@ class GTDescriptionGenerationLedger:
         ]
 
     def start(self, sample_id: str) -> int:
-        row = self.db.execute(
+        row = self.connection.execute(
             "select attempts from tasks where sample_id=?", (sample_id,)
         ).fetchone()
         if row is None:
             raise KeyError(f"Unknown ledger sample_id: {sample_id}")
         attempt = int(row[0]) + 1
-        self.db.execute(
+        self.connection.execute(
             """update tasks set status='running',attempts=?,updated_at=?,
                error_type=null,error_message=null where sample_id=?""",
             (attempt, _now(), sample_id),
         )
-        self.db.commit()
+        self.connection.commit()
         return attempt
 
     def finish_attempt(
@@ -344,7 +344,7 @@ class GTDescriptionGenerationLedger:
         response: Any = None,
         exc: Exception | None = None,
     ) -> None:
-        self.db.execute(
+        self.connection.execute(
             "insert into attempts values (?,?,?,?,?,?,?,?)",
             (
                 sample_id,
@@ -357,32 +357,31 @@ class GTDescriptionGenerationLedger:
                 None if exc is None else str(exc),
             ),
         )
-        self.db.commit()
+        self.connection.commit()
 
     def complete(self, sample_id: str, result: dict[str, Any]) -> None:
-        self.db.execute(
+        self.connection.execute(
             "update tasks set status='completed',result_json=?,updated_at=? where sample_id=?",
             (_canonical_json(result), _now(), sample_id),
         )
-        self.db.commit()
+        self.connection.commit()
 
     def fail(self, sample_id: str, exc: Exception) -> None:
-        self.db.execute(
+        self.connection.execute(
             """update tasks set status='failed',error_type=?,error_message=?,updated_at=?
                where sample_id=?""",
             (type(exc).__name__, str(exc), _now(), sample_id),
         )
-        self.db.commit()
+        self.connection.commit()
 
     def rows(self) -> list[sqlite3.Row]:
-        return list(self.db.execute("select * from tasks order by task_order"))
+        return list(self.connection.execute("select * from tasks order by task_order"))
 
     def attempt_rows(self) -> list[sqlite3.Row]:
-        return list(self.db.execute("select * from attempts order by sample_id,attempt"))
+        return list(self.connection.execute("select * from attempts order by sample_id,attempt"))
 
     def close(self) -> None:
-        self.db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        self.db.close()
+        self.checkpoint_and_close()
 
 
 async def run_gt_description_generation(

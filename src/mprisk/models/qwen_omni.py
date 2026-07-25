@@ -21,6 +21,13 @@ from mprisk.models.base_wrapper import (
     PrefillResult,
 )
 
+from mprisk.models._torch_commons import (
+    load_config_json,
+    move_inputs_to_device,
+    require_attention_mask,
+    validate_contract_dims,
+)
+
 JointAudioMode = Literal["embedded_video", "separate_file"]
 
 
@@ -220,8 +227,8 @@ class QwenOmniWrapper(BaseModelWrapper):
             return_tensors="pt",
             use_audio_in_video=request.use_audio_in_video,
         )
-        model_inputs = _move_inputs_to_device(model_inputs, self.device)
-        attention_mask = _require_attention_mask(model_inputs)
+        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Qwen Omni")
+        attention_mask = require_attention_mask(model_inputs, wrapper_label="Qwen Omni")
         token_count = int(attention_mask.shape[-1])
         non_padding = torch.nonzero(attention_mask[0] != 0, as_tuple=False).flatten()
         if non_padding.numel() == 0:
@@ -326,8 +333,8 @@ class QwenOmniWrapper(BaseModelWrapper):
             return_tensors="pt",
             use_audio_in_video=request.use_audio_in_video,
         )
-        model_inputs = _move_inputs_to_device(model_inputs, self.device)
-        _require_attention_mask(model_inputs)
+        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Qwen Omni")
+        require_attention_mask(model_inputs, wrapper_label="Qwen Omni")
         input_ids = model_inputs.get("input_ids")
         if input_ids is None or input_ids.ndim != 2 or int(input_ids.shape[0]) != 1:
             raise ValueError("Qwen Omni generation requires input_ids with batch size exactly one")
@@ -409,23 +416,20 @@ class QwenOmniWrapper(BaseModelWrapper):
 
 
 def _load_model_contract(model_path: Path) -> dict[str, Any]:
-    config_path = model_path / "config.json"
-    if not config_path.is_file():
-        raise FileNotFoundError(f"Qwen Omni config is missing: {config_path}")
-    payload = json.loads(config_path.read_text(encoding="utf-8"))
-    if payload.get("model_type") != "qwen2_5_omni":
-        raise ValueError(f"Unexpected model_type in {config_path}: {payload.get('model_type')!r}")
+    payload = load_config_json(
+        model_path, expected_model_type="qwen2_5_omni", wrapper_label="Qwen Omni"
+    )
     thinker = payload.get("thinker_config")
     text = thinker.get("text_config") if isinstance(thinker, dict) else None
     if not isinstance(text, dict):
+        config_path = model_path / "config.json"
         raise ValueError(f"Qwen Omni thinker text_config is missing from {config_path}")
     contract = {
         "num_hidden_layers": int(text["num_hidden_layers"]),
         "hidden_size": int(text["hidden_size"]),
         "torch_dtype": str(thinker["torch_dtype"]),
     }
-    if contract["num_hidden_layers"] <= 0 or contract["hidden_size"] <= 0:
-        raise ValueError(f"Invalid Qwen Omni thinker dimensions: {contract}")
+    validate_contract_dims(contract, wrapper_label="Qwen Omni")
     return contract
 
 
@@ -494,25 +498,5 @@ def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
     if isinstance(value, tuple | list) and all(isinstance(token_id, int) for token_id in value):
         return tuple(sorted(set(value)))
     raise ValueError("Qwen Omni tokenizer must define one or more integer eos_token_id values")
-
-
-def _require_attention_mask(model_inputs: Any) -> Any:
-    attention_mask = model_inputs.get("attention_mask")
-    if attention_mask is None:
-        raise ValueError("Qwen Omni processor output must include attention_mask")
-    if attention_mask.ndim != 2 or int(attention_mask.shape[0]) != 1:
-        raise ValueError("Qwen Omni prefill extraction requires batch size exactly one")
-    return attention_mask
-
-
-def _move_inputs_to_device(model_inputs: Any, device: str) -> Any:
-    if hasattr(model_inputs, "to"):
-        return model_inputs.to(device)
-    if not isinstance(model_inputs, Mapping):
-        raise TypeError("Processor output must be a BatchFeature or mapping")
-    return {
-        key: value.to(device) if hasattr(value, "to") else value
-        for key, value in model_inputs.items()
-    }
 
 
