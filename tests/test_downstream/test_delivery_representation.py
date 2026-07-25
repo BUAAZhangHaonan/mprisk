@@ -43,7 +43,7 @@ def test_pending_production_template_is_not_runnable() -> None:
     root = Path(__file__).parents[2]
     template = (
         root
-        / "configs/downstream/delivery_20260716_seed20260717_tme_template_v1.yaml"
+        / "configs/downstream/delivery_20260716_seed20260717_tme_template.yaml"
     )
     with pytest.raises(DeliveryPlanError, match="pending"):
         load_delivery_plan(template)
@@ -54,7 +54,7 @@ def test_production_template_training_config_hashes_match_files() -> None:
     template = yaml.safe_load(
         (
             root
-            / "configs/downstream/delivery_20260716_seed20260717_tme_template_v1.yaml"
+            / "configs/downstream/delivery_20260716_seed20260717_tme_template.yaml"
         ).read_text(encoding="utf-8")
     )
 
@@ -72,7 +72,7 @@ def test_production_baseline_template_is_native_ce_and_statically_valid() -> Non
     root = Path(__file__).parents[2]
     template_path = (
         root
-        / "configs/downstream/delivery_20260716_seed20260717_baselines_template_v1.yaml"
+        / "configs/downstream/delivery_20260716_seed20260717_baselines_template.yaml"
     )
     template = yaml.safe_load(template_path.read_text(encoding="utf-8"))
 
@@ -148,7 +148,7 @@ def test_production_template_locks_final_dstrong_config() -> None:
     template = yaml.safe_load(
         (
             root
-            / "configs/downstream/delivery_20260716_seed20260717_tme_template_v1.yaml"
+            / "configs/downstream/delivery_20260716_seed20260717_tme_template.yaml"
         ).read_text(encoding="utf-8")
     )
 
@@ -160,7 +160,7 @@ def test_production_template_locks_final_dstrong_config() -> None:
         assert strong.enable_state_supervision is True
         assert strong.d_supervision_weight == pytest.approx(0.5)
         assert strong.angular_supervision_weight == pytest.approx(0.2)
-        assert strong_path.name.endswith("_tme_pa_dstrong_v2.yaml")
+        assert strong_path.name == f"{job['model_key']}_tme.yaml"
         strong_raw = yaml.safe_load(strong_path.read_text(encoding="utf-8"))
         assert strong_raw["key"] == (
             f"delivery_20260716_{job['model_key']}_{DSTRONG_METHOD}_seed20260717"

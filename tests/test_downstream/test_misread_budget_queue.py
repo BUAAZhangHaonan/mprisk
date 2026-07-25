@@ -161,7 +161,7 @@ def _fraction_fixture(plan: QueuePlan, model: QueueModel, fraction: float = 0.1)
 
 def test_registered_delivery_queue_config_has_30_second_poll() -> None:
     plan = load_misread_budget_queue_config(
-        Path("configs/downstream/delivery_20260716_misread_budget_queue_v1.yaml")
+        Path("configs/downstream/delivery_20260716_misread_budget_queue.yaml")
     )
     assert plan.poll_seconds == 30.0
     assert {model.model_key for model in plan.models} == queue.MODEL_KEYS

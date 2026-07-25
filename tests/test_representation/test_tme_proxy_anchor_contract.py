@@ -297,9 +297,12 @@ def test_delivery_tme_configs_lock_final_state_supervision() -> None:
     config_root = root / "configs/experiments/delivery_20260716/seed20260717"
     configs = {path.name: load_training_config(path) for path in config_root.glob("*.yaml")}
 
-    assert len(configs) == 3
-    for name, config in configs.items():
-        assert name.endswith("_tme_pa_dstrong_v2.yaml")
+    assert set(configs) == {
+        "internvl3_5_8b_tme.yaml",
+        "qwen2_5_omni_7b_tme.yaml",
+        "qwen3_vl_8b_tme.yaml",
+    }
+    for config in configs.values():
         assert config.enable_state_supervision is True
         assert config.d_supervision_weight == pytest.approx(0.5)
         assert config.angular_supervision_weight == pytest.approx(0.2)
