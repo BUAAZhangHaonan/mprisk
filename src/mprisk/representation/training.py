@@ -16,6 +16,7 @@ import yaml
 from torch import nn
 from torch.nn import functional as F
 
+from mprisk.cache.prefill_extract import extract_t0_trajectory
 from mprisk.representation.losses import ModalitySplitRankingLoss, ProxyAnchorLoss
 from mprisk.representation.relation_models import (
     TME_PROXY_ANCHOR_V1,
@@ -24,9 +25,12 @@ from mprisk.representation.relation_models import (
 from mprisk.utils.io import write_json
 
 from mprisk.representation.config import (
+    TRAINING_CONFIG_SCHEMA,
+    REGISTERED_SPLITS,
     TrainingConfig,
     TrainingResult,
     FrozenRepresentationExportResult,
+    FrozenBaselineExportResult,
     _Sample,
     load_training_config,
     _validate_config,
@@ -45,6 +49,7 @@ from mprisk.representation.checkpoints import (
 )
 
 from mprisk.representation.data import (
+    _baseline_feature_definition,
     _batches,
     _load_trajectory_batch,
     _read_relation_rows,
@@ -54,6 +59,7 @@ from mprisk.representation.data import (
     _validate_checkpoint_architecture,
     _validate_prompt_contract,
     _validate_registered_splits,
+    _vector_values,
 )
 from mprisk.representation.evaluation import (
     _aggregate_sample_outputs,
