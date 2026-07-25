@@ -6,13 +6,13 @@
 #   GPU in {0, 1}
 #   ENCODER_TYPE in {gru, lstm}
 # Selects yaml by ENCODER_TYPE:
-#   gru  -> ${MODEL}_tme_pa_dstrong_v2_bigdim_x2[_seed${SEED}].yaml
-#   lstm -> ${MODEL}_tme_pa_dstrong_v2_bigdim_x2_lstm.yaml
-# Output: outputs/canonical_rerun_v2/T_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}/
+#   gru  -> ${MODEL}_tme_pa_dstrong_bigdim_x2[_seed${SEED}].yaml
+#   lstm -> ${MODEL}_tme_pa_dstrong_bigdim_x2_lstm.yaml
+# Output: outputs/canonical_rerun_v2/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
-source "${CONDA_PREFIX:-/opt/miniconda3}/../etc/profile.d/conda.sh" 2>/dev/null || true
+source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
 MODEL=${1:-qwen3_vl_8b}
@@ -23,7 +23,8 @@ export CUDA_VISIBLE_DEVICES=$GPU
 export PYTHONPATH=src
 
 case "$ENCODER_TYPE" in
-  gru|lstm) ;;
+  gru) ENCODER_TYPE_NUM=1 ;;
+  lstm) ENCODER_TYPE_NUM=5 ;;
   *) echo "[FATAL] ENCODER_TYPE must be gru or lstm, got: $ENCODER_TYPE" >&2; exit 2;;
 esac
 
@@ -35,19 +36,19 @@ fi
 RELATION_DATASET=outputs/v2/relation_data/$MODEL/${PROTO^^}/${PROTO,,}_main_p8_seed20260717/relation_dataset.jsonl
 
 if [ "$ENCODER_TYPE" = "gru" ]; then
-  YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_v2_bigdim_x2.yaml
+  YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_bigdim_x2.yaml
   if [ ! -f "$YAML" ]; then
-    YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_v2_bigdim_x2_seed${SEED}.yaml
+    YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_bigdim_x2_seed${SEED}.yaml
   fi
 else
-  YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_v2_bigdim_x2_lstm.yaml
+  YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_bigdim_x2_lstm.yaml
 fi
 if [ ! -f "$YAML" ]; then
   echo "[FATAL] $ENCODER_TYPE yaml missing for $MODEL; expected at $YAML" >&2
   exit 3
 fi
 
-OUT=outputs/canonical_rerun_v2/T_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun_v2/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
 
 echo "[T_${ENCODER_TYPE}] MODEL=$MODEL SEED=$SEED GPU=$GPU yaml=$YAML"

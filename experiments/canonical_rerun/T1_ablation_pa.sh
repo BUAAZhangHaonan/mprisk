@@ -9,7 +9,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
-source "${CONDA_PREFIX:-/opt/miniconda3}/../etc/profile.d/conda.sh" 2>/dev/null || true
+source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
 VARIANT=${1:?usage: $0 VARIANT SEED GPU (VARIANT in pa_only|pa_d|pa_s|pa_sd)}
