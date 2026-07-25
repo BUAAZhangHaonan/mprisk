@@ -74,55 +74,16 @@ from mprisk.representation.relation_models import (  # noqa: E402
     SequentialTrajectoryEncoderV1,
     strict_l2_normalize,
 )
-
-CONDITIONS = ("M1", "M2", "M12")
-COND_IDX = {"M1": 0, "M2": 1, "M12": 2}
+from _trainer_lib import (  # noqa: E402  # P5-B shared helpers
+    CONDITIONS, COND_IDX,
+    _load_prompt_ids, _scan_cache, _load_split_assignment,
+    _load_sample_type_map, _load_misread_labels, _domain_of, _eval_loss,
+)
 
 
 # ---------------------------------------------------------------------------
 # Data loading: 3-condition trajectory [B, 3, L, H]
 # ---------------------------------------------------------------------------
-
-
-def _load_prompt_ids(prompt_set_path: Path) -> list[str]:
-    import yaml
-    with open(prompt_set_path, "r", encoding="utf-8") as f:
-        ps = yaml.safe_load(f)
-    return [t["prompt_id"] for t in ps["templates"] if t.get("enabled", True)]
-
-
-def _scan_cache(cache_roots, *, model_key, prompt_ids):
-    from mprisk.cache.cache_manifest import _can_materialize_entry, _entry_from_row
-    out: dict[str, dict[str, dict[str, object]]] = {}
-    expected = set(prompt_ids)
-    for root in cache_roots:
-        if not root.exists():
-            print(f"[warn] cache root missing: {root}", file=sys.stderr)
-            continue
-        manifest_path = root / "manifest.jsonl"
-        if not manifest_path.exists():
-            print(f"[warn] manifest.jsonl missing in {root}", file=sys.stderr)
-            continue
-        with open(manifest_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                row = json.loads(line)
-                if row.get("model_key") != model_key:
-                    continue
-                cond = row.get("condition")
-                if cond not in CONDITIONS:
-                    continue
-                pid = row.get("prompt_id") or (row.get("metadata") or {}).get("prompt_id")
-                if pid is None or pid not in expected:
-                    continue
-                if not _can_materialize_entry(row):
-                    continue
-                entry = _entry_from_row(row, cache_root=root)
-                slot = out.setdefault(entry.sample_id, {c: {} for c in CONDITIONS})
-                slot[cond].setdefault(pid, entry)
-    return out
 
 
 def _build_3cond_traj(info, prompt_id):
@@ -139,48 +100,6 @@ def _build_3cond_traj(info, prompt_id):
             return None
         bundle.append(traj)
     return np.stack(bundle, axis=0).astype(np.float32)
-
-
-def _load_split_assignment(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            split = row.get("representation_split", "")
-            for sid in row.get("sample_ids", []):
-                out[sid] = split
-    return out
-
-
-def _load_sample_type_map(main_manifest: Path, protocol: str) -> dict[str, str]:
-    rows = read_final_manifest(main_manifest)
-    return {
-        r.sample_id: r.sample_type
-        for r in rows
-        if normalize_protocol(r.protocol) == normalize_protocol(protocol)
-    }
-
-
-def _load_misread_labels(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            row = json.loads(line)
-            sid = row.get("sample_id")
-            label = row.get("final_label")
-            if sid and label:
-                out[sid] = label
-    return out
-
-
-def _domain_of(sid: str) -> str:
-    return "gen" if sid.startswith("gen:") else "natural"
 
 
 def _build_mn_rows_3cond(
@@ -344,22 +263,6 @@ def _eval_mn(model, X, y, sample_ids, *, batch_size, device):
         "agg_label": agg_label,
         "agg_sample_ids": agg_sids,
     }
-
-
-def _eval_loss(model, X, y, *, batch_size):
-    if X.shape[0] == 0:
-        return 0.0
-    model.eval()
-    total = 0.0
-    n_batches = 0
-    with torch.no_grad():
-        for i in range(0, X.shape[0], batch_size):
-            xb = X[i:i + batch_size]
-            yb = y[i:i + batch_size].to(xb.device)
-            logits = model(xb)
-            total += float(F.cross_entropy(logits, yb).item())
-            n_batches += 1
-    return total / max(n_batches, 1)
 
 
 def train_one_epoch(model, X_tr, y_tr, *, optimizer, batch_size, rng, class_weights=None):
