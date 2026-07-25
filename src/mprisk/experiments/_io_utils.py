@@ -1,8 +1,9 @@
 """Low-level IO helpers for downstream experiments (hashing, yaml, csv, paths).
 
-This module is the leaf of the experiments subpackage DAG. It must not import
-from any sibling module at runtime; ``CacheJob``/``DownstreamPlan`` are imported
-under :data:`typing.TYPE_CHECKING` only, for type annotations.
+This module sits at the bottom of the experiments subpackage DAG. It only
+imports from :mod:`mprisk.utils.io` (a true leaf with no ``mprisk.*`` imports),
+so there is no circular-import risk. ``CacheJob``/``DownstreamPlan`` are
+imported under :data:`typing.TYPE_CHECKING` only, for type annotations.
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
+
+from mprisk.utils.io import sha256_file
 
 if TYPE_CHECKING:
     from mprisk.experiments.jobs import CacheJob, DownstreamPlan
@@ -44,12 +47,13 @@ def _resolve(root: Path, path: str | Path) -> Path:
     return candidate if candidate.is_absolute() else (root / candidate).resolve()
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+def _sha256(path: Path | str) -> str:
+    """Delegate to the canonical :func:`mprisk.utils.io.sha256_file`.
+
+    Kept as a thin wrapper so existing ``experiments`` callers keep working;
+    new code should call ``sha256_file`` directly.
+    """
+    return sha256_file(path)
 
 
 def _json_sha256(payload: dict[str, Any]) -> str:
