@@ -13,16 +13,15 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
-from mprisk.data.generated_archive_freeze import (
-    _artifact_payload,
-    _canonical_json,
-    _json_bytes,
-    _jsonl_bytes,
-    _literal_assignment,
-    _read_jsonl_strict,
-    _sha256,
-    _write_immutable_outputs,
+from mprisk.data._freeze_helpers import (
+    artifact_payload as _artifact_payload,
+    json_bytes as _json_bytes,
+    jsonl_bytes as _jsonl_bytes,
+    literal_assignment as _literal_assignment,
+    read_jsonl_strict as _read_jsonl_strict,
+    write_immutable_outputs as _write_immutable_outputs,
 )
+from mprisk.utils.io import canonical_json as _canonical_json, sha256_file as _sha256
 
 
 class StrictModel(BaseModel):
