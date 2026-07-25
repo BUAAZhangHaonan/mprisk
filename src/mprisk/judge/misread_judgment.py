@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 
+from mprisk.utils.api_runner import SqliteLedgerBase
 from mprisk.utils.io import atomic_write_bytes as _atomic_bytes, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
 MISREAD_JUDGMENT_PROMPT = (
     "Compare the reference description with the diagnostic affect description. Return MISREAD "
@@ -198,44 +199,39 @@ class MisreadJudgeClient:
         await self.client.aclose()
 
 
-class MisreadJudgeLedger:
+class MisreadJudgeLedger(SqliteLedgerBase):
+    # running->pending / failed->pending must only fire after the signature
+    # matches, so disable the base __init__ resets and run them in prepare().
+    running_to_pending_sql = ""
+    failed_to_pending_sql = "UPDATE tasks SET status='pending' WHERE status='failed'"
+
+    _SCHEMA_SQL = """
+        CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS tasks (
+          sample_id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, request_hash TEXT NOT NULL,
+          request_json TEXT NOT NULL, status TEXT NOT NULL,
+          attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, raw_response TEXT,
+          error_type TEXT, error_message TEXT, updated_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS attempts (
+          sample_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
+          finished_at TEXT, outcome TEXT NOT NULL, raw_response TEXT,
+          error_type TEXT, error_message TEXT, PRIMARY KEY(sample_id, attempt)
+        );
+    """
+
     def __init__(self, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode=WAL")
-        self.connection.execute("PRAGMA synchronous=FULL")
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS tasks (
-              sample_id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, request_hash TEXT NOT NULL,
-              request_json TEXT NOT NULL, status TEXT NOT NULL,
-              attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, raw_response TEXT,
-              error_type TEXT, error_message TEXT, updated_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS attempts (
-              sample_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
-              finished_at TEXT, outcome TEXT NOT NULL, raw_response TEXT,
-              error_type TEXT, error_message TEXT, PRIMARY KEY(sample_id, attempt)
-            );
-            """
-        )
+        super().__init__(path, schema_sql=self._SCHEMA_SQL)
 
     def prepare(self, signature: dict[str, Any], *, retry_failed: bool = False) -> None:
-        value = _canonical_json(signature)
         with self.connection:
-            current = self.connection.execute(
-                "SELECT value FROM metadata WHERE key='signature'"
-            ).fetchone()
-            if current is not None and current["value"] != value:
-                raise ValueError("Existing judge ledger signature does not match")
-            self.connection.execute(
-                "INSERT OR IGNORE INTO metadata(key,value) VALUES('signature',?)", (value,)
+            self.check_metadata_signature(
+                key="signature",
+                value=signature,
+                retry_failed=retry_failed,
+                error_message="Existing judge ledger signature does not match",
             )
             self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
-            if retry_failed:
-                self.connection.execute("UPDATE tasks SET status='pending' WHERE status='failed'")
 
     def add_tasks(self, tasks: Sequence[MisreadJudgeTask]) -> None:
         with self.connection:
@@ -334,8 +330,7 @@ class MisreadJudgeLedger:
         return list(self.connection.execute("SELECT * FROM attempts ORDER BY sample_id,attempt"))
 
     def close(self) -> None:
-        self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-        self.connection.close()
+        self.checkpoint_and_close()
 
 
 async def run_misread_judgment(
