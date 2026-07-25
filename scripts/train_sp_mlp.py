@@ -45,7 +45,6 @@ from sklearn.metrics import (
     f1_score,
     roc_auc_score,
 )
-from torch.utils.data import DataLoader, TensorDataset
 
 HERE = Path(__file__).resolve().parent
 PROJ_ROOT = HERE.parent.parent
@@ -56,15 +55,15 @@ for _p in (str(V2_SRC), str(HERE)):
 
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
-from _seed import set_deterministic_seed  # noqa: E402
 from mprisk.cache.hidden_state_cache import normalize_protocol  # noqa: E402
 from mprisk.cache.prefill_extract import extract_t0_trajectory  # noqa: E402
 from mprisk.data.manifests import read_final_manifest  # noqa: E402
-from _trainer_lib import (  # noqa: E402  # P5-B shared helpers
+from _trainer_lib import (  # noqa: E402  # P5-B/P7-C shared helpers
     CONDITIONS, COND_IDX,
     _load_prompt_ids, _scan_cache, _load_split_assignment,
     _load_sample_type_map, _load_misread_labels, _domain_of,
     _balanced_per_class_acc, _eval_loss,
+    _train_classifier,  # P7-C: identical loop, was duplicated
 )
 
 
@@ -245,157 +244,6 @@ class SPMLPStage1Wrapper(nn.Module):
 # ---------------------------------------------------------------------------
 
 
-def _eval_classifier(model, X, y, *, batch_size, device):
-    """Compute metrics on (X, y). Returns dict or None if X is empty."""
-    n = X.shape[0]
-    if n == 0:
-        return None
-    model.eval()
-    probs = []
-    with torch.no_grad():
-        for i in range(0, n, batch_size):
-            xb = X[i:i + batch_size]
-            logits = model(xb)
-            p = F.softmax(logits, dim=-1)[:, 1]
-            probs.append(p.detach().cpu().numpy())
-    probs = np.concatenate(probs)
-    y_np = y.cpu().numpy()
-    preds = (probs >= 0.5).astype(np.int64)
-    bal, pc = _balanced_per_class_acc(preds, y_np)
-    return {
-        "accuracy": float(accuracy_score(y_np, preds)),
-        "balanced_acc": bal,
-        "macro_f1": float(f1_score(y_np, preds, zero_division=0)),
-        "ap": (
-            float(average_precision_score(y_np, probs))
-            if len(set(y_np.tolist())) > 1 else 0.0
-        ),
-        "roc_auc": (
-            float(roc_auc_score(y_np, probs))
-            if len(set(y_np.tolist())) > 1 else 0.0
-        ),
-        "per_class_acc": pc,
-        "probs": probs,
-        "preds": preds,
-    }
-
-
-def _train_classifier(
-    model,
-    X_tr,
-    y_tr,
-    X_va,
-    y_va,
-    X_te,
-    y_te,
-    *,
-    device,
-    max_epochs,
-    batch_size,
-    lr,
-    seed,
-    select_metric: str = "val_balanced_acc",
-):
-    """Train a classifier; return (best_metrics, best_state, history).
-
-    Plain Adam(lr) (no WD) + plain CE + clip 1.0 + no early stop.
-
-    Selection metric defaults to val_balanced_acc (val-selected) to avoid
-    test-set leakage when reporting final test numbers.
-    """
-    set_deterministic_seed(seed)
-    g = torch.Generator().manual_seed(seed)
-    model.to(device)
-    optim = torch.optim.Adam(
-        [p for p in model.parameters() if p.requires_grad], lr=lr
-    )
-    loader = DataLoader(
-        TensorDataset(X_tr, y_tr),
-        batch_size=min(batch_size, max(1, X_tr.shape[0])),
-        shuffle=True,
-        generator=g,
-    )
-    rng = np.random.RandomState(seed)
-
-    best_score = -1.0
-    best_metrics = None
-    best_state = None
-    last_state = None
-    history = []
-
-    for epoch in range(1, max_epochs + 1):
-        model.train()
-        for xb, yb in loader:
-            xb, yb = xb.to(device), yb.to(device)
-            optim.zero_grad(set_to_none=True)
-            loss = F.cross_entropy(model(xb), yb)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                [p for p in model.parameters() if p.requires_grad],
-                max_norm=1.0,
-            )
-            optim.step()
-
-        train_loss = _eval_loss(model, X_tr, y_tr, batch_size=batch_size)
-        val_loss = _eval_loss(model, X_va, y_va, batch_size=batch_size)
-        val_m = _eval_classifier(model, X_va, y_va, batch_size=batch_size, device=device) or {}
-        te_m = _eval_classifier(model, X_te, y_te, batch_size=batch_size, device=device) or {}
-
-        # M-A1-R5-2: single-code-path. The selection metric is ALWAYS
-        # val_balanced_acc; selecting on test leaks the test set.
-        assert select_metric == "val_balanced_acc", (
-            f"select_metric must be 'val_balanced_acc' (got {select_metric!r})"
-        )
-        val_score = float(val_m.get("balanced_acc", 0.0) or 0.0)
-        score = val_score
-
-        epoch_record = {
-            "epoch": epoch,
-            "train_loss": float(train_loss),
-            "val_loss": float(val_loss),
-            "val_balanced_acc": val_m.get("balanced_acc"),
-            "val_macro_f1": val_m.get("macro_f1"),
-            "val_ap": val_m.get("ap"),
-            "val_roc_auc": val_m.get("roc_auc"),
-            "test_balanced_acc": te_m.get("balanced_acc"),
-            "test_macro_f1": te_m.get("macro_f1"),
-            "test_ap": te_m.get("ap"),
-            "test_roc_auc": te_m.get("roc_auc"),
-        }
-        history.append(epoch_record)
-        print(
-            f"[ep{epoch:03d}] loss={train_loss:.4f} val_loss={val_loss:.4f} "
-            f"val_bal={val_m.get('balanced_acc', 0):.4f} "
-            f"test_bal={te_m.get('balanced_acc', 0):.4f} "
-            f"test_ap={te_m.get('ap', 0):.4f}",
-            file=sys.stderr, flush=True,
-        )
-
-        last_state = {
-            k: v.detach().cpu().clone() for k, v in model.state_dict().items()
-        }
-        if score > best_score:
-            best_score = score
-            best_metrics = {
-                "epoch": epoch,
-                "selection_metric": select_metric,
-                "val_balanced_acc": val_m.get("balanced_acc", 0.0),
-                "val_macro_f1": val_m.get("macro_f1", 0.0),
-                "val_ap": val_m.get("ap", 0.0),
-                "val_roc_auc": val_m.get("roc_auc", 0.0),
-                "test_balanced_acc": te_m.get("balanced_acc", 0.0),
-                "test_macro_f1": te_m.get("macro_f1", 0.0),
-                "test_ap": te_m.get("ap", 0.0),
-                "test_roc_auc": te_m.get("roc_auc", 0.0),
-                "per_class_acc": te_m.get("per_class_acc", {"class_0": 0.0, "class_1": 0.0}),
-            }
-            best_state = copy.deepcopy(last_state)
-
-    if best_metrics is None:
-        raise RuntimeError("no best epoch recorded (max_epochs=0?)")
-    best_metrics["best_epoch"] = best_metrics["epoch"]
-    best_metrics["final_epoch"] = max_epochs
-    return best_metrics, best_state, history
 
 
 # ---------------------------------------------------------------------------
