@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -13,6 +12,7 @@ from typing import Any
 
 import torch
 
+from mprisk.utils.io import sha256_file as _sha256
 from mprisk.representation.relation_models import strict_l2_normalize
 from mprisk.utils.io import write_json, write_jsonl
 
@@ -538,9 +538,3 @@ def _one(rows: list[dict[str, Any]], field: str) -> str:
     return next(iter(values))
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()

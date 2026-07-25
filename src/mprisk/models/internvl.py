@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import gc
-import hashlib
 import importlib.metadata
 import json
 import math
@@ -15,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from mprisk.utils.io import sha256_file as _sha256
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
 
 LoadVideo = Callable[..., tuple[Any, list[int]]]
@@ -548,11 +548,3 @@ def _trajectory_from_outputs(
     return trajectory
 
 
-def _sha256(path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"Required provenance file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()

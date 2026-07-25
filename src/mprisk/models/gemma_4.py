@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import gc
-import hashlib
 import json
 import subprocess
 import tempfile
@@ -15,6 +14,7 @@ from typing import Any
 
 import numpy as np
 
+from mprisk.utils.io import sha256_file as _sha256
 from mprisk.models.base_wrapper import (
     BaseModelWrapper,
     PrefillRequest,
@@ -512,11 +512,3 @@ def _require_attention_mask(model_inputs: Any) -> Any:
     return attention_mask
 
 
-def _sha256(path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(f"Required provenance file is missing: {path}")
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()

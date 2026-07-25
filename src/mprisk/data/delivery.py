@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import tarfile
 from collections import Counter, defaultdict
@@ -12,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
+from mprisk.utils.io import sha256_file as _sha256
 from mprisk.data.manifests import FinalManifestRow, read_jsonl, write_jsonl
 from mprisk.data.splits import assign_split
 
@@ -568,14 +568,6 @@ def _resolve_repo_path(root: Path, path: str | Path) -> Path:
     if resolved != root and root not in resolved.parents:
         raise ValueError(f"Repository artifact path escapes the repository: {candidate}")
     return resolved
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _canonical(row: dict[str, Any]) -> str:
