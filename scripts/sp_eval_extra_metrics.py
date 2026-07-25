@@ -184,7 +184,8 @@ def main():
         if not meta_path.exists() or not enc_path.exists():
             print(f'[skip] {run_dir}: missing meta/encoder')
             continue
-        meta = json.load(open(meta_path))
+        with meta_path.open() as fh:
+            meta = json.load(fh)
         model_key = meta['model_key']
 
         from mprisk_viz.baselines import load_encoder

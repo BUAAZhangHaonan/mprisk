@@ -55,6 +55,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import pickle
 import sys
 import time
 import traceback
@@ -254,14 +255,12 @@ def regenerate_run(
     config = TrainingConfig(**checkpoint["training_config"])
     _validate_config(config)
 
-    # The original canonical_rerun_v2 drivers always passed
-    # --exclude-prefix ch_sims_v2:; read it back from the metrics file if
-    # present, else default to that value to stay symmetric with training.
-    exclude_prefix = metrics.get("exclude_prefix", "ch_sims_v2:")
-    # Some older metrics files might not carry the field; fall back to the
-    # documented canonical_rerun_v2 default.
-    if not exclude_prefix:
-        exclude_prefix = "ch_sims_v2:"
+    # C-A1-R5-3: do not silently default to "ch_sims_v2:" — that filter
+    # shrinks the eval set without the caller knowing. If filtering is
+    # needed, pass --exclude-prefix on the CLI. We do still honor an
+    # exclude_prefix recorded inside train_metrics.json so that historical
+    # runs reproduce, but never invent a default.
+    exclude_prefix = metrics.get("exclude_prefix")  # may be None
 
     dataset_path = dataset_override or _infer_dataset_path(project_root, config)
     if not dataset_path.is_file():
@@ -326,7 +325,11 @@ def regenerate_run(
     if btp_path.is_file():
         try:
             old_payload = torch.load(btp_path, map_location="cpu", weights_only=False)
-        except Exception:
+        # m-A1-R5-9: only swallow the failures torch.load actually raises
+        # for corrupt / truncated / version-mismatched files. Letting any
+        # other Exception get swallowed would hide real bugs (e.g. a typo'd
+        # attribute access inside this try block).
+        except (pickle.UnpicklingError, EOFError, RuntimeError):
             old_payload = {}
     old_acc = old_payload.get("test_balanced_accuracy_ac")
     old_epoch = old_payload.get("epoch")
@@ -354,17 +357,31 @@ def regenerate_run(
         return [str(v) for v in values]
 
     # Write the new file (no migrated_from_test_keyed_v3 field — genuine).
-    new_payload = {
+    # C-A1-R5-2: when we fell back to unconstrained_best_checkpoint.pt the
+    # weights are by design NOT state-feasible; surface that in the metadata
+    # so downstream consumers cannot silently treat these preds as if they
+    # came from the state-feasible gate.
+    selection_metric_name = (
+        "val_balanced_accuracy_ac_unconstrained_fallback"
+        if used_fallback
+        else "val_balanced_accuracy_ac"
+    )
+    new_payload: dict[str, Any] = {
         "epoch": int(best_epoch),
         "sample_ids": _to_str_list(sample_ids_out),
         "labels": _to_int_list(labels_out),
         "preds": _to_int_list(preds_out),
         "probs": _to_float_list(probs_out),
-        "selection_metric": "val_balanced_accuracy_ac",
+        "selection_metric": selection_metric_name,
         "test_at_best_val_balanced_accuracy_ac": float(test_score),
         "test_at_best_val_ac_f1": float(test_f1),
         "test_at_best_val_ac_ap": float(test_ap),
     }
+    if used_fallback:
+        new_payload["feasibility_note"] = (
+            "weights from unconstrained_best_checkpoint.pt; "
+            "state-feasibility gate was bypassed"
+        )
     temporary = btp_path.with_suffix(btp_path.suffix + ".tmp")
     torch.save(new_payload, temporary)
     temporary.replace(btp_path)

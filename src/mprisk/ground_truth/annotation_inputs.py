@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import tempfile
 from collections import Counter
 from pathlib import Path
 from typing import Any, Literal
@@ -297,4 +299,13 @@ def _write_immutable(path: Path, content: bytes) -> None:
             raise ValueError(f"Immutable GT annotation artifact differs: {path}")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)

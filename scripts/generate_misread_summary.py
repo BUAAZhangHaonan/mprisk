@@ -14,7 +14,7 @@ import argparse
 import json
 from pathlib import Path
 
-MISREAD_DIR = Path(__file__).resolve().parents[3] / "outputs/v2/misread"
+MISREAD_DIR = Path(__file__).resolve().parents[1] / "outputs/v2/misread"
 
 # Display names matching user's table
 DISPLAY = {

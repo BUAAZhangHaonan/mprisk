@@ -29,6 +29,12 @@ import torch
 import yaml
 
 HERE = Path(__file__).resolve().parent
+# IMPORTANT: this module manipulates sys.path at import time so that the
+# ``mprisk`` and ``scripts`` packages resolve when ``mprisk_viz.pipeline``
+# is imported from arbitrary cwd. Deferring this to a main() guard would
+# break callers that import this module from outside the project root
+# (e.g. tests invoked from /tmp). Keep these insertions here and make sure
+# to invoke the pipeline from the project root, or pre-populate PYTHONPATH.
 MPRISK_SRC = HERE.parent.parent / "src"
 if str(MPRISK_SRC) not in sys.path:
     sys.path.insert(0, str(MPRISK_SRC))
@@ -53,29 +59,6 @@ from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.data.manifests import read_jsonl
 from mprisk.utils.io import write_json, write_jsonl
 
-# V2 only speed-up: smaller bootstrap replicates (200 vs 2000).
-# SDR formulas stay exactly as paper (no normalization of D or delta);
-# cross-model normalization uses S/kappa, D/tau, R/delta downstream.
-_spherical_mod.BOOTSTRAP_REPLICATES = 200
-
-# Optionally swap GRU-TME for LSTM-TME (set USE_LSTM_TME=True to enable).
-USE_LSTM_TME = True
-if USE_LSTM_TME:
-    from mprisk_viz.lstm_tme import install_v2_tme_factory  # noqa: E402
-    install_v2_tme_factory()
-
-# Optionally replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
-USE_SDR_AUX_LOSS = True
-if USE_SDR_AUX_LOSS:
-    from mprisk_viz.sdr_loss import install_sdr_aware_loss  # noqa: E402
-    install_sdr_aware_loss(
-        aux_weight=1.0,
-        margin_D=0.60,   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
-        margin_R=0.40,
-        warmup_epochs=10,
-    )
-
-
 def _v2_relaxed_shape_check(entries, sample_id):
     """V2 only requires layer_count and hidden_dim to match across M1/M2/M12."""
     present = {entry.condition for entry in entries}
@@ -89,7 +72,46 @@ def _v2_relaxed_shape_check(entries, sample_id):
         )
 
 
-_state_dataset_mod._require_consistent_entry_shape = _v2_relaxed_shape_check
+_V2_PATCHES_INSTALLED = False
+
+
+def install_v2_pipeline_patches() -> None:
+    """Apply v2-specific monkey-patches to the canonical ``mprisk`` library.
+
+    Deferred to an explicit call (invoked by ``run_v2_for_model``) instead of
+    firing at import time, so ``import mprisk_viz.pipeline`` is side effect
+    free. Tests that import this module for smoke checks must not corrupt
+    publication library state (BOOTSTRAP_REPLICATES, build_representation_model,
+    batch loss, shape check).
+
+    Idempotent: re-entry is a no-op so repeated calls from a long-lived
+    process are safe.
+    """
+    global _V2_PATCHES_INSTALLED
+    if _V2_PATCHES_INSTALLED:
+        return
+    _V2_PATCHES_INSTALLED = True
+
+    # V2 speed-up: smaller bootstrap replicates (200 vs 2000).
+    # SDR formulas stay exactly as paper (no normalization of D or delta);
+    # cross-model normalization uses S/kappa, D/tau, R/delta downstream.
+    _spherical_mod.BOOTSTRAP_REPLICATES = 200
+
+    # Swap GRU-TME for LSTM-TME.
+    from mprisk_viz.lstm_tme import install_v2_tme_factory
+    install_v2_tme_factory()
+
+    # Replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
+    from mprisk_viz.sdr_loss import install_sdr_aware_loss
+    install_sdr_aware_loss(
+        aux_weight=1.0,
+        margin_D=0.60,   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
+        margin_R=0.40,
+        warmup_epochs=10,
+    )
+
+    # Relax cache entry shape check: v2 only requires layer_count + hidden_dim match.
+    _state_dataset_mod._require_consistent_entry_shape = _v2_relaxed_shape_check
 
 
 @dataclass(frozen=True)
@@ -155,8 +177,9 @@ def run_v2_for_model(
     split_assignment: str | Path,
     output_root: str | Path,
     cache_root: str | Path,
-    prompt_cache_manifest: str | Path | None,
-    prompt_conditioned_cache_manifest: str | Path | None,
+    prompt_cache_manifest: str | Path | None = None,
+    prompt_conditioned_cache_manifest: str | Path | None = None,
+    unified_cache_manifest: str | Path | None = None,
     kappa_quantile: float = 0.80,
     tau_quantile: float = 0.50,
     max_epochs: int = 300,
@@ -164,13 +187,35 @@ def run_v2_for_model(
     device: str = "cpu",
     resume_checkpoint: str | Path | None = None,
 ) -> V2PipelineResult:
-    """Run the full v2 pipeline for one (model, seed) pair."""
+    """Run the full v2 pipeline for one (model, seed) pair.
+
+    Callers may pass any combination of the three cache manifests. If any of
+    ``prompt_cache_manifest`` / ``prompt_conditioned_cache_manifest`` /
+    ``unified_cache_manifest`` is missing, all three are auto-built from
+    ``cache_root`` via :func:`mprisk_viz.setup_helper.setup_v2_cache_manifests`.
+    """
+    install_v2_pipeline_patches()
+
     protocol = normalize_protocol(spec.protocol)
     out = Path(output_root)
     train_dir = out / "checkpoints" / spec.model_key
     train_dir.mkdir(parents=True, exist_ok=True)
 
-    if prompt_cache_manifest is None or prompt_conditioned_cache_manifest is None:
+    if (
+        prompt_cache_manifest is None
+        or prompt_conditioned_cache_manifest is None
+        or unified_cache_manifest is None
+    ):
+        if (
+            prompt_cache_manifest is not None
+            or prompt_conditioned_cache_manifest is not None
+            or unified_cache_manifest is not None
+        ):
+            raise ValueError(
+                "run_v2_for_model requires all three cache manifests to be set "
+                "together: prompt_cache_manifest, prompt_conditioned_cache_manifest, "
+                "and unified_cache_manifest. Pass either all three or none (auto-build)."
+            )
         from mprisk_viz.setup_helper import setup_v2_cache_manifests
         print(f"[v2][{spec.model_key}] auto-building cache manifests...", flush=True)
         setup_out = setup_v2_cache_manifests(
@@ -258,7 +303,7 @@ def run_v2_for_model(
             manifest_path=embedding_dir / "frozen_representations.jsonl",
             bundle_manifest_path=spherical_path,
             summary_path=embedding_dir / "frozen_representation_summary.json",
-            count=sum(1 for _ in open(spherical_path, "r", encoding="utf-8")),
+            count=_count_lines(spherical_path),
         )
     else:
         embedding_result = export_frozen_representations(
@@ -351,3 +396,9 @@ def _count_field(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
         v = str(r.get(field, ""))
         counts[v] = counts.get(v, 0) + 1
     return counts
+
+
+def _count_lines(path: Path) -> int:
+    """Count non-empty lines in a file without leaking the file handle."""
+    with path.open("r", encoding="utf-8") as fh:
+        return sum(1 for _ in fh)

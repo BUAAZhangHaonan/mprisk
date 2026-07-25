@@ -446,13 +446,13 @@ def _train_classifier(
         val_m = _eval_classifier(model, X_va, y_va, batch_size=batch_size, device=device) or {}
         te_m = _eval_classifier(model, X_te, y_te, batch_size=batch_size, device=device) or {}
 
-        # aggregate by mean prob per sample_id is unnecessary here because
-        # features per (sid, pid) are deterministic and the row-level metric
-        # is what we report. But to match T4p/B9 conventions we use
-        # row-level balanced_acc as the selection metric.
-        te_score = float(te_m.get("balanced_acc", 0.0) or 0.0)
+        # M-A1-R5-2: single-code-path. The selection metric is ALWAYS
+        # val_balanced_acc; selecting on test leaks the test set.
+        assert select_metric == "val_balanced_acc", (
+            f"select_metric must be 'val_balanced_acc' (got {select_metric!r})"
+        )
         val_score = float(val_m.get("balanced_acc", 0.0) or 0.0)
-        score = te_score if select_metric.startswith("test") else val_score
+        score = val_score
 
         epoch_record = {
             "epoch": epoch,

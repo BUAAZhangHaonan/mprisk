@@ -19,7 +19,7 @@ GEN_TEST_FRAC = 0.1
 ASSIGNMENT_SCHEMA = "mprisk_representation_split_assignment_v1"
 CONFIG_KEY_VT = "representation_split_seed20260716_vt_v2"
 CONFIG_KEY_VA = "representation_split_seed20260716_va_v2"
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "data/processed/manifests/splits/representation_v1"
 
 

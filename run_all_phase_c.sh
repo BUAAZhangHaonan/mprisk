@@ -2,7 +2,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR}"
-source "${CONDA_PREFIX:-/opt/miniconda3}/../etc/profile.d/conda.sh" 2>/dev/null || true
+source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
 LOGDIR=outputs/canonical_rerun_v2/_logs/phase_c
@@ -37,7 +37,7 @@ run_one() {
 # Wave 1: C5 (longest, from scratch 100 epoch) - all 4 models x 3 seeds
 for MODEL in "${MODELS[@]}"; do
   for SEED in "${SEEDS[@]}"; do
-    run_one $EXPROOT/C5_tme_v3b_e2e_mn.sh $MODEL $SEED 1
+    run_one $EXPROOT/C5_tme_e2e_mn.sh $MODEL $SEED 1
   done
 done
 
@@ -66,10 +66,10 @@ done
 # Wave 3: C1/C3 stage1 + C2/C4 stage2 (chained per model+seed)
 for MODEL in "${MODELS[@]}"; do
   for SEED in "${SEEDS[@]}"; do
-    run_one $EXPROOT/C1_sp_mlp_v2_pretrain_ca.sh $MODEL $SEED 1
-    run_one $EXPROOT/C3_t_lstm_v2_pretrain_ca.sh $MODEL $SEED 1
-    run_one $EXPROOT/C2_sp_mlp_v2_mn_head.sh $MODEL $SEED 1
-    run_one $EXPROOT/C4_t_lstm_v2_mn_head.sh $MODEL $SEED 1
+    run_one $EXPROOT/C1_sp_mlp_pretrain_ca.sh $MODEL $SEED 1
+    run_one $EXPROOT/C3_t_lstm_pretrain_ca.sh $MODEL $SEED 1
+    run_one $EXPROOT/C2_sp_mlp_mn_head.sh $MODEL $SEED 1
+    run_one $EXPROOT/C4_t_lstm_mn_head.sh $MODEL $SEED 1
   done
 done
 

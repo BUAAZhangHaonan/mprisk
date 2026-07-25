@@ -3,9 +3,10 @@
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
-DEFAULT_ROOT = Path(__file__).resolve().parents[3] / "outputs" / "canonical_rerun_v2"
+DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "outputs" / "canonical_rerun_v2"
 DEFAULT_OUTPUT = DEFAULT_ROOT / "c_val_sel_aggregate.json"
 MODELS = ["qwen3_vl_8b", "qwen3_5_4b"]
 SEEDS = [20260717, 20260718, 20260719]
@@ -126,6 +127,11 @@ def main():
                         for s in SEEDS if s in results[method][model]["old"]]
             new_test = [results[method][model]["new"][s]["test_bal_acc"]
                         for s in SEEDS if s in results[method][model]["new"]]
+            if not old_test or not new_test:
+                print(f"[WARN] {method} {model}: old={len(old_test)} seeds, "
+                      f"new={len(new_test)} seeds (expected {len(SEEDS)} each) "
+                      f"-- skipping row", file=sys.stderr)
+                continue
             om, os_, _ = mean_std(old_test)
             nm, ns, _ = mean_std(new_test)
             delta = (nm - om) * 100 if (om is not None and nm is not None) else None
@@ -148,6 +154,11 @@ def main():
                             for s in SEEDS if s in results[method][model]["old"]]
                 new_vals = [results[method][model]["new"][s].get(metric_key)
                             for s in SEEDS if s in results[method][model]["new"]]
+                if not old_vals or not new_vals:
+                    print(f"[WARN] {method} {model} [{metric_name}]: old={len(old_vals)} "
+                          f"seeds, new={len(new_vals)} seeds (expected {len(SEEDS)} each) "
+                          f"-- skipping row", file=sys.stderr)
+                    continue
                 om, os_, _ = mean_std(old_vals)
                 nm, ns, _ = mean_std(new_vals)
                 delta = (nm - om) * 100 if (om is not None and nm is not None) else None

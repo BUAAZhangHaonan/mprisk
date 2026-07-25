@@ -46,9 +46,9 @@ def calibrate_aligned_thresholds(
     sample_ids = [str(row.get("sample_id", "")) for row in rows]
     if any(not sample_id for sample_id in sample_ids) or len(set(sample_ids)) != len(sample_ids):
         raise ValueError("Aligned calibration sample IDs must be non-empty and unique")
-    kappa = quantile([float(row["S_mean"]) for row in rows], quantile_level)
+    kappa = quantile_nearest_rank([float(row["S_mean"]) for row in rows], quantile_level)
     stable_rows = [row for row in rows if float(row["S_mean"]) <= kappa]
-    tau = quantile([float(row["D"]) for row in stable_rows], quantile_level)
+    tau = quantile_nearest_rank([float(row["D"]) for row in stable_rows], quantile_level)
     signature = hashlib.sha256(
         json.dumps(sorted(sample_ids), separators=(",", ":")).encode("utf-8")
     ).hexdigest()

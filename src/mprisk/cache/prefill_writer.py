@@ -141,13 +141,16 @@ def write_prefill_result(
             encoding="utf-8",
         )
 
-    # Rename order: shard first, manifest second, sidecar LAST.
-    # The sidecar carries the checksum, so its absence is the atomic
-    # "in-progress" marker for crash-recovery (see _recover_entry).
+    # Rename order: shard first, sidecar second, manifest LAST.
+    # The manifest is the atomic in-progress marker: readers querying the
+    # manifest will not see this entry until both shard and sidecar are in
+    # place. The sidecar carries the checksum used for crash-recovery
+    # verification (see _recover_entry), so it must be present before the
+    # manifest entry commits.
     os.replace(tmp_shard, shard)
-    if tmp_manifest is not None:
-        os.replace(tmp_manifest, manifest)
     os.replace(tmp_sidecar, sidecar)
+    if tmp_manifest is not None:
+        os.replace(tmp_manifest, manifest)  # LAST: commits the entry
     return PrefillCacheArtifact(
         shard_path=shard,
         sidecar_path=sidecar,

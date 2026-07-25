@@ -77,6 +77,7 @@ class FullCacheManifest:
         ledger_path: str | Path,
         ledger_rows: list[dict[str, str]] | None = None,
         raw_manifest: dict[str, Any] | None = None,
+        strict: bool = True,
     ) -> None:
         self.entries = list(entries)
         self.cache_root = Path(cache_root)
@@ -84,9 +85,13 @@ class FullCacheManifest:
         self.ledger_path = Path(ledger_path)
         self.ledger_rows = ledger_rows or []
         self.raw_manifest = raw_manifest or {}
-        self._entries_by_key: dict[tuple[str, str, str, str], list[HiddenStateEntry]] = {}
+        self._entries_by_key: dict[tuple[str, str, str, str], HiddenStateEntry] = {}
         for entry in self.entries:
-            self._entries_by_key.setdefault(entry.key, []).append(entry)
+            if entry.key in self._entries_by_key:
+                if strict:
+                    raise ValueError(f"duplicate manifest key: {entry.key!r}")
+            else:
+                self._entries_by_key[entry.key] = entry
 
     def query(
         self,
@@ -96,10 +101,7 @@ class FullCacheManifest:
         condition: str,
     ) -> HiddenStateEntry | None:
         key = (sample_id, model_key, normalize_protocol(protocol), normalize_condition(condition))
-        entries = self._entries_by_key.get(key)
-        if not entries:
-            return None
-        return entries[0]
+        return self._entries_by_key.get(key)
 
     def resolve_m_conditions(
         self,
@@ -168,6 +170,7 @@ def load_full_cache_manifest(
     *,
     manifest_path: str | Path | None = None,
     ledger_path: str | Path | None = None,
+    strict: bool = True,
 ) -> FullCacheManifest:
     root = Path(cache_root)
     manifest_file = _resolve_path(root, manifest_path or DEFAULT_MANIFEST_PATH)
@@ -176,6 +179,8 @@ def load_full_cache_manifest(
     raw_manifest = _read_manifest(manifest_file)
     manifest_entries = list(raw_manifest.get("entries") or [])
     ledger_rows = _read_ledger(ledger_file)
+    # Empty manifest falls back to ledger: the ledger captures ongoing
+    # extraction progress before the unified manifest is materialized.
     source_entries = manifest_entries if manifest_entries else ledger_rows
     entries = [
         _entry_from_row(row, cache_root=root)
@@ -190,6 +195,7 @@ def load_full_cache_manifest(
         ledger_path=ledger_file,
         ledger_rows=ledger_rows,
         raw_manifest=raw_manifest,
+        strict=strict,
     )
 
 

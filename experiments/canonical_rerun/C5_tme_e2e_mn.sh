@@ -28,6 +28,11 @@ MANIFEST=data/processed/manifests/protocol_manifests_merged/${PROTO,,}_merged_pr
 PROMPT_SET=configs/prompts/equiv_sets/${PROTO,,}_main_p8_seed20260717.yaml
 JUDGMENTS=outputs/v2/misread/$MODEL/judgments.jsonl
 
+if [ ! -f "$JUDGMENTS" ]; then
+  echo "[FATAL] judgments missing: $JUDGMENTS (run scripts/judge_misread.py first)" >&2
+  exit 2
+fi
+
 MAIN_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_main_p8_seed20260717
 DELIV_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_delivery_p8_seed20260717
 

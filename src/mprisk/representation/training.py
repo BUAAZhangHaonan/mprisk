@@ -1489,9 +1489,18 @@ def _train_epoch(
             angle_values.append(diagnostics["split_angle_rad"].detach())
             d_labels.append(grouped_labels.detach())
         if config.grad_clip_norm and config.grad_clip_norm > 0:
-            torch.nn.utils.clip_grad_norm_(
-                model.parameters(), max_norm=float(config.grad_clip_norm)
-            )
+            # C-A1-R5-1: clip every trainable param the optimizer knows about,
+            # which includes the Proxy Anchor proxies held inside `objective`.
+            # Using model.parameters() alone silently skipped them.
+            clip_params: list[nn.Parameter] = []
+            for group in optimizer.param_groups:
+                for p in group["params"]:
+                    if p.requires_grad:
+                        clip_params.append(p)
+            if clip_params:
+                torch.nn.utils.clip_grad_norm_(
+                    clip_params, max_norm=float(config.grad_clip_norm)
+                )
         optimizer.step()
         total_losses.append(total_loss_value)
     metrics = {
@@ -1775,10 +1784,15 @@ def _evaluate(
 ):
     """Evaluate ``model`` on ``samples``.
 
-    Returns ``(loss, balanced_acc, state_separation, f1, ap)`` by default.
-    When ``return_preds=True`` returns a 7-tuple adding
-    ``(sample_ids, labels_int, predictions_int, conflict_scores)`` so
-    canonical_rerun_v2 callers can persist per-sample test preds aligned
+    Returns a 5-tuple ``(loss, balanced_acc, state_separation, f1, ap)`` by
+    default.
+    When ``return_preds=True`` returns a 9-tuple adding
+    ``(sample_ids, labels_int, predictions_int, conflict_scores)``:
+
+        (loss, balanced_acc, state_separation, f1, ap,
+         sample_ids, labels_int, predictions_int, conflict_scores)
+
+    so canonical_rerun_v2 callers can persist per-sample test preds aligned
     with best.pt.
     """
     model.eval()
@@ -1809,10 +1823,13 @@ def _evaluate(
         torch.cat(metric_outputs, dim=0),
         normalize=objective is not None,
     )
-    predictions = _sample_level_predictions(aggregate, objective=objective)
+    predictions, similarities = _sample_level_predictions(
+        aggregate, objective=objective, return_similarities=True
+    )
     prediction_values = [int(value) for value in predictions.detach().cpu().numpy()]
     f1_value, ap_value, conflict_scores = _ac_aux_metrics(
-        labels, aggregate, predictions, objective=objective, return_scores=True
+        labels, aggregate, predictions,
+        objective=objective, return_scores=True, similarities=similarities,
     )
     state_separation = None
     if d_objective is not None:
@@ -1956,11 +1973,27 @@ def _sample_level_predictions(
     aggregate: torch.Tensor,
     *,
     objective: ProxyAnchorLoss | None,
-) -> torch.Tensor:
+    return_similarities: bool = False,
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor | None]:
+    """Argmax over class scores.
+
+    By default returns just the predictions. When ``return_similarities=True``
+    also returns the similarities matrix (or ``None`` when there is no
+    objective, in which case ``aggregate`` itself is the logit matrix and
+    callers should use it directly). The similarities are returned so the
+    caller can pass them to ``_ac_aux_metrics`` and avoid recomputing the
+    same ``aggregate @ proxies.T`` matmul twice (M-A1-R5-3).
+    """
     if objective is None:
-        return aggregate.argmax(dim=-1)
+        preds = aggregate.argmax(dim=-1)
+        if return_similarities:
+            return preds, None
+        return preds
     similarities = aggregate @ objective.normalized_proxies().T
-    return similarities.argmax(dim=-1)
+    preds = similarities.argmax(dim=-1)
+    if return_similarities:
+        return preds, similarities
+    return preds
 
 
 def _balanced_accuracy(labels: list[int], predictions: list[int]) -> float:
@@ -1980,6 +2013,7 @@ def _ac_aux_metrics(
     *,
     objective: ProxyAnchorLoss | None,
     return_scores: bool = False,
+    similarities: torch.Tensor | None = None,
 ) -> tuple[float, float] | tuple[float, float, np.ndarray]:
     """Compute binary F1 (pos_label=1=Conflict) and AP.
 
@@ -1993,11 +2027,16 @@ def _ac_aux_metrics(
     When ``return_scores=True`` the third return value is the per-sample
     conflict_score array (used by canonical_rerun_v2 to persist
     best_test_probs aligned with best.pt).
+
+    ``similarities`` (M-A1-R5-3): if the caller already computed
+    ``aggregate @ proxies.T`` for prediction, pass it in here to avoid
+    recomputing the matmul. When ``objective is None`` this is ignored.
     """
     labels_np = np.asarray(labels, dtype=np.int64)
     if objective is not None:
         with torch.no_grad():
-            similarities = aggregate @ objective.normalized_proxies().T
+            if similarities is None:
+                similarities = aggregate @ objective.normalized_proxies().T
             conflict_scores = similarities[:, 1].detach().float().cpu().numpy()
     else:
         probs = torch.softmax(aggregate, dim=-1)[:, 1]
@@ -2226,15 +2265,11 @@ def _validate_config(config: TrainingConfig) -> None:
 
 
 def _set_deterministic_seed(seed: int) -> None:
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.use_deterministic_algorithms(True)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
+    # m-A1-R5-1: delegate to mprisk.utils.seeds so the deterministic-algorithm
+    # flags are defined in exactly one place (scripts/_seed.py imports the
+    # same function).
+    from mprisk.utils.seeds import set_deterministic_seed
+    set_deterministic_seed(seed)
 
 
 def _resolve_device(device: str | torch.device) -> torch.device:

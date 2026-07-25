@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
-"""Check T5 best_checkpoint.pt epoch alignment; cp unconstrained -> best if mismatched."""
+"""Check T5 best_checkpoint.pt epoch alignment; cp unconstrained -> best if mismatched.
+
+M-A1-R5-5: --root is now configurable (defaults to the historical path so
+            existing call sites keep working).
+M-A1-R5-6: track mismatches and fixed separately; print dry-run hint
+            unconditionally when --apply is not set.
+"""
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import sys
@@ -9,19 +16,41 @@ from pathlib import Path
 
 import torch
 
-ROOT = Path("outputs/canonical_rerun_v2/T5_lstm_ca_frozen")
+DEFAULT_ROOT = "outputs/canonical_rerun_v2/T5_lstm_ca_frozen"
 
 
-def main() -> int:
-    if not ROOT.is_dir():
-        print(f"T5 root not found: {ROOT}")
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--root",
+        default=DEFAULT_ROOT,
+        help=(
+            "Run-root containing per-run subdirs with best_checkpoint.pt, "
+            f"unconstrained_best_checkpoint.pt and train_metrics.json. "
+            f"Defaults to {DEFAULT_ROOT!r}."
+        ),
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="Actually copy unconstrained_best_checkpoint.pt over best_checkpoint.pt.",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    root = Path(args.root)
+    apply = args.apply
+    if not root.is_dir():
+        print(f"T5 root not found: {root}")
         return 1
 
-    apply = "--apply" in sys.argv
+    mismatches = 0
     fixed = 0
     skipped = 0
 
-    for run in sorted(ROOT.iterdir()):
+    for run in sorted(root.iterdir()):
         if not run.is_dir():
             continue
         bc = run / "best_checkpoint.pt"
@@ -43,6 +72,7 @@ def main() -> int:
         mismatch = bc_epoch != metric_best or bc_best != metric_best
 
         if mismatch:
+            mismatches += 1
             print(
                 f"MISMATCH {run.name}: "
                 f"bc_epoch={bc_epoch} bc_best={bc_best} "
@@ -64,8 +94,10 @@ def main() -> int:
                 f"bc_best={bc_best} metric_best={metric_best}"
             )
 
-    print(f"\nSummary: {fixed} fixed, {skipped} skipped")
-    if not apply and fixed > 0:
+    print(
+        f"\nSummary: {mismatches} mismatches, {fixed} fixed, {skipped} skipped"
+    )
+    if not apply:
         print("(dry-run; rerun with --apply to execute the copies)")
     return 0
 

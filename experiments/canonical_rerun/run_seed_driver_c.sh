@@ -15,19 +15,19 @@ EXPERIMENTS=experiments/canonical_rerun
 FAILED=()
 
 echo "=== [seed=$SEED gpu=$GPU] C1 (sp_mlp_v2 stage1) ==="
-bash $EXPERIMENTS/C1_sp_mlp_v2_pretrain_ca.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C1")
+bash $EXPERIMENTS/C1_sp_mlp_pretrain_ca.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C1")
 
 echo "=== [seed=$SEED gpu=$GPU] C2 (sp_mlp_v2 stage2) ==="
-bash $EXPERIMENTS/C2_sp_mlp_v2_mn_head.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C2")
+bash $EXPERIMENTS/C2_sp_mlp_mn_head.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C2")
 
 echo "=== [seed=$SEED gpu=$GPU] C3 (t_lstm_v2 stage1) ==="
-bash $EXPERIMENTS/C3_t_lstm_v2_pretrain_ca.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C3")
+bash $EXPERIMENTS/C3_t_lstm_pretrain_ca.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C3")
 
 echo "=== [seed=$SEED gpu=$GPU] C4 (t_lstm_v2 stage2) ==="
-bash $EXPERIMENTS/C4_t_lstm_v2_mn_head.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C4")
+bash $EXPERIMENTS/C4_t_lstm_mn_head.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C4")
 
 echo "=== [seed=$SEED gpu=$GPU] C5 (tme_v3b e2e) ==="
-bash $EXPERIMENTS/C5_tme_v3b_e2e_mn.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C5")
+bash $EXPERIMENTS/C5_tme_e2e_mn.sh "$MODEL" "$SEED" "$GPU" || FAILED+=("C5")
 
 if [ ${#FAILED[@]} -gt 0 ]; then
   echo "=== [seed=$SEED gpu=$GPU] FAILED stages: ${FAILED[*]} ===" >&2

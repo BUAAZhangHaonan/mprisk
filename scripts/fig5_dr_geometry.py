@@ -23,7 +23,7 @@ import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap, Normalize
 from matplotlib.cm import ScalarMappable
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from mprisk_viz.plotting import load_state_patterns
 
 mpl.rcParams.update({

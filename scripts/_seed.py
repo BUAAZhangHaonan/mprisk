@@ -1,18 +1,19 @@
-"""Shared deterministic seed helper for v2 training scripts."""
-import os
-import random
+"""Shared deterministic seed helper for v2 training scripts.
 
-import numpy as np
-import torch
+m-A1-R5-1: implementation now lives in ``src/mprisk/utils/seeds.py``; this
+file is a thin re-export so existing ``from _seed import set_deterministic_seed``
+imports keep working while the codebase migrates to the canonical path.
+"""
+from __future__ import annotations
 
+import sys
+from pathlib import Path
 
-def set_deterministic_seed(seed: int) -> None:
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = False
-    torch.backends.cudnn.deterministic = True
-    torch.use_deterministic_algorithms(True)
+_HERE = Path(__file__).resolve().parent
+_SRC = _HERE.parent / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
+
+from mprisk.utils.seeds import set_deterministic_seed  # noqa: E402,F401
+
+__all__ = ["set_deterministic_seed"]

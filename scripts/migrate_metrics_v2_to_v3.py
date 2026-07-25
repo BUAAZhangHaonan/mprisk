@@ -130,7 +130,10 @@ def migrate_one(run_dir: Path, dry_run: bool = False) -> dict:
 
     return {
         "status": "migrated" if not dry_run else "would-migrate",
-        "run_dir": str(run_dir.relative_to(run_dir.parents[-1] if run_dir.parents else Path("."))),
+        # M-A1-R5-4: previously this called .relative_to(parents[-1]) which
+        # produced a path relative to the filesystem root and was meaningless.
+        # Use the absolute run_dir so downstream tooling can actually find it.
+        "run_dir": str(run_dir),
         "best_epoch": int(best_epoch),
         "old_best_test_acc": old_test_acc,
         "new_test_at_best_val_acc": float(new_test_acc),

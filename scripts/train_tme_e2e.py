@@ -423,6 +423,17 @@ def train_tme_v3b(
     warm_start_used = False
     if tme_pa_checkpoint is not None:
         ckpt = torch.load(tme_pa_checkpoint, map_location="cpu", weights_only=False)
+        # C-A1-R5-4: refuse to warm-start the GRU encoder from a checkpoint
+        # built on a different architecture (e.g. an LSTM checkpoint). The
+        # encoder state-dict shape will not match and load_state_dict(strict=True)
+        # below would fail with a cryptic tensor-mismatch error.
+        arch = ckpt.get("architecture_version")
+        if arch != "layer_l2_gru_linear_relation_v1":
+            raise ValueError(
+                f"--tme-pa-checkpoint has architecture_version={arch!r}; "
+                "train_tme_e2e only supports GRU warm-start "
+                "(layer_l2_gru_linear_relation_v1)."
+            )
         full_state = ckpt.get("model_state_dict", ckpt)
         enc_state = {
             k[len("condition_encoder."):]: v
@@ -441,13 +452,10 @@ def train_tme_v3b(
             file=sys.stderr, flush=True,
         )
 
-    # Kaiming init for head linears (encoder is either warm-started or
-    # PyTorch default GRU init).
-    for m in model.head.modules():
-        if isinstance(m, nn.Linear):
-            nn.init.kaiming_normal_(m.weight, nonlinearity="relu")
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
+    # m-A1-R5-7: rely on PyTorch's default nn.Linear init (Kaiming-uniform
+    # with a=sqrt(5)); explicitly forcing Kaiming-normal with nonlinearity
+    # "relu" does not match the actual head activations and would only
+    # perturb convergence without a principled reason.
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"[model] TME v3-B trainable params = {n_params:,}", file=sys.stderr, flush=True)
@@ -570,12 +578,19 @@ def train_tme_v3b(
 
     if best_state is not None:
         model.load_state_dict(best_state["model"])
-    if last_state is not None:
-        model._last_state_snapshot = last_state  # type: ignore[attr-defined]
-    if best_test_payload is not None:
-        model._best_test_payload = best_test_payload  # type: ignore[attr-defined]
 
-    return best_metrics, {"history": history}, model, n_params, warm_start_used
+    # M-A1-R5-7: previously we monkey-patched these onto the model instance
+    # and read them back via getattr in main(); we now return them directly
+    # so the data flow is explicit and the model is left untouched.
+    return (
+        best_metrics,
+        {"history": history},
+        model,
+        n_params,
+        warm_start_used,
+        last_state,
+        best_test_payload,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -739,7 +754,17 @@ def main():
     if tme_pa_ckpt is not None and not tme_pa_ckpt.exists():
         raise FileNotFoundError(f"TME PA checkpoint not found: {tme_pa_ckpt}")
 
-    best_metrics, history_payload, model, n_params, warm_start_used = train_tme_v3b(
+    # M-A1-R5-7: train_tme_v3b now returns last_state + best_test_payload as
+    # explicit tuple elements instead of monkey-patching them onto the model.
+    (
+        best_metrics,
+        history_payload,
+        model,
+        n_params,
+        warm_start_used,
+        last_snapshot,
+        best_test_payload,
+    ) = train_tme_v3b(
         splits=splits,
         device=device,
         max_epochs=args.max_epochs,
@@ -767,7 +792,6 @@ def main():
     )
 
     # last_encoder.pt -- final-epoch snapshot
-    last_snapshot = getattr(model, "_last_state_snapshot", None)
     if last_snapshot is not None:
         torch.save(
             {
@@ -781,7 +805,6 @@ def main():
             out_dir / "last_encoder.pt",
         )
 
-    best_test_payload = getattr(model, "_best_test_payload", None)
     if best_test_payload is not None:
         torch.save(
             {

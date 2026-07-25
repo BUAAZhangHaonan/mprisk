@@ -370,8 +370,9 @@ def evaluate_capacity(
     used_bytes = (int(filesystem.f_blocks) - int(filesystem.f_bavail)) * block_size
     free_bytes = int(filesystem.f_bavail) * block_size
     total_inodes = int(filesystem.f_files)
+    # f_favail consistent across used/free, matching bytes fix
     free_inodes = int(filesystem.f_favail)
-    used_inodes = total_inodes - int(filesystem.f_ffree)
+    used_inodes = total_inodes - free_inodes
     projected_bytes = 0
     projected_inodes = 0
     model_records: list[dict[str, Any]] = []

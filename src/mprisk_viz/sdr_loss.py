@@ -10,6 +10,7 @@ geometry in the correct direction.
 
 from __future__ import annotations
 
+import weakref
 from collections.abc import Sequence
 from typing import Any
 
@@ -109,12 +110,24 @@ def make_sdr_aware_batch_loss(
 
 # Stash current epoch on the model object via a hook; train_trajectory_encoder
 # doesn't expose epoch to _batch_loss_and_outputs directly, so we read from a
-# thread-local set by a wrapper around _train_epoch.
-_EPOCH_STATE: dict[int, int] = {}
+# WeakKeyDictionary keyed by the model object set by a wrapper around
+# _train_epoch. WeakKeyDictionary avoids leaking models whose id() may be
+# reused by the interpreter after garbage collection.
+_EPOCH_STATE: "weakref.WeakKeyDictionary[nn.Module, int]" = weakref.WeakKeyDictionary()
 
 
 def _get_current_epoch(model: nn.Module) -> int:
-    return _EPOCH_STATE.get(id(model), 1)
+    return _EPOCH_STATE.get(model, 1)
+
+
+def _set_current_epoch(model: nn.Module, epoch: int) -> None:
+    _EPOCH_STATE[model] = int(epoch)
+
+
+# Idempotency guard: install_sdr_aware_loss monkey-patches module globals.
+# Calling it twice (e.g., on accidental re-import of pipeline.py) would
+# re-wrap the *already-wrapped* _train_epoch and double-count aux loss.
+_INSTALLED = False
 
 
 def install_sdr_aware_loss(
@@ -124,7 +137,15 @@ def install_sdr_aware_loss(
     margin_R: float = DEFAULT_MARGIN_R,
     warmup_epochs: int = 5,
 ) -> None:
-    """Monkey-patch _batch_loss_and_outputs to add SDR hinge."""
+    """Monkey-patch _batch_loss_and_outputs to add SDR hinge.
+
+    Idempotent: subsequent calls are a no-op (the first call wins). This
+    guards against re-import side effects when ``mprisk_viz.pipeline`` is
+    reloaded.
+    """
+    global _INSTALLED
+    if _INSTALLED:
+        return
     batch_loss = make_sdr_aware_batch_loss(
         aux_weight=aux_weight,
         margin_D=margin_D,
@@ -141,7 +162,8 @@ def install_sdr_aware_loss(
         if epoch is None:
             # _train_epoch signature is positional; fall back to args[4]
             epoch = args[4] if len(args) > 4 else 1
-        _EPOCH_STATE[id(model)] = int(epoch)
+        _set_current_epoch(model, int(epoch))
         return original_train_epoch(model, *args, **kwargs)
 
     _training_mod._train_epoch = wrapped_train_epoch
+    _INSTALLED = True

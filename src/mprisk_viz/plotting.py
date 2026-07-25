@@ -19,7 +19,7 @@ import seaborn as sns
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
 
-CONFICT_COLOR = "#d1495b"
+CONFLICT_COLOR = "#d1495b"
 ALIGNED_COLOR = "#2e4057"
 PATTERN_COLORS = {
     "Confusion":  "#d1495b",
@@ -111,7 +111,7 @@ def plot_fig04_sdr_distributions(
         for row, (field, label) in enumerate(metrics):
             ax = axes[row, col]
             for stype, color in [("Aligned", ALIGNED_COLOR),
-                                 ("Conflict", CONFICT_COLOR)]:
+                                 ("Conflict", CONFLICT_COLOR)]:
                 vals = df[df["sample_type"] == stype][field].values
                 if len(vals) < 2:
                     continue
@@ -228,7 +228,7 @@ def plot_fig06_stable_d_r(
         tau = float(thresholds[mk].get("tau", np.nan))
         stable = df[(df["S"] <= kappa) & df["D"].notna() & df["R"].notna()].copy()
         for stype, color in [("Aligned", ALIGNED_COLOR),
-                             ("Conflict", CONFICT_COLOR)]:
+                             ("Conflict", CONFLICT_COLOR)]:
             sub = stable[stable["sample_type"] == stype]
             if len(sub) == 0:
                 continue

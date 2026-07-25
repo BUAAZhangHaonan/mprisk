@@ -272,7 +272,7 @@ def label_to_dict(label: FinalMisreadLabel) -> dict[str, Any]:
         "agreement_ratio": label.agreement_ratio,
         "flash": [
             {
-                "judge_model": label.judge_model if False else "deepseek-v4-flash",
+                "judge_model": label.judge_model,
                 "decision": d,
                 "confidence": c,
                 "rationale": r,

@@ -24,7 +24,7 @@ import yaml
 
 torch.set_num_threads(8)
 
-PROJ_ROOT = Path(__file__).resolve().parents[3]
+PROJ_ROOT = Path(__file__).resolve().parents[1]
 V2_SRC = PROJ_ROOT / "src"
 if str(V2_SRC) not in sys.path:
     sys.path.insert(0, str(V2_SRC))

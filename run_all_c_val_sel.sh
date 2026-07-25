@@ -4,7 +4,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR}"
-source "${CONDA_PREFIX:-/opt/miniconda3}/../etc/profile.d/conda.sh" 2>/dev/null || true
+source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
 GPU=0
@@ -16,7 +16,7 @@ DONE=0
 FAIL=0
 for MODEL in "${MODELS[@]}"; do
   for SEED in "${SEEDS[@]}"; do
-    for STAGE in C1_sp_mlp_v2_pretrain_ca C2_sp_mlp_v2_mn_head C3_t_lstm_v2_pretrain_ca C4_t_lstm_v2_mn_head C5_tme_v3b_e2e_mn; do
+    for STAGE in C1_sp_mlp_pretrain_ca C2_sp_mlp_mn_head C3_t_lstm_pretrain_ca C4_t_lstm_mn_head C5_tme_e2e_mn; do
       TOTAL=$((TOTAL+1))
     done
   done
@@ -24,9 +24,9 @@ done
 
 for MODEL in "${MODELS[@]}"; do
   for SEED in "${SEEDS[@]}"; do
-    for STAGE in C1_sp_mlp_v2_pretrain_ca C2_sp_mlp_v2_mn_head C3_t_lstm_v2_pretrain_ca C4_t_lstm_v2_mn_head C5_tme_v3b_e2e_mn; do
+    for STAGE in C1_sp_mlp_pretrain_ca C2_sp_mlp_mn_head C3_t_lstm_pretrain_ca C4_t_lstm_mn_head C5_tme_e2e_mn; do
       KEY="${STAGE}|${MODEL}|${SEED}"
-      SH="experiments/canonical_rerun_v2/${STAGE}.sh"
+      SH="experiments/canonical_rerun/${STAGE}.sh"
       echo ">>> [$((DONE+FAIL+1))/$TOTAL] $KEY"
       if bash "$SH" "$MODEL" "$SEED" "$GPU" > "outputs/canonical_rerun_v2/_logs/${STAGE}_${MODEL}_seed${SEED}.log" 2>&1; then
         STATUS[$KEY]="OK"
