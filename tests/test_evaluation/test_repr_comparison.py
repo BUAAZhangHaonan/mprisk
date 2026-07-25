@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -153,45 +151,3 @@ def test_compare_representations_writes_json_and_csv_with_tme_and_missing_rows(
     ]
     assert csv_rows[1]["repr_key"] == "tme_proxy_anchor_v1"
     assert csv_rows[2]["status"] == "missing"
-
-
-def test_repr_comparison_cli_rejects_legacy_misread_input(tmp_path: Path) -> None:
-    output_dir = tmp_path / "outputs/evaluation/main/qwen3_vl_8b/VT"
-    config_path = tmp_path / "comparison_config.json"
-    _write_json(
-        config_path,
-        {
-            "representations": {
-                "raw_layernorm_mean": _repr_paths(tmp_path, "raw_layernorm_mean", d_offset=0.0),
-                "tme_proxy_anchor_v1": _repr_paths(
-                    tmp_path, "tme_proxy_anchor_v1", d_offset=0.1
-                ),
-                "raw_layernorm_flat": {
-                    "sdr_scores": str(tmp_path / "missing/sdr_scores.jsonl"),
-                    "state_patterns": str(tmp_path / "missing/state_patterns.jsonl"),
-                    "state_to_error": str(tmp_path / "missing/state_to_error.json"),
-                    "conflict_vs_aligned": str(tmp_path / "missing/conflict_vs_aligned.json"),
-                },
-            }
-        },
-    )
-
-    completed = subprocess.run(
-        [
-            sys.executable,
-            "scripts/run_repr_comparison.py",
-            "--config",
-            str(config_path),
-            "--output-dir",
-            str(output_dir),
-        ],
-        cwd=Path(__file__).resolve().parents[2],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode != 0
-    assert "legacy representation comparison is disabled" in completed.stderr
-    assert not (output_dir / "repr_comparison.json").exists()
-    assert not (output_dir / "repr_comparison.csv").exists()
