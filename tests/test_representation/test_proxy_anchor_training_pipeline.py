@@ -10,6 +10,7 @@ import pytest
 import torch
 from safetensors.numpy import save_file
 
+from mprisk.representation import data as data_impl
 from mprisk.representation import training as training_impl
 from mprisk.representation.losses import ProxyAnchorLoss
 from mprisk.representation.relation_models import TME_ARCHITECTURE_V1, TME_PROXY_ANCHOR_V1
@@ -259,7 +260,7 @@ def test_relation_index_is_metadata_only_and_loads_one_bounded_batch(tmp_path, m
         calls.append((entry.sample_id, entry.condition, prompt_id))
         return np.zeros((entry.layer_count, entry.hidden_dim), dtype=np.float32)
 
-    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    monkeypatch.setattr(data_impl, "extract_t0_trajectory", fake_extract)
     refs = _rows_to_sample_refs(rows)
 
     assert calls == []
@@ -377,7 +378,7 @@ def test_training_selects_one_reproducible_prompt_per_sample_and_epoch(
         calls.append((entry.sample_id, entry.condition))
         return np.ones((entry.layer_count, entry.hidden_dim), dtype=np.float32)
 
-    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    monkeypatch.setattr(data_impl, "extract_t0_trajectory", fake_extract)
     for batch in training_impl._batches(epoch_one, 4):
         _load_trajectory_batch(batch, device=torch.device("cpu"))
     assert len(calls) == 6 * 3

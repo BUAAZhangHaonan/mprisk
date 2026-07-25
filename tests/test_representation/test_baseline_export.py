@@ -9,6 +9,7 @@ import pytest
 import torch
 import yaml
 
+from mprisk.representation import data as data_impl
 from mprisk.representation import training as training_impl
 from mprisk.representation.relation_models import (
     SINGLE_POINT_BINARY_V1,
@@ -176,7 +177,7 @@ def test_baseline_export_streams_and_aggregates_held_out_prompts_once(
         offset = 0.0 if entry.sample_id == "sample-a" else 1.0
         return np.full((2, 3), offset + len(calls) / 1000.0, dtype=np.float32)
 
-    monkeypatch.setattr(training_impl, "extract_t0_trajectory", fake_extract)
+    monkeypatch.setattr(data_impl, "extract_t0_trajectory", fake_extract)
     result = export_frozen_baseline_representations(
         dataset_path=dataset,
         checkpoint_path=_checkpoint(tmp_path, repr_key),
