@@ -13,7 +13,7 @@ from statistics import stdev
 from typing import Any
 
 from mprisk.data.manifests import read_jsonl
-from mprisk.utils.io import ensure_parent, write_json
+from mprisk.utils.io import read_json_object as _read_json, ensure_parent as ensure_parent, write_json as write_json
 
 REQUIRED_INPUTS = ("sdr_scores", "state_patterns", "state_to_error", "conflict_vs_aligned")
 CSV_FIELDS = [
@@ -144,14 +144,6 @@ def _missing_inputs(paths: Mapping[str, Path]) -> list[str]:
         elif not path.exists():
             missing.append(f"{name}: file not found: {path}")
     return missing
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
-        payload = json.load(handle)
-    if not isinstance(payload, dict):
-        raise ValueError(f"{path}: expected JSON object")
-    return payload
 
 
 def _d_effect(

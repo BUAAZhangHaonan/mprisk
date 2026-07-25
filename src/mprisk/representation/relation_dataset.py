@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mprisk.utils.io import write_json, write_jsonl
+from mprisk.utils.io import read_jsonl as _read_jsonl, write_json as write_json, write_jsonl as write_jsonl
 
 CONDITIONS = ("M1", "M2", "M12")
 LABEL_TO_ID = {"Aligned": 0, "Conflict": 1}
@@ -157,19 +157,6 @@ def build_relation_dataset(
         },
     )
     return RelationDatasetBuildResult(dataset_path, summary_path, len(sample_ids), len(rows))
-
-
-def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with Path(path).open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                raise ValueError(f"{path}:{line_number}: bundle must be a JSON object")
-            rows.append(row)
-    return rows
 
 
 def _reject_forbidden_fields(value: Any, *, path: str = "root") -> None:

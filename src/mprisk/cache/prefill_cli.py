@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from mprisk.utils.io import read_jsonl as _read_jsonl
 from mprisk.cache.prefill_writer import write_prefill_result
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.qwen_omni import build_condition_request
@@ -153,21 +154,6 @@ def _build_requests(args: argparse.Namespace) -> list[PrefillRequest]:
             _validate_local_media(request)
             requests.append(request)
     return requests
-
-
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        raise FileNotFoundError(f"Input manifest does not exist: {path}")
-    rows = []
-    with path.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            payload = json.loads(line)
-            if not isinstance(payload, dict):
-                raise ValueError(f"Manifest line {line_number} must be a JSON object")
-            rows.append(payload)
-    return rows
 
 
 def _validate_local_media(request: PrefillRequest) -> None:
