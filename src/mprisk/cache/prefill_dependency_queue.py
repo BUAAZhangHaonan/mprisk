@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 from mprisk.cache._queue_capacity import (
-    _artifact_stats,
     _capacity_payload,
     evaluate_capacity,
 )
@@ -54,17 +53,7 @@ from mprisk.cache._queue_manifest import (
     UpstreamConfig,
     UpstreamStatus,
     WatcherFactory,
-    _load_capacity_gate,
-    _load_capacity_model,
-    _load_capacity_output,
-    _load_followup_job,
-    _load_gate_job,
-    _load_upstream_config,
-    _positive_int,
     _read_json,
-    _required_list,
-    _required_mapping,
-    _required_str,
     load_queue_manifest,
 )
 from mprisk.cache._queue_watcher import InotifyArtifactWatcher

@@ -12,9 +12,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
 
 from mprisk.cache._batch_ledger import BatchLedger
 from mprisk.cache._batch_plan import (
@@ -26,21 +25,13 @@ from mprisk.cache._batch_plan import (
     RecoveredArtifact,
 )
 from mprisk.cache._batch_planner import (
-    _parse_variables as _parse_variables,
-    _resolve_runtime_asset as _resolve_runtime_asset,
-    _template_fields as _template_fields,
     _validate_media as _validate_media,
-    _validate_rows as _validate_rows,
     build_batch_plan,
 )
 from mprisk.cache._batch_runner import (
     _dry_run_payload as _dry_run_payload,
-    _duration_summary as _duration_summary,
-    _gpu_status as _gpu_status,
     _materialize_failures as _materialize_failures,
     _materialize_outputs as _materialize_outputs,
-    _parse_condition_seconds as _parse_condition_seconds,
-    _probe_durations as _probe_durations,
     _recover_entry as _recover_entry,
     _request_for_task as _request_for_task,
 )

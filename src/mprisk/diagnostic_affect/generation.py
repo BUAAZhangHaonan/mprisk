@@ -31,13 +31,8 @@ from mprisk.diagnostic_affect._plan import (
     SIGNATURE_SCHEMA,
     DiagnosticAffectDescriptionPlan,
     DiagnosticAffectDescriptionTask,
-    _request_payload,
-    _result_payload,
 )
 from mprisk.diagnostic_affect._planner import (
-    _model_weight_map_sha256,
-    _required_media_paths,
-    _required_string,
     _select_smoke_sample_ids,
     build_diagnostic_affect_description_plan,
 )
