@@ -12,7 +12,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -617,7 +617,7 @@ def _git_head(repo_root: Path) -> str:
 
 
 def _timestamp() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _atomic_json(path: Path, payload: dict[str, Any]) -> None:

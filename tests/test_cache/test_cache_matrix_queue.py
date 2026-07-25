@@ -620,6 +620,7 @@ def test_complete_matrix_uses_dynamic_llava_context_and_accepts_only_internvl() 
         model.python_no_user_site == model.env_isolation
         for model in config.models
     )
+    assert config.runtime_inspection_timeout_seconds == 180
     accepted = {
         (model.model_key, domain)
         for model in config.models
@@ -655,7 +656,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         queue,
         "_inspect_runtime",
         lambda python, auxiliary, runtime_library_path, python_no_user_site,
-        env_isolation, family: {
+        env_isolation, family, timeout_seconds: {
             "sys_executable": "/env/bin/python",
             "python_no_user_site": False,
             "site_enable_user_site": True,
@@ -728,6 +729,7 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
         asset_config=tmp_path / "assets.yaml",
         repo_root=repo_root,
         output_root=tmp_path / "outputs",
+        runtime_inspection_timeout_seconds=180,
     )
 
     signature = build_asset_signature(config, model)

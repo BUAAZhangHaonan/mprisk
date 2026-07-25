@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -263,7 +263,7 @@ def write_extractor_evidence(
         "extraction_signature": normalized_signature,
         "model_asset_fingerprint": model_asset_fingerprint,
         "model_asset_inventory": model_asset_inventory,
-        "recorded_at": datetime.now(UTC).isoformat(),
+        "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
     _atomic_json(output, payload)
     return output
@@ -401,7 +401,7 @@ def build_cache_union(
         "entries": entries,
         "blocked_tasks": blocked_payload,
         "provenance": {
-            "created_at": datetime.now(UTC).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "prefill_strategy": prefill_strategy,
             "prefill_strategy_version": prefill_strategy_version,
             "selection": "exact delivery task identities; no shard copying",

@@ -184,6 +184,7 @@ class MatrixConfig:
     tmux_session: str
     max_gpu_memory_fraction: float
     cpu_threads_per_job: int
+    runtime_inspection_timeout_seconds: int
     max_projected_filesystem_utilization: float
 
 
@@ -411,6 +412,9 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
         tmux_session=_required_str(execution, "tmux_session"),
         max_gpu_memory_fraction=memory_fraction,
         cpu_threads_per_job=_positive_int(execution, "cpu_threads_per_job"),
+        runtime_inspection_timeout_seconds=_positive_int(
+            execution, "runtime_inspection_timeout_seconds"
+        ),
         max_projected_filesystem_utilization=filesystem_limit,
     )
 
@@ -1413,6 +1417,7 @@ def build_asset_signature(
         model.python_no_user_site,
         model.env_isolation,
         model.family,
+        config.runtime_inspection_timeout_seconds,
     )
     signature = {
         "schema": "mprisk_cache_asset_signature_v3",
@@ -1501,6 +1506,7 @@ def _inspect_runtime(
     python_no_user_site: bool,
     env_isolation: bool,
     family: str,
+    timeout_seconds: int,
 ) -> dict[str, Any]:
     code = """
 import hashlib
@@ -1580,7 +1586,7 @@ print(json.dumps({
         check=False,
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=timeout_seconds,
     )
     if completed.returncode != 0:
         raise RuntimeError(

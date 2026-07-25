@@ -13,7 +13,7 @@ import time
 import traceback
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -978,7 +978,7 @@ def _select_smoke_sample_ids(
 
 
 def _now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _atomic_text(path: Path, value: str) -> None:
