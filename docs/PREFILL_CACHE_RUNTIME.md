@@ -51,3 +51,26 @@ Every task records sample, model, protocol, prompt set, prompt, and condition id
 Safetensors shards contain the float32 `[layer_count, hidden_dim]` trajectory. Sidecars,
 the combined `manifest.jsonl`, per-prompt manifests, and `batch_state.sqlite3` retain shape,
 t0, elapsed time, peak allocated GPU memory, and checksum.
+
+## Source/target scheduling
+
+The canonical complete-matrix config sets
+`execution.allow_parallel_domain_extraction: true`. Source and target are independent
+cache domains with separate output roots, ledgers, scoped runtime records, and locks.
+The stage controller may therefore start a target lane as soon as that physical GPU lane
+has no source supervisor ownership marker. It adopts an already-active canonical target
+supervisor after a controller restart and never starts a duplicate session or process.
+Before any parallel target launch or adoption, it writes
+`EXTRACTION_LAUNCH_AUDIT.json` only after the complete matrix is launchable and every
+source and target asset signature passes.
+
+A source session or scoped source lock owns its GPU lane until both markers disappear.
+In particular, target GPU 0 cannot start while the Phi-4 source queue owns GPU 0. An idle
+GPU 1 may run target extraction at the same time. When source GPU 0 finishes and releases
+its session and lock, target GPU 0 may start.
+
+Parallel extraction does not relax completion. Source and target each require their
+expected complete/accepted job counts, zero missing tasks, matching asset signatures,
+and finalized supervisors. The controller writes `FINAL_CACHE_AUDIT.json` and reports
+`complete` only after one full strict audit proves both domains complete. Bundle and
+publication steps consume that final audit and remain fail-closed.

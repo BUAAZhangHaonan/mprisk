@@ -11,7 +11,8 @@ Start with:
 - `NAMING_CONVENTIONS.md`: canonical code and paper terminology.
 - `DATA_PROTOCOL.md`: dataset and modality protocol.
 - `PIPELINE.md`: end-to-end execution stages.
-- `PREFILL_CACHE_RUNTIME.md`: resumable cache extraction contract.
+- `PREFILL_CACHE_RUNTIME.md`: resumable extraction, GPU-lane ownership, parallel
+  source/target scheduling, and the strict final cache gate.
 - `MODEL_PANEL.md`: model inventory and modality assignments.
 
 Retired plans and instructions remain available through Git history. Checked-out documentation

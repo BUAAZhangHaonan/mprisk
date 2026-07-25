@@ -621,6 +621,7 @@ def test_complete_matrix_uses_dynamic_llava_context_and_accepts_only_internvl() 
         for model in config.models
     )
     assert config.runtime_inspection_timeout_seconds == 180
+    assert config.allow_parallel_domain_extraction is True
     accepted = {
         (model.model_key, domain)
         for model in config.models

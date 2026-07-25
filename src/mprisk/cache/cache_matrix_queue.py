@@ -182,6 +182,7 @@ class MatrixConfig:
     runtime_record: Path
     lock_path: Path
     tmux_session: str
+    allow_parallel_domain_extraction: bool
     max_gpu_memory_fraction: float
     cpu_threads_per_job: int
     runtime_inspection_timeout_seconds: int
@@ -386,6 +387,9 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
                 )
             )
     execution = _required_mapping(raw, "execution")
+    allow_parallel_domain_extraction = _required_bool(
+        execution, "allow_parallel_domain_extraction"
+    )
     memory_fraction = float(execution.get("max_gpu_memory_fraction", 0.88))
     if not 0 < memory_fraction < 0.90:
         raise ValueError("max_gpu_memory_fraction must be positive and below 0.90")
@@ -410,6 +414,7 @@ def load_matrix_config(path: str | Path) -> MatrixConfig:
         runtime_record=resolve(_required_str(raw, "runtime_record")),
         lock_path=resolve(_required_str(raw, "lock_path")),
         tmux_session=_required_str(execution, "tmux_session"),
+        allow_parallel_domain_extraction=allow_parallel_domain_extraction,
         max_gpu_memory_fraction=memory_fraction,
         cpu_threads_per_job=_positive_int(execution, "cpu_threads_per_job"),
         runtime_inspection_timeout_seconds=_positive_int(

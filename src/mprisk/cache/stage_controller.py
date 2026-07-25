@@ -37,6 +37,7 @@ class ControllerPaths:
     run_status: Path
     event_log: Path
     lock_path: Path
+    extraction_launch_audit: Path
     source_audit: Path
     final_audit: Path
 
@@ -49,6 +50,7 @@ def build_controller_paths(output_dir: Path) -> ControllerPaths:
         run_status=root / "RUN_STATUS.md",
         event_log=root / "controller.log",
         lock_path=root / "controller.lock",
+        extraction_launch_audit=root / "EXTRACTION_LAUNCH_AUDIT.json",
         source_audit=root / "SOURCE_COMPLETE_AUDIT.json",
         final_audit=root / "FINAL_CACHE_AUDIT.json",
     )
@@ -293,14 +295,98 @@ def stage_is_finalized(
     return finalized, statuses
 
 
+def stage_lane_statuses(
+    config: MatrixConfig, *, stage: str, sessions: dict[int, str]
+) -> list[dict[str, Any]]:
+    return [
+        lane_supervisor_status(
+            config, stage=stage, lane=lane, session=sessions[lane]
+        )
+        for lane in (0, 1)
+    ]
+
+
+def plan_target_lane_launches(
+    *,
+    source_statuses: list[dict[str, Any]],
+    target_statuses: list[dict[str, Any]],
+    pending_target_lanes: set[int],
+    allow_launch: bool,
+) -> dict[str, list[int]]:
+    source_owned = {
+        int(status["lane"])
+        for status in source_statuses
+        if status["session_exists"] or status["lock_exists"]
+    }
+    target_by_lane = {
+        int(status["lane"]): status
+        for status in target_statuses
+        if int(status["lane"]) in pending_target_lanes
+    }
+    missing = sorted(pending_target_lanes.difference(target_by_lane))
+    if missing:
+        raise ValueError(f"Missing target supervisor status for lanes {missing}")
+    target_active = {
+        lane for lane, status in target_by_lane.items() if status["active"]
+    }
+    overlaps = sorted(source_owned.intersection(target_active))
+    if overlaps:
+        raise RuntimeError(
+            "Source and target supervisors claim the same GPU lanes: "
+            + ", ".join(str(lane) for lane in overlaps)
+        )
+    inconsistent = sorted(
+        lane
+        for lane, status in target_by_lane.items()
+        if not status["active"]
+        and (status["session_exists"] or status["lock_exists"])
+    )
+    if inconsistent:
+        raise RuntimeError(
+            "Target lane ownership markers exist without an active supervisor: "
+            + ", ".join(str(lane) for lane in inconsistent)
+        )
+    waiting = pending_target_lanes.intersection(source_owned)
+    launchable = (
+        pending_target_lanes.difference(source_owned, target_active)
+        if allow_launch
+        else set()
+    )
+    if not allow_launch and target_active:
+        raise RuntimeError(
+            "Target supervisors are active before the serial source gate passed"
+        )
+    return {
+        "source_owned": sorted(source_owned),
+        "target_active": sorted(target_active),
+        "target_waiting": sorted(waiting),
+        "target_launchable": sorted(launchable),
+    }
+
+
 def launch_target_lanes(
     config: MatrixConfig,
     *,
+    source_sessions: dict[int, str],
     sessions: dict[int, str],
     manager_logs: dict[int, Path],
     python: Path,
+    lanes: tuple[int, ...] = (0, 1),
 ) -> list[dict[str, Any]]:
-    for lane in (0, 1):
+    selected_lanes = tuple(sorted(set(lanes)))
+    if not selected_lanes or any(lane not in {0, 1} for lane in selected_lanes):
+        raise ValueError("Target lanes must be a non-empty subset of {0, 1}")
+    for lane in selected_lanes:
+        source_status = lane_supervisor_status(
+            config,
+            stage="source",
+            lane=lane,
+            session=source_sessions[lane],
+        )
+        if source_status["session_exists"] or source_status["lock_exists"]:
+            raise RuntimeError(
+                f"Source lane {lane} still owns GPU {lane}; refusing target launch"
+            )
         lock_path, _ = _scoped_execution_paths(config, stage="target", lane=lane)
         if lock_path.exists():
             raise RuntimeError(f"Target lane {lane} lock already exists: {lock_path}")
@@ -309,7 +395,7 @@ def launch_target_lanes(
                 f"Target lane {lane} tmux session already exists: {sessions[lane]}"
             )
     launched: list[dict[str, Any]] = []
-    for lane in (0, 1):
+    for lane in selected_lanes:
         manager_logs[lane].parent.mkdir(parents=True, exist_ok=True)
         command = [
             str(python),
@@ -404,6 +490,7 @@ class StageController:
         source: dict[str, Any] | None = None,
         target: dict[str, Any] | None = None,
         supervisors: list[dict[str, Any]] | None = None,
+        lane_ownership: dict[str, list[int]] | None = None,
         error: str | None = None,
     ) -> None:
         payload = {
@@ -414,11 +501,18 @@ class StageController:
             "config": str(self.config.source_path),
             "git_head": _git_head(self.config.repo_root),
             "poll_interval_seconds": self.poll_interval_seconds,
+            "allow_parallel_domain_extraction": (
+                self.config.allow_parallel_domain_extraction
+            ),
             "source": _compact_summary(source),
             "target": _compact_summary(target),
             "supervisors": supervisors or [],
+            "lane_ownership": lane_ownership or {},
             "target_launches": self.target_launches,
             "error": error,
+            "extraction_launch_audit": str(
+                self.paths.extraction_launch_audit
+            ),
             "source_audit": str(self.paths.source_audit),
             "final_audit": str(self.paths.final_audit),
             "event_log": str(self.paths.event_log),
@@ -435,51 +529,85 @@ class StageController:
         source: dict[str, Any] | None = None
         target: dict[str, Any] | None = None
         source_gate_passed = False
+        extraction_launch_audit_passed = False
         try:
             self.emit("controller_started")
             while True:
                 source = read_stage_progress(self.config, "source")
                 target = read_stage_progress(self.config, "target")
-                if source["blocked"] or source["signature_mismatches"]:
+                for summary in (source, target):
+                    if not summary["blocked"] and not summary["signature_mismatches"]:
+                        continue
                     raise RuntimeError(
-                        "Source audit failed: "
+                        f"{str(summary['stage']).title()} audit failed: "
                         + json.dumps(
                             {
-                                "blocked": source["blocked"],
-                                "signature_mismatches": source[
+                                "blocked": summary["blocked"],
+                                "signature_mismatches": summary[
                                     "signature_mismatches"
                                 ],
                             },
                             sort_keys=True,
                         )
                     )
-                if not source["strict_complete"]:
-                    supervisors = validate_active_lanes(
-                        self.config, source, self.source_sessions
-                    )
-                    self.write_status(
-                        "monitoring_source",
-                        source=source,
-                        target=target,
-                        supervisors=supervisors,
-                    )
-                    self.sleep_fn(self.poll_interval_seconds)
-                    continue
-                if not source_gate_passed:
-                    source_finalized, source_supervisors = stage_is_finalized(
+                source_finalized = False
+                if source["strict_complete"]:
+                    source_finalized, _ = stage_is_finalized(
                         self.config,
                         stage="source",
                         sessions=self.source_sessions,
                     )
-                    if not source_finalized:
-                        self.write_status(
-                            "source_finalizing",
-                            source=source,
-                            target=target,
-                            supervisors=source_supervisors,
+                else:
+                    validate_active_lanes(
+                        self.config, source, self.source_sessions
+                    )
+                if (
+                    self.config.allow_parallel_domain_extraction
+                    and not target["strict_complete"]
+                    and not extraction_launch_audit_passed
+                ):
+                    launch_audit = self.audit_fn(self.config)
+                    audited_source = summarize_stage(
+                        launch_audit,
+                        stage="source",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "source"
+                        ),
+                    )
+                    audited_target = summarize_stage(
+                        launch_audit,
+                        stage="target",
+                        expected_jobs=16,
+                        expected_accepted=expected_accepted_jobs(
+                            self.config, "target"
+                        ),
+                    )
+                    launch_blockers = (
+                        audited_source["blocked"]
+                        + audited_source["signature_mismatches"]
+                        + audited_target["blocked"]
+                        + audited_target["signature_mismatches"]
+                    )
+                    if launch_blockers or not launch_audit.get("ready_to_launch"):
+                        raise RuntimeError(
+                            "Parallel extraction launch audit failed: "
+                            + json.dumps(
+                                {
+                                    "blockers": launch_blockers,
+                                    "ready_to_launch": launch_audit.get(
+                                        "ready_to_launch"
+                                    ),
+                                },
+                                sort_keys=True,
+                            )
                         )
-                        self.sleep_fn(self.poll_interval_seconds)
-                        continue
+                    _atomic_json(
+                        self.paths.extraction_launch_audit, launch_audit
+                    )
+                    extraction_launch_audit_passed = True
+                    self.emit("parallel_extraction_launch_audit_complete")
+                if source["strict_complete"] and source_finalized and not source_gate_passed:
                     audit = self.audit_fn(self.config)
                     source = summarize_stage(
                         audit,
@@ -501,7 +629,7 @@ class StageController:
                         raise RuntimeError(
                             "Source ledger candidate failed the full strict audit"
                         )
-                    if not audit.get("ready_to_launch"):
+                    if not audit.get("ready_to_launch") and not target["strict_complete"]:
                         raise RuntimeError(
                             "Full strict audit is not launchable after source completion"
                         )
@@ -521,7 +649,77 @@ class StageController:
                             )
                         )
                     source_gate_passed = True
-                if target["strict_complete"]:
+                source_lane_status = stage_lane_statuses(
+                    self.config,
+                    stage="source",
+                    sessions=self.source_sessions,
+                )
+                pending_target_lanes = {
+                    int(record["gpu_lane"])
+                    for record in target["records"]
+                    if record.get("status") not in TERMINAL_STATUSES
+                }
+                target_lane_status = stage_lane_statuses(
+                    self.config,
+                    stage="target",
+                    sessions=self.target_sessions,
+                )
+                allow_target_launch = (
+                    self.config.allow_parallel_domain_extraction
+                    or source_gate_passed
+                )
+                lane_ownership = plan_target_lane_launches(
+                    source_statuses=source_lane_status,
+                    target_statuses=target_lane_status,
+                    pending_target_lanes=pending_target_lanes,
+                    allow_launch=allow_target_launch,
+                )
+                launchable = tuple(lane_ownership["target_launchable"])
+                if launchable:
+                    manager_logs = {
+                        lane: self.paths.output_dir
+                        / f"target_gpu{lane}.manager.log"
+                        for lane in launchable
+                    }
+                    launches = launch_target_lanes(
+                        self.config,
+                        source_sessions=self.source_sessions,
+                        sessions=self.target_sessions,
+                        manager_logs=manager_logs,
+                        python=Path(sys.executable).resolve(),
+                        lanes=launchable,
+                    )
+                    self.target_launches.extend(launches)
+                    self.emit(
+                        "target_lanes_launched lanes="
+                        + ",".join(str(lane) for lane in launchable)
+                    )
+                    target_lane_status = stage_lane_statuses(
+                        self.config,
+                        stage="target",
+                        sessions=self.target_sessions,
+                    )
+                    lane_ownership = plan_target_lane_launches(
+                        source_statuses=source_lane_status,
+                        target_statuses=target_lane_status,
+                        pending_target_lanes=pending_target_lanes,
+                        allow_launch=allow_target_launch,
+                    )
+                    inactive_launched = sorted(
+                        set(launchable).difference(
+                            lane_ownership["target_active"]
+                        )
+                    )
+                    if inactive_launched:
+                        raise RuntimeError(
+                            "Launched target lanes have no active supervisor: "
+                            + ", ".join(str(lane) for lane in inactive_launched)
+                        )
+                if (
+                    source_gate_passed
+                    and source["strict_complete"]
+                    and target["strict_complete"]
+                ):
                     audit = self.audit_fn(self.config)
                     source = summarize_stage(
                         audit,
@@ -543,17 +741,18 @@ class StageController:
                         raise RuntimeError(
                             "Final ledger candidate failed the full strict audit"
                         )
-                    finalized, supervisors = stage_is_finalized(
+                    target_finalized, target_supervisors = stage_is_finalized(
                         self.config,
                         stage="target",
                         sessions=self.target_sessions,
                     )
-                    if not finalized:
+                    if not target_finalized:
                         self.write_status(
                             "target_finalizing",
                             source=source,
                             target=target,
-                            supervisors=supervisors,
+                            supervisors=source_lane_status + target_supervisors,
+                            lane_ownership=lane_ownership,
                         )
                         self.sleep_fn(self.poll_interval_seconds)
                         continue
@@ -563,27 +762,24 @@ class StageController:
                     )
                     self.emit("cache_matrix_complete")
                     return 0
-                if not self.target_launches:
-                    manager_logs = {
-                        lane: self.paths.output_dir
-                        / f"target_gpu{lane}.manager.log"
-                        for lane in (0, 1)
-                    }
-                    self.target_launches = launch_target_lanes(
-                        self.config,
-                        sessions=self.target_sessions,
-                        manager_logs=manager_logs,
-                        python=Path(sys.executable).resolve(),
+                if not source["strict_complete"]:
+                    status = (
+                        "monitoring_parallel_extraction"
+                        if lane_ownership["target_active"]
+                        else "monitoring_source"
                     )
-                    self.emit("target_lanes_launched")
-                supervisors = validate_active_lanes(
-                    self.config, target, self.target_sessions
-                )
+                elif not source_finalized:
+                    status = "source_finalizing"
+                elif not target["strict_complete"]:
+                    status = "monitoring_target"
+                else:
+                    status = "awaiting_final_audit"
                 self.write_status(
-                    "monitoring_target",
+                    status,
                     source=source,
                     target=target,
-                    supervisors=supervisors,
+                    supervisors=source_lane_status + target_lane_status,
+                    lane_ownership=lane_ownership,
                 )
                 self.sleep_fn(self.poll_interval_seconds)
         except Exception as exc:
@@ -645,6 +841,10 @@ def _status_markdown(payload: dict[str, Any]) -> str:
         f"- PID: `{payload['pid']}`",
         f"- Git HEAD: `{payload['git_head']}`",
         f"- Config: `{payload['config']}`",
+        (
+            "- Parallel source/target extraction: "
+            f"`{payload['allow_parallel_domain_extraction']}`"
+        ),
         "- API/Misread actions: `disabled`",
         "",
         "## Source",
@@ -661,7 +861,9 @@ def _status_markdown(payload: dict[str, Any]) -> str:
         "",
         "## Runtime",
         "",
+        f"- Lane ownership: `{json.dumps(payload.get('lane_ownership', {}), sort_keys=True)}`",
         f"- Target launches: `{json.dumps(payload.get('target_launches', []), sort_keys=True)}`",
+        f"- Extraction launch audit: `{payload['extraction_launch_audit']}`",
         f"- Event log: `{payload['event_log']}`",
     ]
     if payload.get("error"):

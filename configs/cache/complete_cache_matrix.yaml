@@ -60,6 +60,7 @@ environments:
 
 execution:
   tmux_session: mprisk-cache-matrix-20260722
+  allow_parallel_domain_extraction: true
   max_gpu_memory_fraction: 0.88
   cpu_threads_per_job: 8
   runtime_inspection_timeout_seconds: 180
