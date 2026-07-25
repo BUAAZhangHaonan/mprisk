@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import hashlib
 import json
 import os
 import re
 import sqlite3
-import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -22,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 
+from mprisk.utils.io import atomic_write_bytes as _atomic_bytes, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
 MISREAD_JUDGMENT_PROMPT = (
     "Compare the reference description with the diagnostic affect description. Return MISREAD "
     "when the diagnostic is led by surface cues, contradicts the primary affect, wrongly "
@@ -735,39 +733,6 @@ def _required_text(row: dict[str, Any], key: str) -> str:
     return value
 
 
-def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    source = Path(path)
-    if not source.is_file():
-        raise FileNotFoundError(source)
-    result = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line]
-    if not all(isinstance(row, dict) for row in result):
-        raise ValueError(f"{source} must contain JSON objects")
-    return result
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a JSON object")
-    return value
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def _hash_text(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
-def _sha256(path: str | Path) -> str:
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
 def _jsonl(rows: Sequence[dict[str, Any]]) -> bytes:
     return "".join(_canonical_json(row) + "\n" for row in rows).encode()
 
@@ -776,19 +741,3 @@ def _atomic_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
     _atomic_bytes(path, _jsonl(rows))
 
 
-def _atomic_bytes(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()

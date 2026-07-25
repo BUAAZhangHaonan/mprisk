@@ -8,11 +8,9 @@ import json
 import os
 import re
 import sqlite3
-import tempfile
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -20,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
 from mprisk.data.generated_archive_freeze import _canonical_json, _sha256
+from mprisk.utils.io import atomic_write_bytes as _atomic_write, now_iso as _now, read_jsonl as _read_jsonl
 from mprisk.ground_truth.annotation_inputs import (
     GT_INPUT_SCHEMA_VERSION,
     GTAnnotationInput,
@@ -726,13 +725,6 @@ def _validate_model_input(payload: dict[str, Any]) -> None:
         raise TypeError("surface_emotion must be a string or null")
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
-    if not all(isinstance(row, dict) for row in rows):
-        raise TypeError(f"JSONL rows must be objects: {path}")
-    return rows
-
-
 def _text(row: dict[str, Any], key: str) -> str:
     value = row.get(key)
     if not isinstance(value, str) or not value:
@@ -751,19 +743,3 @@ def _resolve_repo_path(root: Path, path: Path) -> Path:
     return resolved
 
 
-def _atomic_write(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _now() -> str:
-    return datetime.now(UTC).isoformat()

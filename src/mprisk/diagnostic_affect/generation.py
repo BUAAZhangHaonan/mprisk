@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
 import sqlite3
-import tempfile
 import time
 import traceback
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +20,7 @@ from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.models.base_wrapper import GenerationRequest, GenerationResult
 from mprisk.models.wrapper_registry import get_wrapper
 
+from mprisk.utils.io import atomic_write_text as _atomic_text, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
 CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
@@ -886,46 +884,6 @@ def _model_weight_map_sha256(model_path: Path) -> str:
     return _hash_text(_canonical_json(entries))
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    rows = []
-    with path.open(encoding="utf-8") as handle:
-        for number, line in enumerate(handle, 1):
-            if not line.strip():
-                continue
-            value = json.loads(line)
-            if not isinstance(value, dict):
-                raise ValueError(f"{path}:{number} must be a JSON object")
-            rows.append(value)
-    return rows
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"Expected JSON object: {path}")
-    return value
-
-
-def _sha256(path: Path) -> str:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def _hash_text(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _canonical_json(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
 def _atomic_json(path: Path, value: Any) -> None:
     _atomic_text(path, json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
 
@@ -953,19 +911,3 @@ def _select_smoke_sample_ids(
     return [selected["Conflict"], selected["Aligned"]]
 
 
-def _now() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def _atomic_text(path: Path, value: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(temporary_name)
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(value)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)

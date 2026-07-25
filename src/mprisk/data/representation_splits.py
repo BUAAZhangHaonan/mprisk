@@ -13,7 +13,7 @@ from typing import Any
 
 import yaml
 
-from mprisk.utils.io import write_json
+from mprisk.utils.io import read_jsonl as _read_jsonl, sha256_file as _sha256, write_json as write_json
 
 CONFIG_SCHEMA = "mprisk_representation_split_config_v1"
 ASSIGNMENT_SCHEMA = "mprisk_representation_split_assignment_v1"
@@ -303,19 +303,6 @@ def _manifest_rows(
     ]
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    with path.open(encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            row = json.loads(line)
-            if not isinstance(row, dict):
-                raise ValueError(f"{path}:{line_number}: row must be a JSON object")
-            rows.append(row)
-    return rows
-
-
 def _required_text(row: dict[str, Any], field: str) -> str:
     value = row.get(field)
     if not isinstance(value, str) or not value.strip():
@@ -333,9 +320,3 @@ def _atomic_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
     os.replace(temporary, path)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
