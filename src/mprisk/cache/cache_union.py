@@ -12,7 +12,7 @@ from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -639,8 +639,18 @@ def _validate_and_materialize_entry(
     if not isinstance(source_request, dict):
         raise CacheUnionError(f"Cache sidecar request is invalid: {expected.task_id}")
     expected_request = _request_payload(expected.request)
-    if _semantic_request(source_request) != _semantic_request(expected_request):
-        raise CacheUnionError(f"Semantic request fingerprint mismatch: {expected.task_id}")
+    source_semantic = _semantic_request(source_request)
+    expected_semantic = _semantic_request(expected_request)
+    if source_semantic == expected_semantic:
+        semantic_request = expected_semantic
+    else:
+        source_contract = _content_addressed_semantic_request(source_semantic)
+        expected_contract = _content_addressed_semantic_request(expected_semantic)
+        if source_contract != expected_contract:
+            raise CacheUnionError(
+                f"Semantic request fingerprint mismatch: {expected.task_id}"
+            )
+        semantic_request = expected_contract
     for field in (
         "sample_id",
         "model_key",
@@ -651,7 +661,7 @@ def _validate_and_materialize_entry(
     ):
         if source_entry.get(field) != source_request.get(field):
             raise CacheUnionError(f"Entry/request {field} mismatch: {expected.task_id}")
-    semantic_request_fingerprint = _fingerprint(_semantic_request(expected_request))
+    semantic_request_fingerprint = _fingerprint(semantic_request)
     checksum = _sha256_file(shard)
     if checksum != source_entry.get("checksum"):
         raise CacheUnionError(f"Cache shard checksum mismatch: {expected.task_id}")
@@ -1103,6 +1113,63 @@ def _semantic_request(payload: dict[str, Any]) -> dict[str, Any]:
             "media_paths",
             "use_audio_in_video",
         )
+    }
+
+
+def _content_addressed_semantic_request(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    media_paths = payload.get("media_paths")
+    if not isinstance(media_paths, dict):
+        raise CacheUnionError("Semantic request media_paths is not an object")
+    aliases: dict[str, dict[str, Any]] = {}
+    normalized_media_paths = {}
+    for key, value in media_paths.items():
+        if not isinstance(key, str) or not isinstance(value, str) or not value:
+            raise CacheUnionError("Semantic request media path is invalid")
+        identity = _media_asset_identity(value)
+        aliases[value] = identity
+        normalized_media_paths[key] = identity
+    normalized = dict(payload)
+    normalized["media_paths"] = normalized_media_paths
+    normalized["messages"] = _replace_media_path_aliases(payload.get("messages"), aliases)
+    return normalized
+
+
+def _replace_media_path_aliases(value: Any, aliases: dict[str, dict[str, Any]]) -> Any:
+    if isinstance(value, str):
+        return aliases.get(value, value)
+    if isinstance(value, list):
+        return [_replace_media_path_aliases(item, aliases) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_replace_media_path_aliases(item, aliases) for item in value)
+    if isinstance(value, dict):
+        return {
+            key: _replace_media_path_aliases(item, aliases)
+            for key, item in value.items()
+        }
+    return value
+
+
+def _media_asset_identity(value: str) -> dict[str, Any]:
+    path = Path(value).expanduser().resolve()
+    if not path.is_file():
+        raise CacheUnionError(f"Semantic request media file does not exist: {path}")
+    status = path.stat()
+    return _cached_media_asset_identity(str(path), status.st_size, status.st_mtime_ns)
+
+
+@cache
+def _cached_media_asset_identity(
+    path: str,
+    size: int,
+    mtime_ns: int,
+) -> dict[str, Any]:
+    del mtime_ns
+    return {
+        "schema": "mprisk_media_asset_identity_v1",
+        "sha256": _sha256_file(Path(path)),
+        "size": size,
     }
 
 

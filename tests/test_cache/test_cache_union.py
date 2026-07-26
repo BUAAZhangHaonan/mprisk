@@ -375,6 +375,73 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
         )
 
 
+def test_union_rekeys_byte_identical_relocated_media_and_rejects_content_drift(
+    tmp_path: Path,
+) -> None:
+    source_media = tmp_path / "source.mp4"
+    relocated_media = tmp_path / "relocated.mp4"
+    source_media.write_bytes(b"identical media")
+    relocated_media.write_bytes(source_media.read_bytes())
+    base_request = _request("sample", split="train")
+
+    def with_media(request: PrefillRequest, media: Path) -> PrefillRequest:
+        return replace(
+            request,
+            messages=(
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "video", "video": str(media), "fps": 1.0},
+                        {"type": "text", "text": "Describe the overall state."},
+                    ],
+                },
+            ),
+            media_paths={"vision": str(media)},
+        )
+
+    source_request = with_media(base_request, source_media)
+    expected_request = with_media(base_request, relocated_media)
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    source = _source(
+        tmp_path,
+        source_id="source",
+        request=source_request,
+        signature=_signature(model, manifest="source"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    expected = replace(_expected(expected_request), task_id="current-task-id")
+    kwargs = {
+        "expected_tasks": [expected],
+        "expected_signature": _signature(model, manifest="current"),
+        "sources": [source],
+        "expected_resolved_tasks": 1,
+        "expected_raw_tasks": 1,
+        "checksum_workers": 1,
+    }
+
+    result = build_cache_union(
+        output_path=tmp_path / "relocated-union.json",
+        **kwargs,
+    )
+
+    payload = json.loads(result.output_path.read_text(encoding="utf-8"))
+    assert payload["entries"][0]["task_id"] == "current-task-id"
+    assert (
+        payload["entries"][0]["source_provenance"]["source_task_id"]
+        == _task_id(source_request)
+    )
+
+    relocated_media.write_bytes(b"different media bytes")
+    with pytest.raises(CacheUnionError, match="Semantic request fingerprint mismatch"):
+        build_cache_union(
+            output_path=tmp_path / "content-drift.json",
+            **kwargs,
+        )
+
+
 def test_union_uses_selected_model_semantics_not_whole_registry_hash(
     tmp_path: Path,
 ) -> None:
@@ -619,7 +686,21 @@ def test_union_rejects_semantic_request_or_checksum_mismatch(tmp_path: Path) -> 
     model, config_sha, weight_sha = _make_model(tmp_path)
     code_repo = _make_code_repo(tmp_path)
     signature = _signature(model, manifest="expected")
-    source_request = _request("sample", split="train")
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"media")
+    source_request = replace(
+        _request("sample", split="train"),
+        messages=(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "video", "video": str(media), "fps": 1.0},
+                    {"type": "text", "text": "Describe the overall state."},
+                ],
+            },
+        ),
+        media_paths={"vision": str(media)},
+    )
     source = _source(
         tmp_path,
         source_id="source",
@@ -629,11 +710,11 @@ def test_union_rejects_semantic_request_or_checksum_mismatch(tmp_path: Path) -> 
         config_sha256=config_sha,
         weight_sha256=weight_sha,
     )
-    changed = _request("sample", split="train")
-    object.__setattr__(
-        changed,
-        "messages",
-        ({"role": "user", "content": [{"type": "text", "text": "changed"}]},),
+    changed = replace(
+        source_request,
+        messages=(
+            {"role": "user", "content": [{"type": "text", "text": "changed"}]},
+        ),
     )
     with pytest.raises(CacheUnionError, match="Semantic request fingerprint mismatch"):
         build_cache_union(
