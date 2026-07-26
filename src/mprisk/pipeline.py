@@ -1,19 +1,19 @@
-"""V2 pipeline orchestrator.
+"""Pipeline orchestrator.
 
 For each (model, seed=20260717):
   1. Build state dataset + bundles from cache
   2. Train TME (Proxy Anchor, full layer trajectory)
   3. Export frozen embeddings (condition-level z + sample-level r)
   4. Compute spherical SDR scores
-  5. Calibrate thresholds (v2 tunable quantile)
+  5. Calibrate thresholds (tunable quantile)
   6. Assign four state patterns
   7. Emit per-model summary JSON for downstream plotting
 
-V2 deviations from mprisk mainline (clearly marked):
+Deviations from mprisk mainline (clearly marked):
   - Single seed (no three-seed aggregation)
   - Threshold quantile tunable per protocol for "interpretable" pattern distribution
   - Sample filter optional (drop extreme-S outliers that wreck KDE)
-  - Output root is outputs/v2/, never touches mprisk outputs
+  - Output root is outputs/, never touches mprisk outputs
 """
 
 from __future__ import annotations
@@ -62,7 +62,7 @@ from mprisk.utils.io import write_json, write_jsonl
 
 
 @dataclass(frozen=True)
-class V2ModelSpec:
+class ModelSpec:
     model_key: str
     protocol: str
     cache_root: str
@@ -74,7 +74,7 @@ class V2ModelSpec:
 
 
 @dataclass(frozen=True)
-class V2PipelineResult:
+class PipelineResult:
     model_key: str
     protocol: str
     checkpoint_path: str
@@ -92,9 +92,9 @@ def _quantile_thresholds(
     kappa_quantile: float,
     tau_quantile: float,
 ) -> dict[str, Any]:
-    """Calibrate kappa/tau on aligned_calibration rows using v2-chosen quantiles.
+    """Calibrate kappa/tau on aligned_calibration rows using chosen quantiles.
 
-    Mprisk mainline uses 0.95 by default. V2 lowers it to get a more balanced
+    Mprisk mainline uses 0.95 by default. Lowers it to get a more balanced
     four-pattern distribution (so Consensus does not dominate every plot).
     """
     aligned = [r for r in sdr_rows if r.get("calibration_split") == "aligned_calibration"]
@@ -107,7 +107,7 @@ def _quantile_thresholds(
     kappa = float(np.quantile(s_values, kappa_quantile))
     tau = float(np.quantile(d_values, tau_quantile))
     return {
-        "schema": "mprisk_spherical_calibration_v2",
+        "schema": "mprisk_spherical_calibration",
         "kappa": kappa,
         "tau": tau,
         "kappa_quantile": kappa_quantile,
@@ -118,9 +118,9 @@ def _quantile_thresholds(
     }
 
 
-def run_v2_for_model(
+def run_for_model(
     *,
-    spec: V2ModelSpec,
+    spec: ModelSpec,
     split_assignment: str | Path,
     output_root: str | Path,
     cache_root: str | Path,
@@ -133,13 +133,13 @@ def run_v2_for_model(
     patience: int = 30,
     device: str = "cpu",
     resume_checkpoint: str | Path | None = None,
-) -> V2PipelineResult:
-    """Run the full v2 pipeline for one (model, seed) pair.
+) -> PipelineResult:
+    """Run the full pipeline for one (model, seed) pair.
 
     Callers may pass any combination of the three cache manifests. If any of
     ``prompt_cache_manifest`` / ``prompt_conditioned_cache_manifest`` /
     ``unified_cache_manifest`` is missing, all three are auto-built from
-    ``cache_root`` via :func:`mprisk.setup_helper.setup_v2_cache_manifests`.
+    ``cache_root`` via :func:`mprisk.setup_helper.setup_cache_manifests`.
     """
     protocol = normalize_protocol(spec.protocol)
     out = Path(output_root)
@@ -157,13 +157,13 @@ def run_v2_for_model(
             or unified_cache_manifest is not None
         ):
             raise ValueError(
-                "run_v2_for_model requires all three cache manifests to be set "
+                "run_for_model requires all three cache manifests to be set "
                 "together: prompt_cache_manifest, prompt_conditioned_cache_manifest, "
                 "and unified_cache_manifest. Pass either all three or none (auto-build)."
             )
-        from mprisk.setup_helper import setup_v2_cache_manifests
-        print(f"[v2][{spec.model_key}] auto-building cache manifests...", flush=True)
-        setup_out = setup_v2_cache_manifests(
+        from mprisk.setup_helper import setup_cache_manifests
+        print(f"[{spec.model_key}] auto-building cache manifests...", flush=True)
+        setup_out = setup_cache_manifests(
             cache_root=cache_root,
             prompt_set_path=spec.prompt_set,
             model_key=spec.model_key,
@@ -195,7 +195,7 @@ def run_v2_for_model(
     config_dict["max_epochs"] = max_epochs
     config_dict["patience"] = patience
     config_dict["seed"] = int(config_dict.get("seed", 20260717))
-    # Enable the v2 SDR-aware hinge aux loss. Previously applied via the
+    # Enable the SDR-aware hinge aux loss. Previously applied via the
     # monkey-patch install_sdr_aware_loss on training._batch_loss_and_outputs.
     # Now expressed declaratively through TrainingConfig so the mainline
     # training loop owns the geometry constraint (warmup ramp + aux weight)
@@ -206,7 +206,7 @@ def run_v2_for_model(
     config_dict["sdr_warmup_epochs"] = 10
     config = TrainingConfig(**config_dict)
 
-    print(f"[v2][{spec.model_key}] building state dataset...", flush=True)
+    print(f"[{spec.model_key}] building state dataset...", flush=True)
     state_dataset_result = build_state_dataset(
         manifest_paths=[Path(spec.main_manifest)],
         cache_root=Path(cache_root),
@@ -218,7 +218,7 @@ def run_v2_for_model(
         strict_shape=False,
     )
 
-    print(f"[v2][{spec.model_key}] building state bundles...", flush=True)
+    print(f"[{spec.model_key}] building state bundles...", flush=True)
     bundle_result = build_state_bundles(
         state_dataset_manifest_path=state_dataset_result.manifest_path,
         prompt_cache_manifest_path=Path(prompt_cache_manifest),
@@ -230,7 +230,7 @@ def run_v2_for_model(
         output_root=out / "state_bundles",
     )
 
-    print(f"[v2][{spec.model_key}] building relation dataset...", flush=True)
+    print(f"[{spec.model_key}] building relation dataset...", flush=True)
     relation_dataset_result = build_relation_dataset(
         bundle_manifest_path=bundle_result.manifest_path,
         output_dir=out / "relation_data" / spec.model_key / protocol / spec.prompt_set_key,
@@ -240,7 +240,7 @@ def run_v2_for_model(
         expected_prompt_ids=config.expected_prompt_ids,
     )
 
-    print(f"[v2][{spec.model_key}] training TME (max_epochs={max_epochs}, patience={patience})...",
+    print(f"[{spec.model_key}] training TME (max_epochs={max_epochs}, patience={patience})...",
           flush=True)
     training_result = train_trajectory_encoder(
         dataset_path=relation_dataset_result.dataset_path,
@@ -249,16 +249,16 @@ def run_v2_for_model(
         resume_checkpoint=resume_checkpoint,
         device=device,
     )
-    print(f"[v2][{spec.model_key}] TME best epoch={training_result.metrics.get('best_epoch')} "
+    print(f"[{spec.model_key}] TME best epoch={training_result.metrics.get('best_epoch')} "
           f"best_val_bal_acc={training_result.metrics.get('best_val_balanced_accuracy_ac', 0.0):.4f} "
           f"stop={training_result.metrics.get('stop_reason')}", flush=True)
 
-    print(f"[v2][{spec.model_key}] exporting frozen embeddings...", flush=True)
+    print(f"[{spec.model_key}] exporting frozen embeddings...", flush=True)
     embedding_dir = out / "embeddings" / spec.model_key / protocol / spec.prompt_set_key
     spherical_path = embedding_dir / "spherical_embedding_manifest.jsonl"
     if spherical_path.exists():
         from mprisk.representation.training import FrozenRepresentationExportResult
-        print(f"[v2][{spec.model_key}] reusing existing spherical embeddings: {spherical_path}",
+        print(f"[{spec.model_key}] reusing existing spherical embeddings: {spherical_path}",
               flush=True)
         embedding_result = FrozenRepresentationExportResult(
             manifest_path=embedding_dir / "frozen_representations.jsonl",
@@ -273,7 +273,7 @@ def run_v2_for_model(
             output_dir=embedding_dir,
         )
 
-    print(f"[v2][{spec.model_key}] computing SDR scores...", flush=True)
+    print(f"[{spec.model_key}] computing SDR scores...", flush=True)
     sdr_rows = []
     for row in read_jsonl(embedding_result.bundle_manifest_path):
         sdr = compute_spherical_state(row, bootstrap_replicates=200)
@@ -284,7 +284,7 @@ def run_v2_for_model(
     sdr_path = out / "state_data" / spec.model_key / protocol / "sdr_scores.jsonl"
     write_jsonl(sdr_path, sdr_rows)
 
-    print(f"[v2][{spec.model_key}] calibrating thresholds "
+    print(f"[{spec.model_key}] calibrating thresholds "
           f"(kappa_q={kappa_quantile}, tau_q={tau_quantile})...", flush=True)
     thresholds = _quantile_thresholds(
         sdr_rows,
@@ -294,7 +294,7 @@ def run_v2_for_model(
     thresholds_path = out / "state_data" / spec.model_key / protocol / "thresholds.json"
     write_json(thresholds_path, thresholds)
 
-    print(f"[v2][{spec.model_key}] assigning four state patterns...", flush=True)
+    print(f"[{spec.model_key}] assigning four state patterns...", flush=True)
     state_thresholds = StateThresholds(
         kappa=thresholds["kappa"],
         tau=thresholds["tau"],
@@ -326,11 +326,11 @@ def run_v2_for_model(
         "pattern_counts": _count_patterns(pattern_rows),
         "sample_type_counts": _count_field(pattern_rows, "sample_type"),
     }
-    summary_path = out / "state_data" / spec.model_key / protocol / "v2_summary.json"
+    summary_path = out / "state_data" / spec.model_key / protocol / "pipeline_summary.json"
     write_json(summary_path, summary)
-    print(f"[v2][{spec.model_key}] done. summary={summary_path}", flush=True)
+    print(f"[{spec.model_key}] done. summary={summary_path}", flush=True)
 
-    return V2PipelineResult(
+    return PipelineResult(
         model_key=spec.model_key,
         protocol=protocol,
         checkpoint_path=str(training_result.checkpoint_path),
