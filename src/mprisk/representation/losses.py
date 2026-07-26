@@ -162,6 +162,107 @@ class ModalitySplitRankingLoss(torch.nn.Module):
         return d_loss, angular_loss, diagnostics
 
 
+class SphericalSDRHingeLoss(torch.nn.Module):
+    """V2 SDR-aware aux loss: hinge on the spherical geometry of condition_z.
+
+    Motive: Proxy Anchor only organizes the relation_r embedding; the
+    condition_z geometry (which produces S, D, R) is otherwise unconstrained.
+    This hinge pushes Conflict samples to have larger spherical distance
+    d(M1, M2) and larger |R| (signed asymmetry of M12 between M1 and M2)
+    than Aligned samples.
+
+    Inputs:
+        condition_z: tensor of shape ``[batch, 3, condition_dim]`` holding
+            the three modal condition vectors M1, M2, M12 per sample. The
+            vectors are assumed to already be on the unit sphere (the
+            encoder applies ``strict_l2_normalize`` at its output).
+        labels: tensor of shape ``[batch]`` with mainline label_id semantics
+            (Aligned=0, Conflict=1).
+
+    Returns:
+        Tuple ``(hinge_D, hinge_R, diagnostics)``. ``hinge_D`` and
+        ``hinge_R`` are scalars; if either class group is missing from the
+        batch both hinges are zero (the aux contribution becomes a no-op).
+    """
+
+    def __init__(
+        self,
+        *,
+        margin_D: float = 0.6,
+        margin_R: float = 0.4,
+    ) -> None:
+        super().__init__()
+        if margin_D < 0.0 or margin_R < 0.0:
+            raise ValueError("SDR hinge margins must be non-negative")
+        self.margin_D = float(margin_D)
+        self.margin_R = float(margin_R)
+
+    def forward(
+        self,
+        condition_z: torch.Tensor,
+        labels: torch.Tensor,
+        *,
+        sample_ids: list[str] | tuple[str, ...] | None = None,
+    ) -> tuple[torch.Tensor, torch.Tensor, dict[str, torch.Tensor]]:
+        if condition_z.ndim != 3 or condition_z.shape[1] != 3:
+            raise ValueError(
+                "SDR hinge condition_z must have shape [batch, 3, condition_dim]"
+            )
+        if labels.ndim != 1 or labels.shape[0] != condition_z.shape[0]:
+            raise ValueError("SDR hinge labels must have shape [batch]")
+        if labels.dtype != torch.long:
+            labels = labels.to(dtype=torch.long)
+        if not bool(((labels == 0) | (labels == 1)).all()):
+            raise ValueError("SDR hinge labels must be Aligned=0 or Conflict=1")
+
+        z1 = condition_z[:, 0]
+        z2 = condition_z[:, 1]
+        z12 = condition_z[:, 2]
+
+        d_m1_m2 = _stable_acos((z1 * z2).sum(dim=-1))
+        d_m12_m1 = _stable_acos((z12 * z1).sum(dim=-1))
+        d_m12_m2 = _stable_acos((z12 * z2).sum(dim=-1))
+        # Signed R per sample (1-prompt variant; no per-prompt averaging).
+        # Positive R means M12 sits closer to M2 (d_m12_m2 smaller), i.e.
+        # M12 has been pulled toward M2; negative R means M12 closer to M1.
+        r_signed = (d_m12_m2 - d_m12_m1) / (d_m1_m2 + STATE_DENOMINATOR_EPS)
+
+        conflict = labels == 1
+        aligned = labels == 0
+        has_conflict = bool(conflict.any())
+        has_aligned = bool(aligned.any())
+
+        if has_conflict and has_aligned:
+            mean_d_C = d_m1_m2[conflict].mean()
+            mean_d_A = d_m1_m2[aligned].mean()
+            mean_absR_C = r_signed[conflict].abs().mean()
+            mean_absR_A = r_signed[aligned].abs().mean()
+            hinge_D = F.relu(self.margin_D - (mean_d_C - mean_d_A))
+            hinge_R = F.relu(self.margin_R - (mean_absR_C - mean_absR_A))
+        else:
+            # Group missing: emit zero hinge so the aux term is a no-op but
+            # diagnostics remain shaped consistently for the caller.
+            zero = condition_z.new_zeros(())
+            mean_d_C = zero
+            mean_d_A = zero
+            mean_absR_C = zero
+            mean_absR_A = zero
+            hinge_D = zero
+            hinge_R = zero
+
+        diagnostics = {
+            "mean_d_C": mean_d_C,
+            "mean_d_A": mean_d_A,
+            "mean_absR_C": mean_absR_C,
+            "mean_absR_A": mean_absR_A,
+            "hinge_D": hinge_D,
+            "hinge_R": hinge_R,
+            "r_signed": r_signed,
+            "d_m1_m2": d_m1_m2,
+        }
+        return hinge_D, hinge_R, diagnostics
+
+
 def _stable_acos(cosine: torch.Tensor) -> torch.Tensor:
     return torch.acos(cosine.clamp(-1.0 + SPHERICAL_ACOS_EPS, 1.0 - SPHERICAL_ACOS_EPS))
 
