@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 from safetensors.numpy import load_file
 
+from mprisk.assets.registry import index_assets, load_model_assets
 from mprisk.cache.cache_matrix_queue import (
     CONDITIONS,
     SMOKE_SCHEMA,
@@ -40,6 +41,7 @@ from mprisk.cache.llava_v15_frame_plan import (
     FRAME_PLAN_SCHEMA,
     FRAME_SELECTION_SCHEMA,
     SELECTION_CONDITIONS,
+    build_frame_plan_resumable,
     index_frame_plan,
     load_frame_plan,
 )
@@ -97,11 +99,31 @@ def build_smoke_manifest(job: CacheJob, paths: SmokePaths) -> tuple[list[dict[st
     return selected, hashlib.sha256(text.encode()).hexdigest()
 
 
+def _prepare_dynamic_smoke_frame_plan(
+    config: MatrixConfig, job: CacheJob, paths: SmokePaths
+) -> None:
+    if not job.model.uses_dynamic_context:
+        return
+    assets = index_assets(load_model_assets(config.asset_config))
+    asset = assets.get(job.model.model_key)
+    if asset is None:
+        raise KeyError(f"Missing model asset {job.model.model_key}")
+    build_frame_plan_resumable(
+        manifest_path=paths.manifest,
+        prompt_set_path=config.prompt_sets[job.model.protocol],
+        model_path=asset.local_model_path,
+        model_key=job.model.model_key,
+        output_path=paths.frame_plan,
+        max_candidate_frames=job.model.frame_count_argument,
+    )
+
+
 def run_smoke_job(
     config: MatrixConfig, job: CacheJob, *, physical_gpu: int | None = None
 ) -> dict[str, Any]:
     paths = smoke_paths(job)
     rows, manifest_sha256 = build_smoke_manifest(job, paths)
+    _prepare_dynamic_smoke_frame_plan(config, job, paths)
     if paths.evidence.is_file():
         existing = _read_json(paths.evidence)
         if _evidence_matches(config, job, existing, manifest_sha256):

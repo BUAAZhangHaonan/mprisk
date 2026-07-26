@@ -38,6 +38,125 @@ def test_parser_accepts_explicit_tmux_session() -> None:
     assert args.physical_gpu == 1
 
 
+class _StopAfterFramePlan(RuntimeError):
+    pass
+
+
+def _dynamic_smoke_fixture(tmp_path: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
+    prompt_set = tmp_path / "prompt.yaml"
+    prompt_set.write_text("prompt\n", encoding="utf-8")
+    asset_config = tmp_path / "assets.yaml"
+    asset_config.write_text("assets\n", encoding="utf-8")
+    model = SimpleNamespace(
+        model_key="llava_v1_5_7b",
+        protocol="vt",
+        gpu_lane=0,
+        uses_dynamic_context=True,
+        frame_count_argument=8,
+    )
+    job = SimpleNamespace(
+        job_id="target:llava_v1_5_7b",
+        model=model,
+        domain=SimpleNamespace(domain="target"),
+        smoke_evidence=tmp_path / "smoke" / "SMOKE_COMPLETE.json",
+    )
+    config = SimpleNamespace(
+        asset_config=asset_config,
+        prompt_sets={"vt": prompt_set},
+        max_gpu_memory_fraction=0.88,
+    )
+    return config, job
+
+
+def test_dynamic_smoke_clean_root_builds_subset_frame_plan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, job = _dynamic_smoke_fixture(tmp_path)
+    paths = smoke.smoke_paths(job)
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    calls: list[dict[str, object]] = []
+
+    def fake_manifest(job, paths):
+        paths.root.mkdir(parents=True)
+        paths.manifest.write_text("{}\n", encoding="utf-8")
+        return [{"sample_id": "sample"}], "manifest-sha"
+
+    def fake_build_frame_plan_resumable(**kwargs):
+        calls.append(kwargs)
+        Path(kwargs["output_path"]).write_text("{}\n", encoding="utf-8")
+        return {"manifest_sha256": "manifest-sha"}
+
+    monkeypatch.setattr(smoke, "build_smoke_manifest", fake_manifest)
+    monkeypatch.setattr(smoke, "load_model_assets", lambda path: object())
+    monkeypatch.setattr(
+        smoke,
+        "index_assets",
+        lambda assets: {
+            job.model.model_key: SimpleNamespace(local_model_path=model_path)
+        },
+    )
+    monkeypatch.setattr(
+        smoke, "build_frame_plan_resumable", fake_build_frame_plan_resumable
+    )
+    monkeypatch.setattr(
+        smoke,
+        "load_frame_plan",
+        lambda path: {"manifest_sha256": "manifest-sha"},
+    )
+    monkeypatch.setattr(
+        smoke,
+        "_require_gpu_capacity",
+        lambda *args: (_ for _ in ()).throw(_StopAfterFramePlan()),
+    )
+
+    with pytest.raises(_StopAfterFramePlan):
+        smoke.run_smoke_job(config, job, physical_gpu=0)
+
+    assert len(calls) == 1
+    assert calls[0] == {
+        "manifest_path": paths.manifest,
+        "prompt_set_path": config.prompt_sets["vt"],
+        "model_path": model_path,
+        "model_key": job.model.model_key,
+        "output_path": paths.frame_plan,
+        "max_candidate_frames": 8,
+    }
+
+
+def test_dynamic_smoke_stale_subset_frame_plan_fails_closed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config, job = _dynamic_smoke_fixture(tmp_path)
+    paths = smoke.smoke_paths(job)
+    paths.root.mkdir(parents=True)
+    paths.frame_plan.write_text("stale\n", encoding="utf-8")
+
+    def fake_manifest(job, paths):
+        paths.manifest.write_text("{}\n", encoding="utf-8")
+        return [{"sample_id": "sample"}], "manifest-sha"
+
+    monkeypatch.setattr(smoke, "build_smoke_manifest", fake_manifest)
+    monkeypatch.setattr(smoke, "load_model_assets", lambda path: object())
+    monkeypatch.setattr(
+        smoke,
+        "index_assets",
+        lambda assets: {
+            job.model.model_key: SimpleNamespace(local_model_path=tmp_path / "model")
+        },
+    )
+    monkeypatch.setattr(
+        smoke,
+        "build_frame_plan_resumable",
+        lambda **kwargs: (_ for _ in ()).throw(
+            FileExistsError("Existing frame plan has a stale contract")
+        ),
+    )
+
+    with pytest.raises(FileExistsError, match="stale contract"):
+        smoke.run_smoke_job(config, job, physical_gpu=0)
+
+
 @pytest.mark.parametrize(
     ("protocol", "condition", "message_types", "embedded_audio"),
     [
