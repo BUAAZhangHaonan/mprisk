@@ -123,7 +123,7 @@ def test_representation_training_smoke_trains_exports_and_assigns_patterns(tmp_p
     config_path.write_text(
         yaml.safe_dump(
             {
-                "schema": "mprisk_representation_training_v3",
+                "schema": "mprisk_representation_training_v4",
                 "key": "qwen3_vl_8b_tme_proxy_anchor",
                 "architecture_version": "layer_l2_gru_linear_relation_v1",
                 "repr_key": "tme_proxy_anchor_v1",

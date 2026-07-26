@@ -279,7 +279,7 @@ def test_proxy_anchor_rejects_zero_embeddings_and_proxies_before_normalization()
 
 def test_tme_training_config_rejects_architecture_version_drift(tmp_path) -> None:
     config = {
-        "schema": "mprisk_representation_training_v3",
+        "schema": "mprisk_representation_training_v4",
         "key": "qwen3-vl-test",
         "architecture_version": "unversioned_gru",
         "repr_key": TME_PROXY_ANCHOR_V1,
