@@ -15,6 +15,7 @@ from mprisk.cache.cache_union import (
     ExpectedCacheTask,
     blocked_tasks_from_rows,
     build_cache_union,
+    relocate_extractor_evidence,
     write_extractor_evidence,
 )
 from mprisk.cache.prefill_writer import write_prefill_result
@@ -800,4 +801,61 @@ def test_union_rejects_multiple_runtime_fingerprints_within_one_condition(
             expected_resolved_tasks=2,
             expected_raw_tasks=2,
             checksum_workers=1,
+        )
+
+
+def test_relocate_evidence_requires_byte_identical_ledger_content(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    source = _source(
+        tmp_path,
+        source_id="source",
+        request=_request("sample", split="train"),
+        signature=_signature(model, manifest="source"),
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+    )
+    packaged = json.loads(source.evidence_path.read_text(encoding="utf-8"))
+    packaged["cache_root"] = "caches/model/payload/source"
+    packaged["ledger_path"] = "caches/model/payload/source/batch_state.sqlite3"
+    packaged_path = tmp_path / "packaged-evidence.json"
+    packaged_path.write_text(json.dumps(packaged), encoding="utf-8")
+    relocated_path = tmp_path / "relocated-evidence.json"
+
+    relocate_extractor_evidence(
+        packaged_path,
+        source_id="source",
+        cache_root=source.cache_root,
+        ledger_path=source.ledger_path,
+        output_path=relocated_path,
+    )
+
+    relocated = json.loads(relocated_path.read_text(encoding="utf-8"))
+    assert relocated["cache_root"] == str(source.cache_root)
+    assert relocated["ledger_path"] == str(source.ledger_path)
+    assert relocated["extractor_semantic_fingerprint"] == packaged[
+        "extractor_semantic_fingerprint"
+    ]
+    assert relocated["relocation"] == {
+        "schema": "mprisk_prefill_evidence_relocation_v1",
+        "source_evidence_path": str(packaged_path.resolve()),
+        "source_evidence_sha256": _sha256(packaged_path),
+        "previous_cache_root": "caches/model/payload/source",
+        "previous_ledger_path": "caches/model/payload/source/batch_state.sqlite3",
+    }
+
+    connection = sqlite3.connect(source.ledger_path)
+    connection.execute("UPDATE tasks SET status='failed'")
+    connection.commit()
+    connection.close()
+    with pytest.raises(CacheUnionError, match="ledger content differs"):
+        relocate_extractor_evidence(
+            packaged_path,
+            source_id="source",
+            cache_root=source.cache_root,
+            ledger_path=source.ledger_path,
+            output_path=tmp_path / "invalid.json",
         )

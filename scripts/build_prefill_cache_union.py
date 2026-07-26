@@ -9,6 +9,7 @@ from mprisk.cache.cache_union import (
     build_cache_union,
     expected_tasks_from_plan,
     load_cache_source,
+    relocate_extractor_evidence,
     write_cache_source,
     write_extractor_evidence,
 )
@@ -35,6 +36,17 @@ def build_parser() -> argparse.ArgumentParser:
     evidence.add_argument("--cache-root", required=True, type=Path)
     evidence.add_argument("--code-root", required=True, type=Path)
     evidence.add_argument("--output", required=True, type=Path)
+
+
+    relocate = subparsers.add_parser(
+        "relocate-evidence",
+        help="Rebind immutable evidence to a byte-identical relocated source.",
+    )
+    relocate.add_argument("--source-id", required=True)
+    relocate.add_argument("--evidence", required=True, type=Path)
+    relocate.add_argument("--ledger", required=True, type=Path)
+    relocate.add_argument("--cache-root", required=True, type=Path)
+    relocate.add_argument("--output", required=True, type=Path)
 
     source = subparsers.add_parser(
         "record-source",
@@ -103,6 +115,16 @@ def main(argv: list[str] | None = None) -> int:
             ledger_path=args.ledger,
             cache_root=args.cache_root,
             code_root=args.code_root,
+            output_path=args.output,
+        )
+        print(json.dumps({"status": "complete", "evidence": str(path)}, sort_keys=True))
+        return 0
+    if args.command == "relocate-evidence":
+        path = relocate_extractor_evidence(
+            args.evidence,
+            source_id=args.source_id,
+            ledger_path=args.ledger,
+            cache_root=args.cache_root,
             output_path=args.output,
         )
         print(json.dumps({"status": "complete", "evidence": str(path)}, sort_keys=True))

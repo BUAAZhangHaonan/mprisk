@@ -289,6 +289,61 @@ def write_cache_source(
     return output
 
 
+def relocate_extractor_evidence(
+    evidence_path: str | Path,
+    *,
+    source_id: str,
+    cache_root: str | Path,
+    ledger_path: str | Path,
+    output_path: str | Path,
+) -> Path:
+    """Rebind immutable extractor evidence to a byte-identical relocated source."""
+    original_path = Path(evidence_path).expanduser().resolve()
+    evidence = _read_json(original_path)
+    if evidence.get("schema") != EVIDENCE_SCHEMA:
+        raise CacheUnionError(f"Unsupported extractor evidence: {original_path}")
+    if evidence.get("source_id") != source_id:
+        raise CacheUnionError("Relocated extractor evidence source_id mismatch")
+    root = Path(cache_root).expanduser().resolve()
+    ledger = Path(ledger_path).expanduser().resolve()
+    output = Path(output_path).expanduser().resolve()
+    if not root.is_dir():
+        raise CacheUnionError(f"Relocated cache source root does not exist: {root}")
+    if not ledger.is_file():
+        raise CacheUnionError(f"Relocated cache source ledger does not exist: {ledger}")
+    if evidence.get("ledger_content_sha256") != _ledger_content_fingerprint(ledger):
+        raise CacheUnionError("Relocated ledger content differs from extractor evidence")
+    signature = _read_ledger_signature(ledger)
+    if evidence.get("ledger_signature_sha256") != _fingerprint(signature):
+        raise CacheUnionError("Relocated ledger signature differs from extractor evidence")
+    fingerprint_input = {
+        "strategy": evidence.get("prefill_strategy"),
+        "strategy_version": evidence.get("prefill_strategy_version"),
+        "code_files_sha256": evidence.get("code_files_sha256"),
+        "extraction_signature": evidence.get("extraction_signature"),
+        "model_asset_fingerprint": evidence.get("model_asset_fingerprint"),
+    }
+    if evidence.get("extractor_semantic_fingerprint") != _fingerprint(
+        fingerprint_input
+    ):
+        raise CacheUnionError("Relocated extractor evidence fingerprint mismatch")
+    _validate_evidence_code(evidence, original_path)
+    relocated = {
+        **evidence,
+        "cache_root": str(root),
+        "ledger_path": str(ledger),
+        "relocation": {
+            "schema": "mprisk_prefill_evidence_relocation_v1",
+            "source_evidence_path": str(original_path),
+            "source_evidence_sha256": _sha256_file(original_path),
+            "previous_cache_root": evidence.get("cache_root"),
+            "previous_ledger_path": evidence.get("ledger_path"),
+        },
+    }
+    _atomic_json(output, relocated)
+    return output
+
+
 def build_cache_union(
     *,
     expected_tasks: Sequence[ExpectedCacheTask],
