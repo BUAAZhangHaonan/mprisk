@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections import Counter
 from pathlib import Path, PurePosixPath
@@ -264,11 +265,18 @@ def _annotation_input_row(
 
 
 def _repository_locator(root: Path, path: Path) -> str:
-    try:
-        relative = path.resolve().relative_to(root.resolve())
-    except ValueError as exc:
-        raise ValueError(f"Repository artifact escapes root: {path}") from exc
-    return f"repo://{relative.as_posix()}"
+    # Compute the locator lexically so symlinked data roots (for example
+    # ``data/frozen -> ../../mprisk/data/frozen``) still report a path inside
+    # the repository. We only need to assert the path does not escape the root
+    # via ``..`` or by being absolute; physical resolution is the OS's job.
+    if path.is_absolute():
+        candidate = os.path.relpath(path, root)
+    else:
+        candidate = str(path)
+    posix = PurePosixPath(PurePosixPath(candidate).as_posix())
+    if posix.is_absolute() or any(part == ".." for part in posix.parts):
+        raise ValueError(f"Repository artifact escapes root: {path}")
+    return f"repo://{posix.as_posix()}"
 
 
 def _archive_media_locator(archive_row: dict[str, Any]) -> str:
