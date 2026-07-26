@@ -14,12 +14,12 @@ Usage:
   CUDA_VISIBLE_DEVICES=0 python scripts/generate_misread_inputs.py \\
       --delivery-root /home/team/lvshuyang/prompt-make/delivery_20260716 \\
       --model-key qwen3_vl_8b \\
-      --output outputs/v2/misread/descriptions/qwen3_vl_8b.jsonl
+      --output outputs/misread/descriptions/qwen3_vl_8b.jsonl
 
   # Stage B (CPU, parallel via httpx)
   python scripts/judge_misread.py \\
-      --descriptions-glob 'outputs/v2/misread/descriptions/*.jsonl' \\
-      --output outputs/v2/misread/labels.jsonl \\
+      --descriptions-glob 'outputs/misread/descriptions/*.jsonl' \\
+      --output outputs/misread/labels.jsonl \\
       --concurrency 16
 """
 
@@ -70,7 +70,7 @@ def main() -> int:
     if not paths:
         print(f"no description files match {args.descriptions_glob}", file=sys.stderr)
         return 1
-    print(f"[v2-misread] loading {len(paths)} description files", flush=True)
+    print(f"[misread] loading {len(paths)} description files", flush=True)
 
     tasks: list[dict] = []
     for p in paths:
@@ -84,7 +84,7 @@ def main() -> int:
                 "gt_description": row["gt_describe"],
                 "diagnostic_description": row["diagnostic_description"],
             })
-    print(f"[v2-misread] {len(tasks)} tasks queued", flush=True)
+    print(f"[misread] {len(tasks)} tasks queued", flush=True)
 
     out_path = asyncio.run(judge_many(
         tasks=tasks,
@@ -95,7 +95,7 @@ def main() -> int:
         n_flash=args.n_flash,
         confidence_threshold=args.confidence_threshold,
     ))
-    print(f"[v2-misread] wrote {out_path}", flush=True)
+    print(f"[misread] wrote {out_path}", flush=True)
     return 0
 
 

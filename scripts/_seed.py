@@ -1,4 +1,4 @@
-"""Shared deterministic seed helper for v2 training scripts.
+"""Shared deterministic seed helper for training scripts.
 
 m-A1-R5-1: implementation now lives in ``src/mprisk/utils/seeds.py``; this
 file is a thin re-export so existing ``from _seed import set_deterministic_seed``

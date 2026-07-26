@@ -26,7 +26,7 @@ from typing import Any
 
 # Protocol -> ordered list of (file_stem, role-label) where role-label is
 # purely informational for the summary print. The "_a" file is read first,
-# then "_c", matching the historical ordering used by the v2 pipeline.
+# then "_c", matching the historical ordering used by the pipeline.
 PROTOCOL_FILES: dict[str, list[tuple[str, str]]] = {
     "vt": [("vt_a_manifest.jsonl", "A"), ("vt_c_manifest.jsonl", "C")],
     "va": [("va_a_manifest.jsonl", "A"), ("va_c_manifest.jsonl", "C")],

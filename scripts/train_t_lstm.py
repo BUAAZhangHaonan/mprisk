@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""canonical_rerun_v2 T-LSTM v2 trainer (two-stage).
+"""canonical_rerun T-LSTM trainer (two-stage).
 
 Stage 1 (C/A pretrain):
     LSTM encoder (input=4096, hidden=128, num_layers=2, ~4.3M params) +
@@ -35,8 +35,8 @@ import torch.nn as nn
 
 HERE = Path(__file__).resolve().parent
 PROJ_ROOT = HERE.parent.parent
-V2_SRC = PROJ_ROOT / "src"
-for _p in (str(V2_SRC), str(HERE)):
+SRC = PROJ_ROOT / "src"
+for _p in (str(SRC), str(HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
@@ -227,7 +227,7 @@ class TLSTMStage1Wrapper(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Training helpers (shared with SP-MLP v2 logic)
+# Training helpers (shared with SP-MLP logic)
 # ---------------------------------------------------------------------------
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""canonical_rerun_v2 TME e2e v3-B trainer (single-stage M/N).
+"""canonical_rerun TME e2e v3-B trainer (single-stage M/N).
 
 Architecture (TME_E2E_v3B):
     Reuse SphericalTMEV1.condition_encoder (SequentialTrajectoryEncoderV1:
@@ -14,7 +14,7 @@ Architecture (TME_E2E_v3B):
 
 Optional warm start:
     ``--tme-pa-checkpoint`` can point at a T1 PA checkpoint
-    (outputs/canonical_rerun_v2/T1_gru_ca_frozen/<MODEL>_seed<SEED>/best_checkpoint.pt).
+    (outputs/canonical_rerun/T1_gru_ca_frozen/<MODEL>_seed<SEED>/best_checkpoint.pt).
     We extract the ``condition_encoder.*`` weights and load them into the
     encoder. The relation.* weights are discarded.
 
@@ -59,8 +59,8 @@ from sklearn.metrics import (
 
 HERE = Path(__file__).resolve().parent
 PROJ_ROOT = HERE.parent.parent
-V2_SRC = PROJ_ROOT / "src"
-for _p in (str(V2_SRC), str(HERE)):
+SRC = PROJ_ROOT / "src"
+for _p in (str(SRC), str(HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

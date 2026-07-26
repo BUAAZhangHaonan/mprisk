@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""canonical_rerun_v2 SP-MLP v2 trainer (two-stage).
+"""canonical_rerun SP-MLP trainer (two-stage).
 
 Stage 1 (C/A pretrain):
     MLP encoder (4096 -> 128, ~524k params) + temp head (128 -> 2)
@@ -39,8 +39,8 @@ import torch.nn as nn
 
 HERE = Path(__file__).resolve().parent
 PROJ_ROOT = HERE.parent.parent
-V2_SRC = PROJ_ROOT / "src"
-for _p in (str(V2_SRC), str(HERE)):
+SRC = PROJ_ROOT / "src"
+for _p in (str(SRC), str(HERE)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

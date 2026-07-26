@@ -39,7 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Override the seed field in the YAML config. Useful for "
-        "canonical_rerun_v2 multi-seed runs (T1/T5).",
+        "canonical_rerun multi-seed runs (T1/T5).",
     )
     return parser
 
