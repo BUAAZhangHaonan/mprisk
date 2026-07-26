@@ -10,7 +10,7 @@ import pytest
 import torch
 from safetensors.numpy import save_file
 
-from mprisk.representation import data as data_impl
+from mprisk.representation import training as data_impl  # v1 master: extract_t0_trajectory lives in training
 from mprisk.representation import training as training_impl
 from mprisk.representation.losses import ProxyAnchorLoss
 from mprisk.representation.relation_models import TME_ARCHITECTURE_V1, TME_PROXY_ANCHOR_V1
