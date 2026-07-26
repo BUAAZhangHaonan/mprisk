@@ -1,4 +1,4 @@
-"""Delivery manifest loaders for v2 (delivery_20260716).
+"""Delivery manifest loaders (delivery_20260716).
 
 Exposes:
     - DeliverySample dataclass (mirrors the one historically defined in
@@ -10,7 +10,7 @@ Exposes:
 The filtered manifests live under
 ``data/processed/manifests/delivery_20260716/{vt,va}_filtered.jsonl``
 relative to the project root. The default output dir can be overridden
-via the ``MPRISK_V2_DELIVERY_DIR`` environment variable or by passing
+via the ``MPRISK_DELIVERY_DIR`` environment variable or by passing
 ``output_dir`` explicitly.
 """
 
@@ -48,15 +48,15 @@ def _default_output_dir() -> Path:
     """Resolve the default filtered-manifest directory.
 
     Priority:
-        1. $MPRISK_V2_DELIVERY_DIR (absolute or relative to cwd)
+        1. $MPRISK_DELIVERY_DIR (absolute or relative to cwd)
         2. <project_root>/data/processed/manifests/delivery_20260716
 
     The project root is discovered by walking up from this file until a
     ``pyproject.toml`` is found. If none is found, fall back to a
-    path relative to cwd (matching the historical behavior where v2
+    path relative to cwd (matching the historical behavior where the pipeline
     scripts are run from the repo root).
     """
-    env = os.environ.get("MPRISK_V2_DELIVERY_DIR")
+    env = os.environ.get("MPRISK_DELIVERY_DIR")
     if env:
         return Path(env)
     here = Path(__file__).resolve()
