@@ -651,7 +651,7 @@ def main():
         prompt_ids=prompt_ids,
     )
     print(f"[setup] cache covers {len(cache_index)} samples", file=sys.stderr, flush=True)
-    proto = "va" if args.model_key in ("qwen2_5_omni_7b", "gemma4_12b_it") else "vt"
+    proto = "va" if args.model_key in ("qwen2_5_omni_7b", "gemma4_12b", "gemma4_12b_it", "phi4_multimodal") else "vt"
     sample_types = _load_sample_type_map(Path(args.main_manifest), protocol=proto)
     split_of = _load_split_assignment(Path(args.split_assignment))
 

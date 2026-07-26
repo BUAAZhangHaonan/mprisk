@@ -59,11 +59,13 @@ else
   log "No BiLSTM pid file; assuming BiLSTM already done"
 fi
 
-# Step 2: LSTM wave
+# Step 2: LSTM wave (run twice to retry any failed cells; skip-if-done is safe)
 launch_and_wait "driver_tme_lstm" "scripts/cache_matrix_20260722/driver_tme_lstm.sh" ""
+launch_and_wait "driver_tme_lstm_retry" "scripts/cache_matrix_20260722/driver_tme_lstm.sh" ""
 
-# Step 3: GRU wave
+# Step 3: GRU wave (retry pass)
 launch_and_wait "driver_tme_gru" "scripts/cache_matrix_20260722/driver_tme_gru.sh" ""
+launch_and_wait "driver_tme_gru_retry" "scripts/cache_matrix_20260722/driver_tme_gru.sh" ""
 
 # Step 4: SP-MLP (GPU 0) and T-LSTM (GPU 1) in parallel
 log "Launching SP-MLP (GPUS=0) and T-LSTM (GPUS=1) in parallel"
@@ -78,6 +80,10 @@ echo "$TL_PID" > "$LOG_DIR/driver_t_lstm.pid"
 log "SP-MLP pid=$SP_PID, T-LSTM pid=$TL_PID"
 wait_for_pid "driver_sp_mlp" "$SP_PID"
 wait_for_pid "driver_t_lstm" "$TL_PID"
+
+# Retry SP-MLP and T-LSTM for any failed cells
+launch_and_wait "driver_sp_mlp_retry" "scripts/cache_matrix_20260722/driver_sp_mlp.sh" "GPUS=0"
+launch_and_wait "driver_t_lstm_retry" "scripts/cache_matrix_20260722/driver_t_lstm.sh" "GPUS=1"
 
 # Step 5: threshold calibration (parallel 2-GPU)
 launch_and_wait "driver_calibrate" "scripts/cache_matrix_20260722/driver_calibrate.sh" ""
