@@ -9,7 +9,7 @@ import pytest
 import torch
 import yaml
 
-from mprisk.representation import data as data_impl
+from mprisk.representation import training as data_impl  # v1 master: extract_t0_trajectory lives in training
 from mprisk.representation import training as training_impl
 from mprisk.representation.relation_models import (
     SINGLE_POINT_BINARY_V1,
