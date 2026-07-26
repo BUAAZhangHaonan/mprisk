@@ -380,3 +380,38 @@ Main artifacts:
 - `paper/figures/generated/`
 - `paper/tables/generated/`
 - `outputs/paper_exports/`
+
+## 9. Viz Exploration Pipeline (Inlined)
+
+The viz exploration pipeline shares the same data and state-measure contracts as the mainline pipeline above, but is invoked at the Python API level rather than via CLI scripts. It is the inlined replacement for the former `mprisk_viz.pipeline.run_v2_for_model` entry point plus the four `install_v2_pipeline_patches` hooks.
+
+Entry point:
+
+```python
+from mprisk.pipeline import run_for_model, ModelSpec, PipelineResult
+```
+
+The viz pipeline selects the bi-LSTM TME encoder and the SDR-aware hinge auxiliary loss via `TrainingConfig`:
+
+```text
+TrainingConfig(
+    encoder_type="bilstm",         # selects SphericalTME_BiLSTM
+    sdr_aux_weight=1.0,            # enables SphericalSDRHingeLoss
+    sdr_margin_d=0.6,
+    sdr_warmup_epochs=10,
+    sdr_dominant_only=True,
+)
+```
+
+`run_for_model()` also passes two non-default arguments to the shared state-measure and shape-check helpers:
+
+- `compute_spherical_state(..., bootstrap_replicates=200)` (mainline default `2000`).
+- `_require_consistent_entry_shape(..., strict_shape=False)` (mainline default strict).
+
+No `install_v2_pipeline_patches` call is needed. The data flow is identical to the mainline chain documented in sections 3-6:
+
+```text
+cache -> state_dataset -> state_bundles -> relation_dataset -> train -> export -> SDR -> patterns
+```
+
+The frozen exports written by `run_for_model()` are written as `pipeline_summary.json` (the inlined rename of the former `v2_summary.json`).
