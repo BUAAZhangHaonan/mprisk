@@ -1,4 +1,4 @@
-schema: mprisk_condition_affect_annotation_schema_v2
+schema: mprisk_condition_affect_annotation_schema
 fields:
   sample_id: string
   source_dataset: string

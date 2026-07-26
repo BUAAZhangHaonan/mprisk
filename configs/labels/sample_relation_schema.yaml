@@ -1,4 +1,4 @@
-schema: mprisk_sample_relation_schema_v2
+schema: mprisk_sample_relation_schema
 sample_types:
   Conflict:
     definition: M1 and M2 are clear and different, and the M12 condition label is clear.
