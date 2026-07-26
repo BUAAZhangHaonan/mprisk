@@ -8,7 +8,7 @@
 # Selects yaml by ENCODER_TYPE:
 #   gru  -> ${MODEL}_tme_pa_dstrong_bigdim_x2[_seed${SEED}].yaml
 #   lstm -> ${MODEL}_tme_pa_dstrong_bigdim_x2_lstm.yaml
-# Output: outputs/canonical_rerun_v2/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}/
+# Output: outputs/canonical_rerun/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -33,7 +33,7 @@ if [ "$MODEL" = "qwen2_5_omni_7b" ] || [ "$MODEL" = "gemma4_12b_it" ]; then
 else
   PROTO=vt
 fi
-RELATION_DATASET=outputs/v2/relation_data/$MODEL/${PROTO^^}/${PROTO,,}_main_p8_seed20260717/relation_dataset.jsonl
+RELATION_DATASET=outputs/relation_data/$MODEL/${PROTO^^}/${PROTO,,}_main_p8_seed20260717/relation_dataset.jsonl
 
 if [ "$ENCODER_TYPE" = "gru" ]; then
   YAML=configs/experiments/three_way_ablation/${MODEL}_tme_pa_dstrong_bigdim_x2.yaml
@@ -48,7 +48,7 @@ if [ ! -f "$YAML" ]; then
   exit 3
 fi
 
-OUT=outputs/canonical_rerun_v2/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun/T${ENCODER_TYPE_NUM}_${ENCODER_TYPE}_ca_frozen/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
 
 echo "[T_${ENCODER_TYPE}] MODEL=$MODEL SEED=$SEED GPU=$GPU yaml=$YAML"

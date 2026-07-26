@@ -5,7 +5,7 @@
 #   Training from scratch (no warm start, 20260723).
 # Args: MODEL_KEY SEED GPU
 # No dependencies (training from scratch).
-# Output:   outputs/canonical_rerun_v2/C5_tme_v3b_e2e_mn/${MODEL}_seed${SEED}/
+# Output:   outputs/canonical_rerun/C5_tme_v3b_e2e_mn/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -26,7 +26,7 @@ fi
 SPLIT=data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_${PROTO,,}.jsonl
 MANIFEST=data/processed/manifests/protocol_manifests_merged/${PROTO,,}_merged_primary.jsonl
 PROMPT_SET=configs/prompts/equiv_sets/${PROTO,,}_main_p8_seed20260717.yaml
-JUDGMENTS=outputs/v2/misread/$MODEL/judgments.jsonl
+JUDGMENTS=outputs/misread/$MODEL/judgments.jsonl
 
 if [ ! -f "$JUDGMENTS" ]; then
   echo "[FATAL] judgments missing: $JUDGMENTS (run scripts/judge_misread.py first)" >&2
@@ -42,9 +42,9 @@ DELIV_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_delivery_p8_seed20260717
 T1_ARG=""
 echo "[C5] from scratch (no warm start)"
 
-OUT=outputs/canonical_rerun_v2/C5_tme_v3b_e2e_mn/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun/C5_tme_v3b_e2e_mn/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
-LOG=outputs/canonical_rerun_v2/_logs/C5_tme_v3b_${MODEL}_seed${SEED}.log
+LOG=outputs/canonical_rerun/_logs/C5_tme_v3b_${MODEL}_seed${SEED}.log
 mkdir -p "$(dirname "$LOG")"
 
 echo "[C5] MODEL=$MODEL SEED=$SEED GPU=$GPU method=tme_v3b stage=e2e task=MN"

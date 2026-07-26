@@ -4,7 +4,7 @@
 #   M12 trajectory [36, 4096] from prefill cache + Layer-L2 norm.
 #   Adam(lr=1e-3, no WD) + plain CE + clip 1.0 + 100 epochs + best=test_ac_acc.
 # Args: MODEL_KEY SEED GPU
-# Output:   outputs/canonical_rerun_v2/C3_t_lstm_v2_ca/${MODEL}_seed${SEED}/
+# Output:   outputs/canonical_rerun/C3_t_lstm_v2_ca/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -29,9 +29,9 @@ PROMPT_SET=configs/prompts/equiv_sets/${PROTO,,}_main_p8_seed20260717.yaml
 MAIN_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_main_p8_seed20260717
 DELIV_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_delivery_p8_seed20260717
 
-OUT=outputs/canonical_rerun_v2/C3_t_lstm_v2_ca/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun/C3_t_lstm_v2_ca/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
-LOG=outputs/canonical_rerun_v2/_logs/C3_t_lstm_v2_${MODEL}_seed${SEED}.log
+LOG=outputs/canonical_rerun/_logs/C3_t_lstm_v2_${MODEL}_seed${SEED}.log
 mkdir -p "$(dirname "$LOG")"
 
 echo "[C3] MODEL=$MODEL SEED=$SEED GPU=$GPU method=t_lstm_v2 stage=pretrain task=CA"

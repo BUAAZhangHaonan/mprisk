@@ -5,7 +5,7 @@
 #   SEED in {20260717, 20260718, 20260719}
 #   GPU in {0, 1}
 # Selected yaml: configs/experiments/three_way_ablation/qwen3_vl_8b_tme_pa_ablation_${VARIANT}.yaml
-# Output: outputs/canonical_rerun_v2/T1_ablation_${VARIANT}/${MODEL}_seed${SEED}/
+# Output: outputs/canonical_rerun/T1_ablation_${VARIANT}/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -20,7 +20,7 @@ export PYTHONPATH=src
 
 MODEL=qwen3_vl_8b
 PROTO=vt
-RELATION_DATASET=outputs/v2/relation_data/$MODEL/${PROTO}/${PROTO}_main_p8_seed20260717/relation_dataset.jsonl
+RELATION_DATASET=outputs/relation_data/$MODEL/${PROTO}/${PROTO}_main_p8_seed20260717/relation_dataset.jsonl
 
 YAML=configs/experiments/three_way_ablation/qwen3_vl_8b_tme_pa_ablation_${VARIANT}.yaml
 if [ ! -f "$YAML" ]; then
@@ -28,7 +28,7 @@ if [ ! -f "$YAML" ]; then
   exit 3
 fi
 
-OUT=outputs/canonical_rerun_v2/T1_ablation_${VARIANT}/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun/T1_ablation_${VARIANT}/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
 
 echo "[T1_ablation_${VARIANT}] SEED=$SEED GPU=$GPU yaml=$YAML"

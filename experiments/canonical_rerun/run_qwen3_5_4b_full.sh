@@ -12,7 +12,7 @@ MODEL=qwen3_5_4b
 GPU=1
 SEEDS=(20260717 20260718 20260719)
 SCRIPT_DIR=experiments/canonical_rerun
-LOG_DIR=outputs/canonical_rerun_v2/_logs/qwen3_5_4b
+LOG_DIR=outputs/canonical_rerun/_logs/qwen3_5_4b
 mkdir -p "$LOG_DIR"
 
 STAMP=$(date +%Y%m%d_%H%M%S)

@@ -4,7 +4,7 @@
 #   Adam(lr=1e-3, no WD) + plain CE + clip 1.0 + 100 epochs + best=test_mn_acc.
 # Args: MODEL_KEY SEED GPU
 # Depends on: C1 (encoder.pt in C1_sp_mlp_v2_ca output dir).
-# Output:   outputs/canonical_rerun_v2/C2_sp_mlp_v2_mn/${MODEL}_seed${SEED}/
+# Output:   outputs/canonical_rerun/C2_sp_mlp_v2_mn/${MODEL}_seed${SEED}/
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -25,20 +25,20 @@ fi
 SPLIT=data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_${PROTO,,}.jsonl
 MANIFEST=data/processed/manifests/protocol_manifests_merged/${PROTO,,}_merged_primary.jsonl
 PROMPT_SET=configs/prompts/equiv_sets/${PROTO,,}_main_p8_seed20260717.yaml
-JUDGMENTS=outputs/v2/misread/$MODEL/judgments.jsonl
+JUDGMENTS=outputs/misread/$MODEL/judgments.jsonl
 
 MAIN_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_main_p8_seed20260717
 DELIV_CACHE=outputs/prefill_cache/$MODEL/${PROTO,,}_delivery_p8_seed20260717
 
-C1_ENCODER=outputs/canonical_rerun_v2/C1_sp_mlp_v2_ca/${MODEL}_seed${SEED}/encoder.pt
+C1_ENCODER=outputs/canonical_rerun/C1_sp_mlp_v2_ca/${MODEL}_seed${SEED}/encoder.pt
 if [ ! -f "$C1_ENCODER" ]; then
   echo "[FATAL] C1 encoder missing: $C1_ENCODER (run C1 first)" >&2
   exit 2
 fi
 
-OUT=outputs/canonical_rerun_v2/C2_sp_mlp_v2_mn/${MODEL}_seed${SEED}
+OUT=outputs/canonical_rerun/C2_sp_mlp_v2_mn/${MODEL}_seed${SEED}
 mkdir -p "$OUT"
-LOG=outputs/canonical_rerun_v2/_logs/C2_sp_mlp_v2_${MODEL}_seed${SEED}.log
+LOG=outputs/canonical_rerun/_logs/C2_sp_mlp_v2_${MODEL}_seed${SEED}.log
 mkdir -p "$(dirname "$LOG")"
 
 echo "[C2] MODEL=$MODEL SEED=$SEED GPU=$GPU method=sp_mlp_v2 stage=mn_head ckpt=$C1_ENCODER task=MN"
