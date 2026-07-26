@@ -28,7 +28,7 @@ for MODEL in "${MODELS[@]}"; do
       KEY="${STAGE}|${MODEL}|${SEED}"
       SH="experiments/canonical_rerun/${STAGE}.sh"
       echo ">>> [$((DONE+FAIL+1))/$TOTAL] $KEY"
-      if bash "$SH" "$MODEL" "$SEED" "$GPU" > "outputs/canonical_rerun_v2/_logs/${STAGE}_${MODEL}_seed${SEED}.log" 2>&1; then
+      if bash "$SH" "$MODEL" "$SEED" "$GPU" > "outputs/canonical_rerun/_logs/${STAGE}_${MODEL}_seed${SEED}.log" 2>&1; then
         STATUS[$KEY]="OK"
         DONE=$((DONE+1))
         echo "    OK (done=$DONE fail=$FAIL)"

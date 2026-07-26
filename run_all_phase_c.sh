@@ -5,7 +5,7 @@ cd "${MPRISK_ROOT:-$SCRIPT_DIR}"
 source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
-LOGDIR=outputs/canonical_rerun_v2/_logs/phase_c
+LOGDIR=outputs/canonical_rerun/_logs/phase_c
 mkdir -p "$LOGDIR"
 DRIVER_LOG="$LOGDIR/driver_$(date +%Y%m%d_%H%M%S).log"
 echo "[driver] start $(date)" | tee "$DRIVER_LOG"
