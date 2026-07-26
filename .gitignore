@@ -99,3 +99,8 @@ paper/**/*.log
 paper/**/*.out
 paper/**/*.synctex.gz
 paper/**/*.toc
+
+# Generated experiment outputs (large files; reproducible from src + data)
+outputs/
+!outputs/.gitkeep
+!outputs/README.md

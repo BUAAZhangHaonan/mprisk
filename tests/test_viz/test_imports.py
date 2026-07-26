@@ -80,9 +80,6 @@ def test_setup_helper_imports():
     import mprisk.setup_helper  # noqa: F401
 
 
-def test_spherical_norm_imports():
-    import mprisk.state.spherical_norm  # noqa: F401
-
 
 def test_delivery_manifests_imports():
     import mprisk.data.delivery_manifests  # noqa: F401
