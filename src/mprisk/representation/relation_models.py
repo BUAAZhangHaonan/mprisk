@@ -308,7 +308,7 @@ class SequentialTrajectoryEncoderLSTMV1(nn.Module):
     State-dict keys live under ``condition_encoder.sequence.*`` (PyTorch
     names them ``weight_ih_l0``, ``weight_hh_l0``, ``weight_ih_l1``,
     ``weight_hh_l1``, ... plus the matching biases). The presence of the
-    ``_l1`` layer is what lets :func:`mprisk_v2.baselines._infer_tme_dims_from_state`
+    ``_l1`` layer is what lets :func:`mprisk.representation.baselines._infer_tme_dims_from_state`
     distinguish a multi-layer LSTM checkpoint from a single-layer GRU
     checkpoint (which only has ``_l0``).
     """
@@ -548,7 +548,7 @@ class SphericalTME_BiLSTM(nn.Module):
 
     The default ``sequence_hidden_dim=256`` matches the original viz
     training configuration that produced the published bi-LSTM checkpoints
-    under ``outputs/v2/checkpoints/<model>/best_checkpoint.pt``.
+    under ``outputs/checkpoints/<model>/best_checkpoint.pt``.
     """
 
     architecture_version = TME_ARCHITECTURE_BILSTM_V1

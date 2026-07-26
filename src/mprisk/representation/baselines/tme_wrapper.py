@@ -139,7 +139,7 @@ class TMEEncoder(nn.Module):
 
       * SphericalTMEV2 (bi-LSTM): keys prefixed ``condition_encoder.lstm.*``
         + ``condition_encoder.mlp.*`` (this is what the v2 pipeline writes
-        to ``outputs/v2/checkpoints/<model>/best_checkpoint.pt``), or
+        to ``outputs/checkpoints/<model>/best_checkpoint.pt``), or
       * SphericalTMEV1 (GRU, single layer): keys prefixed
         ``condition_encoder.sequence.*`` + ``condition_encoder.projection.*``
         (this is what the canonical_rerun encoders under
