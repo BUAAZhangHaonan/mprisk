@@ -1,4 +1,4 @@
-"""V2 setup: derive prompt_cache + prompt_conditioned_cache manifests from cache.
+"""Setup: derive prompt_cache + prompt_conditioned_cache manifests from cache.
 
 Reads:
   - cache_root/manifest.jsonl (the cache ledger)
@@ -52,7 +52,7 @@ def _load_prompt_templates(prompt_set_path: str | Path) -> tuple[str, str, list[
     return key, protocol, templates
 
 
-def setup_v2_cache_manifests(
+def setup_cache_manifests(
     *,
     cache_root: str | Path,
     prompt_set_path: str | Path,
@@ -64,7 +64,7 @@ def setup_v2_cache_manifests(
     output_root.mkdir(parents=True, exist_ok=True)
 
     prompt_set_key, protocol, templates = _load_prompt_templates(prompt_set_path)
-    print(f"[v2-setup] prompt_set={prompt_set_key} protocol={protocol} "
+    print(f"[setup] prompt_set={prompt_set_key} protocol={protocol} "
           f"n_prompts={len(templates)}", flush=True)
 
     pc_rows = [
@@ -78,7 +78,7 @@ def setup_v2_cache_manifests(
     ]
     pc_path = output_root / "prompt_cache_manifest.jsonl"
     write_prompt_cache_manifest(pc_path, pc_rows)
-    print(f"[v2-setup] wrote prompt_cache_manifest: {pc_path}", flush=True)
+    print(f"[setup] wrote prompt_cache_manifest: {pc_path}", flush=True)
 
     source_manifest = cache_root / "manifest.jsonl"
     if not source_manifest.exists():
@@ -114,7 +114,7 @@ def setup_v2_cache_manifests(
                 skipped += 1
                 continue
 
-    print(f"[v2-setup] prompt_conditioned: selected={selected} skipped={skipped} "
+    print(f"[setup] prompt_conditioned: selected={selected} skipped={skipped} "
           f"seen_prompts={len(seen_prompt_ids)}/{len(templates)}", flush=True)
 
     pccond_dir = (
@@ -129,7 +129,7 @@ def setup_v2_cache_manifests(
             "schema": "mprisk_full_cache_manifest_v1",
             "entries": unified_entries,
         }, f, indent=None)
-    print(f"[v2-setup] wrote unified cache manifest: {unified_manifest_path} "
+    print(f"[setup] wrote unified cache manifest: {unified_manifest_path} "
           f"entries={len(unified_entries)}", flush=True)
 
     summary_path = write_json(
@@ -164,7 +164,7 @@ def main() -> int:
     parser.add_argument("--model-key", required=True)
     parser.add_argument("--output-root", required=True)
     args = parser.parse_args()
-    result = setup_v2_cache_manifests(
+    result = setup_cache_manifests(
         cache_root=args.cache_root,
         prompt_set_path=args.prompt_set,
         model_key=args.model_key,
