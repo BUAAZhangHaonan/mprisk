@@ -1,6 +1,6 @@
-"""Smoke tests for mprisk_viz package import integrity.
+"""Smoke tests for mprisk package import integrity.
 
-These tests verify that every public module in :mod:`mprisk_viz` imports
+These tests verify that every public module in :mod:`mprisk` (relocated viz modules) imports
 cleanly and that previously-fixed typos (e.g. ``CONFLICT_COLOR`` instead
 of the original ``CONFICT_COLOR``) do not regress.
 """
@@ -9,39 +9,39 @@ from __future__ import annotations
 
 
 def test_pipeline_imports():
-    import mprisk_viz.pipeline  # noqa: F401
+    import mprisk.pipeline  # noqa: F401
 
 
 def test_misread_imports():
-    import mprisk_viz.misread  # noqa: F401
+    import mprisk.misread  # noqa: F401
 
 
 def test_sdr_loss_imports():
-    import mprisk_viz.sdr_loss  # noqa: F401
+    import mprisk.representation.sdr_loss  # noqa: F401
 
 
 def test_lstm_tme_imports():
-    import mprisk_viz.lstm_tme  # noqa: F401
+    import mprisk.representation.lstm_tme  # noqa: F401
 
 
 def test_plotting_imports():
-    import mprisk_viz.plotting  # noqa: F401
+    import mprisk.plotting  # noqa: F401
 
 
 def test_baselines_imports():
-    import mprisk_viz.baselines  # noqa: F401
+    import mprisk.representation.baselines  # noqa: F401
 
 
 def test_setup_helper_imports():
-    import mprisk_viz.setup_helper  # noqa: F401
+    import mprisk.setup_helper  # noqa: F401
 
 
 def test_spherical_norm_imports():
-    import mprisk_viz.spherical_norm  # noqa: F401
+    import mprisk.state.spherical_norm  # noqa: F401
 
 
 def test_delivery_manifests_imports():
-    import mprisk_viz.delivery_manifests  # noqa: F401
+    import mprisk.data.delivery_manifests  # noqa: F401
 
 
 def test_plotting_conflict_color_attribute():
@@ -52,7 +52,7 @@ def test_plotting_conflict_color_attribute():
     future typos fail loudly at import time rather than silently falling
     back to a NameError at runtime.
     """
-    from mprisk_viz import plotting
+    from mprisk import plotting
     assert hasattr(plotting, "CONFLICT_COLOR")
     assert isinstance(plotting.CONFLICT_COLOR, str)
     assert plotting.CONFLICT_COLOR.startswith("#")
