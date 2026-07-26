@@ -20,7 +20,11 @@ from torch.nn import functional as F
 
 from mprisk.cache.prefill_extract import extract_t0_trajectory
 from mprisk.cache.prompt_conditioned_cache import prompt_conditioned_entry_from_row
-from mprisk.representation.losses import ModalitySplitRankingLoss, ProxyAnchorLoss
+from mprisk.representation.losses import (
+    ModalitySplitRankingLoss,
+    ProxyAnchorLoss,
+    SphericalSDRHingeLoss,
+)
 from mprisk.representation.relation_dataset import CONDITIONS, _reject_forbidden_fields
 from mprisk.representation.relation_models import (
     REPRESENTATION_KEYS,
@@ -1360,7 +1364,8 @@ def _train_epoch(
     for batch, d_batch in zip(proxy_batches, d_batches, strict=True):
         optimizer.zero_grad(set_to_none=True)
         proxy_loss, _outputs = _batch_loss_and_outputs(
-            model, objective, batch, class_weights=class_weights
+            model, objective, batch, class_weights=class_weights,
+            config=config, epoch=epoch,
         )
         proxy_loss.backward()
         total_loss_value = float(proxy_loss.detach())
@@ -1720,6 +1725,8 @@ def _batch_loss_and_outputs(
     batch: list[_Sample],
     *,
     class_weights: torch.Tensor | None,
+    config: TrainingConfig | None = None,
+    epoch: int = 0,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     device = next(model.parameters()).device
     trajectories, labels = _load_trajectory_batch(batch, device=device)
@@ -1727,8 +1734,24 @@ def _batch_loss_and_outputs(
         if class_weights is not None:
             raise ValueError("TME Proxy Anchor must not receive cross-entropy class weights")
         sample_ids = [sample.sample_id for sample in batch]
-        _condition_z, relation_r = model(trajectories, sample_ids=sample_ids)
+        condition_z, relation_r = model(trajectories, sample_ids=sample_ids)
         loss = objective(relation_r, labels, sample_ids=sample_ids)
+        # V2 SDR-aware aux hinge on condition_z. Off by default; enabled
+        # only when the TrainingConfig sets sdr_aux_weight > 0 (viz pipeline
+        # path). The original monkey-patch discarded condition_z here; we
+        # now keep it long enough to compute the hinge and then let it GC.
+        if config is not None and config.sdr_aux_weight > 0.0:
+            sdr_hinge = SphericalSDRHingeLoss(
+                margin_D=config.sdr_margin_D,
+                margin_R=config.sdr_margin_R,
+            ).to(device=device, dtype=condition_z.dtype)
+            hinge_D, hinge_R, _diag = sdr_hinge(condition_z, labels)
+            warmup = min(
+                1.0,
+                max(0.0, float(epoch) / float(max(1, config.sdr_warmup_epochs))),
+            )
+            aux_loss = warmup * config.sdr_aux_weight * (hinge_D + hinge_R)
+            loss = loss + aux_loss
         return loss, relation_r
     logits = model(trajectories)
     if class_weights is None:
