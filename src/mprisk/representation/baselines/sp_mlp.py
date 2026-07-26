@@ -32,7 +32,7 @@ class SinglePointMLP(nn.Module):
     downstream M/N probe.
     """
 
-    architecture_version: str = "baseline_sp_mlp_v2"
+    architecture_version: str = "baseline_sp_mlp"
 
     LAST_LAYER_INDEX = -1
 
@@ -49,7 +49,7 @@ class SinglePointMLP(nn.Module):
         self.n_classes = int(n_classes)
         self.layer_count = layer_count
         # 3-layer MLP head: hidden_dim -> 128 -> 32 -> n_classes.
-        # canonical_rerun_v2 spec: uniform head structure across baselines.
+        # canonical_rerun spec: uniform head structure across baselines.
         self.classifier = nn.Sequential(
             nn.Linear(self.hidden_dim, 128), nn.GELU(), nn.Dropout(dropout),
             nn.Linear(128, 32), nn.GELU(), nn.Dropout(dropout),
@@ -84,7 +84,7 @@ class SinglePointLayerX(nn.Module):
     the per-layer sweep (Table 3 appendix).
     """
 
-    architecture_version: str = "baseline_sp_layer_x_v2"
+    architecture_version: str = "baseline_sp_layer_x"
 
     def __init__(
         self,

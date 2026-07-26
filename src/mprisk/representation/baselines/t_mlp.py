@@ -27,7 +27,7 @@ class TrajectoryMLP(nn.Module):
     handed off to downstream probes.
     """
 
-    architecture_version: str = "baseline_t_mlp_v2"
+    architecture_version: str = "baseline_t_mlp"
 
     def __init__(
         self,
@@ -41,7 +41,7 @@ class TrajectoryMLP(nn.Module):
         self.hidden_dim = int(hidden_dim)
         self.n_classes = int(n_classes)
         in_dim = self.layer_count * self.hidden_dim
-        # canonical_rerun_v2 spec: encoder 1024-d + [1024 -> 128 -> 32 -> 2].
+        # canonical_rerun spec: encoder 1024-d + [1024 -> 128 -> 32 -> 2].
         # fc1 keeps the 1024-d encoder hidden (encode() returns it). The
         # downstream head is a 3-layer MLP, replacing the old Linear(1024, 2).
         self.fc1 = nn.Linear(in_dim, 1024)

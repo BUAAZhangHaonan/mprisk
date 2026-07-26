@@ -1,13 +1,13 @@
-"""V2 representation-quality baselines (v2 rewrite, pure architectures).
+"""Representation-quality baselines (pure architectures).
 
-Section E of the v2 paper compares three encoders on the Conflict-vs-Aligned
+Section E of the paper compares three encoders on the Conflict-vs-Aligned
 representation task and a downstream Misread-vs-Non-misread probe:
 
   * ``SinglePointMLP``   (SP-MLP): last-layer hidden state -> 2-layer MLP.
   * ``SinglePointLayerX``: same architecture but with a configurable layer index
     (used for the per-layer sweep reported in Table 3 / appendix).
   * ``TrajectoryMLP``    (T-MLP): full trajectory flattened -> 2-layer MLP.
-  * ``TMEEncoder``       (TME):   wraps the trained ``SphericalTMEV2`` and
+  * ``TMEEncoder``       (TME):   wraps the trained ``SphericalTME_BiLSTM`` and
     exposes a plain ``.encode(trajectory)`` API so the same two-stage
     training harness works for it.
 
@@ -22,7 +22,7 @@ downstream M/N probe in ``train_baseline.py``.
 
 The trajectory contract is ``[B, L, H]`` for SP-* / T-MLP, and ``[B, 3, L, H]``
 (3 conditions M1, M2, M12 in fixed order) for TME — exactly what
-``SphericalTMEV2.forward`` expects.
+``SphericalTME_BiLSTM.forward`` expects.
 
 Encoder classes live in dedicated submodules:
 
@@ -175,7 +175,7 @@ def load_encoder(path: str | Path, *, map_location: str | torch.device = "cpu") 
     )
     state = payload["model_state_dict"]
     # Filter to keys present in the rebuilt model (TME wrapper has different
-    # layout than the trained SphericalTMEV2; for SP/T-MLP the state dicts
+    # layout than the trained SphericalTME_BiLSTM; for SP/T-MLP the state dicts
     # are identical so strict load works).
     own = set(model.state_dict().keys())
     filtered = {k: v for k, v in state.items() if k in own}

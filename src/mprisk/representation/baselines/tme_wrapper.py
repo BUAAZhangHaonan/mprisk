@@ -15,7 +15,7 @@ This module contains:
     checkpoints without dragging in the full mprisk training package.
 
 Trajectory contract: ``[B, 3, L, H]`` (3 conditions M1, M2, M12 in fixed
-order) — exactly what ``SphericalTMEV2.forward`` expects.
+order) — exactly what ``SphericalTME_BiLSTM.forward`` expects.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ __all__ = ["TMEEncoder", "_infer_tme_dims_from_state"]
 
 
 def _infer_tme_dims_from_state(state: dict) -> dict:
-    """Inspect a SphericalTME(V1/V2/LSTM) state_dict to recover constructor args.
+    """Inspect a SphericalTME(V1/_BiLSTM/LSTM) state_dict to recover constructor args.
 
     Returns dict with sequence_hidden_dim, condition_dim, relation_dim,
     lstm_layers and encoder_type inferred from weight shapes. Falls back to
@@ -43,7 +43,7 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
     * ``"lstm"`` — keys like ``condition_encoder.lstm.weight_ih_l0`` are
       present (bi-LSTM ``SphericalTME_BiLSTM`` from
       ``mprisk.representation.relation_models``, originally the viz
-      ``SphericalTMEV2``; bi-directional multi-layer LSTM + MLP, 4*H gate
+      ``SphericalTME_BiLSTM``; bi-directional multi-layer LSTM + MLP, 4*H gate
       factor).
     * ``"gru"`` — keys like ``condition_encoder.sequence.weight_ih_l0``
       are present and NO ``condition_encoder.sequence.weight_ih_l1`` exists
@@ -60,7 +60,7 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
     out = {"sequence_hidden_dim": 128, "condition_dim": 64,
            "relation_dim": 32, "lstm_layers": 2, "encoder_type": "lstm"}
     # Detect encoder type by key prefix + layer count.
-    # Legacy bi-LSTM (SphericalTMEV2) uses ``condition_encoder.lstm.*``.
+    # Legacy bi-LSTM (SphericalTME_BiLSTM) uses ``condition_encoder.lstm.*``.
     # New uni-LSTM (SphericalTME_LSTM) and GRU (SphericalTMEV1) both use
     # ``condition_encoder.sequence.*``; we tell them apart by whether
     # ``weight_ih_l1`` exists (LSTM is multi-layer; GRU is single-layer).
@@ -99,7 +99,7 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
     if layer_idxs:
         out["lstm_layers"] = max(layer_idxs) + 1
     # condition_dim: last MLP/projection layer weight (out, in).
-    # LSTM V2 uses ``condition_encoder.mlp.{idx}.weight`` (sequential).
+    # bi-LSTM uses ``condition_encoder.mlp.{idx}.weight`` (sequential).
     # GRU V1 / LSTM multilayer both use ``condition_encoder.projection.weight``
     # (single Linear, matching SphericalTMEV1 layout).
     mlp_outs = []
@@ -122,7 +122,7 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
 
 
 class TMEEncoder(nn.Module):
-    """Wrap a trained ``SphericalTMEV2`` (LSTM) or ``SphericalTMEV1`` (GRU)
+    """Wrap a trained ``SphericalTME_BiLSTM`` (LSTM) or ``SphericalTMEV1`` (GRU)
     and expose ``encode(trajectory)``.
 
     trajectory contract: ``[B, 3, L, H]`` where dim 1 is the condition axis
@@ -137,8 +137,8 @@ class TMEEncoder(nn.Module):
     The checkpoint must contain a top-level ``model_state_dict`` key whose
     weights match either:
 
-      * SphericalTMEV2 (bi-LSTM): keys prefixed ``condition_encoder.lstm.*``
-        + ``condition_encoder.mlp.*`` (this is what the v2 pipeline writes
+      * SphericalTME_BiLSTM (bi-LSTM): keys prefixed ``condition_encoder.lstm.*``
+        + ``condition_encoder.mlp.*`` (this is what the pipeline writes
         to ``outputs/checkpoints/<model>/best_checkpoint.pt``), or
       * SphericalTMEV1 (GRU, single layer): keys prefixed
         ``condition_encoder.sequence.*`` + ``condition_encoder.projection.*``
@@ -148,7 +148,7 @@ class TMEEncoder(nn.Module):
     The encoder_type is auto-detected by :func:`_infer_tme_dims_from_state`.
     """
 
-    architecture_version: str = "baseline_tme_wrapper_v2"
+    architecture_version: str = "baseline_tme_wrapper"
 
     def __init__(
         self,
@@ -201,8 +201,8 @@ class TMEEncoder(nn.Module):
                 dropout=dropout,
             )
         else:
-            # Legacy bi-LSTM V2 checkpoint (originally produced by the viz
-            # SphericalTMEV2). The class is now inlined into the mainline
+            # Legacy bi-LSTM checkpoint (originally produced by the viz
+            # SphericalTME_BiLSTM). The class is now inlined into the mainline
             # relation_models module as SphericalTME_BiLSTM with an identical
             # state-dict layout, so existing checkpoints load unchanged.
             from mprisk.representation.relation_models import SphericalTME_BiLSTM  # noqa: WPS433
@@ -215,7 +215,7 @@ class TMEEncoder(nn.Module):
                 dropout=dropout,
                 lstm_layers=lstm_layers,
             )
-        # TME checkpoint may be saved as a top-level SphericalTMEV1/V2 state
+        # TME checkpoint may be saved as a top-level SphericalTMEV1/_BiLSTM state
         # dict (with keys like ``condition_encoder.lstm.weight_ih_l0`` or
         # ``condition_encoder.sequence.weight_ih_l0``) or nested under
         # ``tme.*`` depending on whether the wrapper was serialized as part
@@ -237,7 +237,7 @@ class TMEEncoder(nn.Module):
         # for the projected condition_z (default / CA path).
         self.out_dim = 3 * self.condition_dim
         # Rich path (MN probe only): pre-projection final hidden per
-        # condition. Legacy bi-LSTM V2 is bi-directional -> 2 *
+        # condition. Legacy bi-LSTM is bi-directional -> 2 *
         # sequence_hidden_dim per condition; GRU V1 and the new multi-layer
         # uni-LSTM are both uni-directional -> sequence_hidden_dim per
         # condition.
@@ -263,7 +263,7 @@ class TMEEncoder(nn.Module):
         ``[B, rich_dim]`` when ``rich=True``.
 
         When ``rich=True`` we bypass the encoder's projection (MLP for LSTM
-        V2, single Linear for GRU V1) and return the raw sequence-model
+        bi-LSTM, single Linear for GRU) and return the raw sequence-model
         final hidden states per condition. Used by the MN probe so it sees
         a less compressed feature than the projected condition_z. CA eval
         continues to use the default path.
@@ -300,7 +300,7 @@ class _GRUTMEWrapper(nn.Module):
     Construction parameters mirror :class:`SphericalTMEV1`.
     """
 
-    architecture_version = "tme_gru_wrapper_v2_compat"
+    architecture_version = "tme_gru_wrapper_compat"
 
     def __init__(
         self,
@@ -356,7 +356,7 @@ class _GRUTMEWrapper(nn.Module):
         """Return raw GRU final-hidden per condition.
 
         Shape: ``[B, 3, sequence_hidden_dim]``. Used by the MN probe rich
-        path. Mirrors what SphericalTMEV2 returns from
+        path. Mirrors what SphericalTME_BiLSTM returns from
         ``forward(return_pre_mlp=True)`` minus the bi-directional factor.
         """
         _cz, pre_proj = self.condition_encoder(trajectories, return_pre_projection=True)
@@ -443,7 +443,7 @@ class _LSTMTMEWrapper(nn.Module):
     presence of ``weight_ih_l1`` (LSTM is multi-layer; GRU is single-layer).
     """
 
-    architecture_version = "tme_lstm_wrapper_v2_compat"
+    architecture_version = "tme_lstm_wrapper_compat"
 
     def __init__(
         self,
@@ -503,7 +503,7 @@ class _LSTMTMEWrapper(nn.Module):
 
         Shape: ``[B, 3, sequence_hidden_dim]``. Used by the MN probe rich
         path. Uni-directional so per-condition width is ``hidden`` (not
-        ``2*hidden`` like the bi-LSTM V2 path).
+        ``2*hidden`` like the bi-LSTM path).
         """
         _cz, pre_proj = self.condition_encoder(trajectories, return_pre_projection=True)
         return pre_proj
