@@ -46,7 +46,7 @@ def generate_configs(repo_root: Path, output_dir: Path) -> list[Path]:
             prompt_sha = hashlib.sha256(prompt_path.read_bytes()).hexdigest()
             for repr_key in REPRESENTATIONS:
                 payload: dict[str, Any] = {
-                    "schema": "mprisk_representation_training_v3",
+                    "schema": "mprisk_representation_training_v4",
                     "key": f"{model_key}_{repr_key}_seed{seed}",
                     "architecture_version": (
                         "layer_l2_gru_linear_relation_v1"
