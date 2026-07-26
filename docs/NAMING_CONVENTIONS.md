@@ -83,3 +83,27 @@ The current cache, representation, state, and figure pipelines are running under
 ledgers. Their `sdr` module/API names and existing AP/AUPRC result keys are intentionally deferred
 until those runs finish. Renaming them now would change runtime identity and invalidate resumable
 artifacts. This deferment does not define new paper terminology and does not authorize aliases.
+
+## Refactor identifier renames
+
+Stage 3 of the refactor dropped the `_v2` suffix from internal identifiers and paths. The current canonical names are:
+
+| Old name (retired) | Current name |
+|---|---|
+| `V2ModelSpec` | `ModelSpec` |
+| `run_v2_for_model` | `run_for_model` |
+| `setup_v2_cache_manifests` | `setup_cache_manifests` |
+| `mprisk_*_v2` schema strings | `mprisk_*` |
+| `outputs/v2/*` | `outputs/*` |
+| `outputs/canonical_rerun_v2` | `outputs/canonical_rerun` |
+| `outputs/state_analysis_v2` | `outputs/state_analysis` |
+| `configs/labels/*_v2.yaml` | `configs/labels/*.yaml` |
+| `v2_summary.json` | `pipeline_summary.json` |
+
+Intentionally preserved as out-of-scope:
+
+- The CH-SIMS v2 dataset name and any `ch_sims_v2` artifact tokens — these reference the external dataset version, not internal code.
+- Model-architecture version tokens (`t_lstm_v2`, `sp_mlp_v2`, `TLSTMEncoderV2`, `SPMLPEncoderV2`, etc.) — these identify the second design iteration of each architecture, not a refactor version.
+- The physical repository directory name `mprisk-v2/` and the git branch name `v2`.
+
+External contracts such as `mprisk_full_cache_manifest_v1` and the canonical `_v1` schema-version suffixes documented above remain immutable.
