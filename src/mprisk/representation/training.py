@@ -540,7 +540,16 @@ def export_frozen_representations(
     dataset_path: str | Path,
     checkpoint_path: str | Path,
     output_dir: str | Path,
+    device: str = "cpu",
 ) -> FrozenRepresentationExportResult:
+    """Export frozen z/r representations for a TME proxy anchor checkpoint.
+
+    ``device`` controls where the encoder runs during export. Defaults to
+    ``"cpu"`` for parity with the historical behaviour; pass ``"cuda"`` (or any
+    ``torch.device`` string) for the realistic pipeline run, since 1876 samples
+    through a biLSTM at hidden_dim=4096 takes 10+ minutes on CPU and well under
+    a minute on a single GPU.
+    """
     checkpoint_file = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
     _validate_checkpoint_architecture(checkpoint)
@@ -582,6 +591,7 @@ def export_frozen_representations(
     )
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
+    model = model.to(device)
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     manifest_path = output_root / "frozen_representations.jsonl"
