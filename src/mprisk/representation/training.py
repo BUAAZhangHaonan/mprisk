@@ -79,10 +79,10 @@ class TrainingConfig:
     angular_supervision_weight: float = 0.0
     angular_ranking_margin_rad: float = 0.0
     d_aux_samples_per_class: int = 0
-    # V2 SDR-aware hinge aux loss on condition_z geometry. Defaults keep the
+    # SDR-aware hinge aux loss on condition_z geometry. Defaults keep the
     # loss off so mainline behavior is unchanged; viz pipeline overrides to
     # sdr_aux_weight=1.0, sdr_margin_D=0.6, sdr_margin_R=0.4,
-    # sdr_warmup_epochs=10 to reproduce the published v2 checkpoints.
+    # sdr_warmup_epochs=10 to reproduce the published checkpoints.
     sdr_aux_weight: float = 0.0
     sdr_margin_D: float = 0.6
     sdr_margin_R: float = 0.4
@@ -1736,7 +1736,7 @@ def _batch_loss_and_outputs(
         sample_ids = [sample.sample_id for sample in batch]
         condition_z, relation_r = model(trajectories, sample_ids=sample_ids)
         loss = objective(relation_r, labels, sample_ids=sample_ids)
-        # V2 SDR-aware aux hinge on condition_z. Off by default; enabled
+        # SDR-aware aux hinge on condition_z. Off by default; enabled
         # only when the TrainingConfig sets sdr_aux_weight > 0 (viz pipeline
         # path). The original monkey-patch discarded condition_z here; we
         # now keep it long enough to compute the hinge and then let it GC.

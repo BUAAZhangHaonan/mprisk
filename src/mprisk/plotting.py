@@ -1,4 +1,4 @@
-"""V2 polished plotting for Fig.4, Fig.5, Fig.6.
+"""Polished plotting for Fig.4, Fig.5, Fig.6.
 
 Reuses mprisk state-pattern semantics but renders with a single seed,
 tuned thresholds, and presentation-grade visuals.

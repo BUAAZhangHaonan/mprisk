@@ -163,7 +163,7 @@ class ModalitySplitRankingLoss(torch.nn.Module):
 
 
 class SphericalSDRHingeLoss(torch.nn.Module):
-    """V2 SDR-aware aux loss: hinge on the spherical geometry of condition_z.
+    """SDR-aware aux loss: hinge on the spherical geometry of condition_z.
 
     Motive: Proxy Anchor only organizes the relation_r embedding; the
     condition_z geometry (which produces S, D, R) is otherwise unconstrained.

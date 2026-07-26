@@ -1,11 +1,11 @@
-"""V2 normalized SDR overrides.
+"""Normalized SDR overrides.
 
 Mainline mprisk defines:
     S = mean squared geodesic distance from per-prompt z to its condition center
     D = d(M1, M2) / sqrt(S_M1 + S_M2)              # unbounded, can be huge
     R = (d(M12, M2) - d(M12, M1)) / d(M1, M2)       # ~[-1, 1] but can exceed
 
-V2 normalizes them to the user-requested ranges:
+^This module normalizes them to the user-requested ranges:
     S_norm = S / (pi^2)                              # in [0, 1]
     D_norm = d(M1, M2) / pi                          # in [0, 1]
     R     = same formula, but clip to [-1, 1]
@@ -52,7 +52,7 @@ def _center(vectors):
     return m / n
 
 
-def compute_v2_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
+def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     """Same input/output contract as mprisk.state.spherical.compute_spherical_state,
     but with D and delta normalized to [0, 1].
     """
@@ -81,9 +81,9 @@ def compute_v2_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     d_m12_m1 = _geodesic(centers["M12"], centers["M1"])
     d_m12_m2 = _geodesic(centers["M12"], centers["M2"])
 
-    # V2 normalized D: pure angular distance on unit sphere, in [0, 1].
+    # Normalized D: pure angular distance on unit sphere, in [0, 1].
     d_norm = d_m1_m2 / math.pi
-    # V2 normalized S: divide by max possible value (pi^2), in [0, 1].
+    # Normalized S: divide by max possible value (pi^2), in [0, 1].
     s_norm = s_mean / (math.pi ** 2)
 
     # R: keep the signed ratio but clip to [-1, 1].
@@ -106,7 +106,7 @@ def compute_v2_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     delta_i = min(1.96 * prompt_se, 1.0)
 
     return {
-        "sdr_schema": "mprisk_v2_spherical_sdr_v1",
+        "sdr_schema": "mprisk_spherical_sdr",
         "distance_metric": "geodesic_acos_v1",
         "sample_id": bundle.get("sample_id"),
         "sample_type": bundle.get("sample_type"),
@@ -122,7 +122,7 @@ def compute_v2_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
         "d_M1_M2_raw": d_m1_m2,
         "d_M12_M1_raw": d_m12_m1,
         "d_M12_M2_raw": d_m12_m2,
-        # Normalized v2 outputs
+        # Normalized outputs
         "S_mean": float(s_norm),
         "D": float(d_norm),
         "R": float(r_clipped),
@@ -134,6 +134,6 @@ def compute_v2_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def install_v2_normalization() -> None:
-    """Monkey-patch mprisk.state.spherical.compute_spherical_state to the v2 version."""
-    _sph.compute_spherical_state = compute_v2_spherical_state
+def install_normalization() -> None:
+    """Monkey-patch mprisk.state.spherical.compute_spherical_state to the normalized version."""
+    _sph.compute_spherical_state = compute_spherical_state

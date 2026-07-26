@@ -274,7 +274,7 @@ def ingest_delivery_20260716(
     _atomic_json(
         provenance_path,
         {
-            "schema": "mprisk_delivery_20260716_ingestion_v2",
+            "schema": "mprisk_delivery_20260716_ingestion",
             "source_root": str(source),
             "source_read_only": True,
             "source_artifacts": source_artifacts,
