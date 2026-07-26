@@ -17,7 +17,7 @@ import numpy as np
 
 from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
 
-LoadVideo = Callable[..., tuple[Any, list[int], dict[str, Any]]]
+LoadVideo = Callable[..., tuple[Any, list[int]]]
 
 
 class InternVlWrapper(BaseModelWrapper):
@@ -239,7 +239,6 @@ class InternVlWrapper(BaseModelWrapper):
         visual_prefixes: list[str] = []
         image_index = 0
         video_sources: list[str] = []
-        video_metadata: list[dict[str, Any]] = []
         actual_video_frames = 0
         for message in request.messages:
             for item in message.get("content", []):
@@ -250,7 +249,7 @@ class InternVlWrapper(BaseModelWrapper):
                     text_parts.append(str(item.get("text", "")))
                 elif content_type == "video":
                     path = _content_path(item, "video")
-                    pixels, patch_counts, metadata = self._load_video(
+                    pixels, patch_counts = self._load_video(
                         path,
                         input_size=self.input_size,
                         max_num=self.internvl_max_num,
@@ -264,7 +263,6 @@ class InternVlWrapper(BaseModelWrapper):
                             f"but decoder returned {len(patch_counts)}"
                         )
                     video_sources.append(path)
-                    video_metadata.append(metadata)
                     actual_video_frames += len(patch_counts)
                     visual_prefixes.extend(
                         f"Frame{index + 1}: <image>\n" for index in range(len(patch_counts))
@@ -299,12 +297,6 @@ class InternVlWrapper(BaseModelWrapper):
                 "video_sources": video_sources,
                 "requested_frames": self.video_num_segments * len(video_sources),
                 "actual_frames": actual_video_frames,
-                "video_frame_indices": [
-                    row["frames_indices"] for row in video_metadata
-                ],
-                "video_source_total_frames": [
-                    row["total_num_frames"] for row in video_metadata
-                ],
             },
         )
 
@@ -430,7 +422,7 @@ def load_video(
     input_size: int = 448,
     max_num: int = 1,
     num_segments: int = 8,
-) -> tuple[Any, list[int], dict[str, Any]]:
+) -> tuple[Any, list[int]]:
     import torch
     from decord import VideoReader, cpu
     from PIL import Image
@@ -455,11 +447,7 @@ def load_video(
         pixels = torch.stack([transform(tile) for tile in tiles])
         batches.append(pixels)
         patch_counts.append(int(pixels.shape[0]))
-    return torch.cat(batches, dim=0), patch_counts, {
-        "frames_indices": [int(index) for index in frame_indices],
-        "total_num_frames": len(reader),
-        "fps": float(reader.get_avg_fps()),
-    }
+    return torch.cat(batches, dim=0), patch_counts
 
 
 def _video_frame_indices(*, fps: float, max_frame: int, num_segments: int) -> np.ndarray:
