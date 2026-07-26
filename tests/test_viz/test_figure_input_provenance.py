@@ -28,7 +28,7 @@ def _scores() -> list[dict[str, object]]:
             "model_key": "qwen3_vl_8b",
             "representation_split": "official_test",
             **identity,
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.1,
             "D": 0.2,
@@ -41,7 +41,7 @@ def _scores() -> list[dict[str, object]]:
             "model_key": "qwen3_vl_8b",
             "representation_split": "official_test",
             **identity,
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.2,
             "D": 0.8,
@@ -54,7 +54,7 @@ def _scores() -> list[dict[str, object]]:
             "model_key": "qwen3_vl_8b",
             "representation_split": "official_test",
             **identity,
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "S_mean": 0.9,
             "D": 0.7,
@@ -71,8 +71,8 @@ def _patterns() -> list[dict[str, object]]:
 
 def _thresholds() -> dict[str, object]:
     return {
-        "schema": "mprisk_spherical_calibration_v2",
-        "sdr_schema": "mprisk_spherical_sdr_v2",
+        "schema": "mprisk_spherical_calibration",
+        "sdr_schema": "mprisk_spherical_sdr",
         "distance_metric": "geodesic_acos_v1",
         "sample_type": "Aligned",
         "calibration_split": "aligned_calibration",
@@ -101,8 +101,8 @@ def test_state_figure_inputs_record_hashes_commands_and_exact_masks(tmp_path) ->
     thresholds_path = write_json(
         tmp_path / "thresholds.json",
         {
-            "schema": "mprisk_spherical_calibration_v2",
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "schema": "mprisk_spherical_calibration",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "sample_type": "Aligned",
             "calibration_split": "aligned_calibration",
@@ -152,7 +152,7 @@ def test_state_figure_inputs_record_hashes_commands_and_exact_masks(tmp_path) ->
         "D": "representation_split=official_test and S<=kappa",
         "abs_R": "representation_split=official_test and S<=kappa and D>tau",
     }
-    assert fig4_provenance["sdr_schema"] == "mprisk_spherical_sdr_v2"
+    assert fig4_provenance["sdr_schema"] == "mprisk_spherical_sdr"
     assert fig4_provenance["distance_metric"] == "geodesic_acos_v1"
     assert fig4_provenance["representation_split"] == "official_test"
     assert fig4_provenance["source_representation_split_counts"] == {"official_test": 3}
@@ -166,8 +166,8 @@ def test_fig6_rejects_rows_that_violate_stable_or_direction_mask(tmp_path) -> No
     thresholds_path = write_json(
         tmp_path / "thresholds.json",
         {
-            "schema": "mprisk_spherical_calibration_v2",
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "schema": "mprisk_spherical_calibration",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "sample_type": "Aligned",
             "calibration_split": "aligned_calibration",
@@ -213,8 +213,8 @@ def test_state_figure_inputs_exclude_non_official_rows(tmp_path) -> None:
     thresholds_path = write_json(
         tmp_path / "thresholds.json",
         {
-            "schema": "mprisk_spherical_calibration_v2",
-            "sdr_schema": "mprisk_spherical_sdr_v2",
+            "schema": "mprisk_spherical_calibration",
+            "sdr_schema": "mprisk_spherical_sdr",
             "distance_metric": "geodesic_acos_v1",
             "sample_type": "Aligned",
             "calibration_split": "aligned_calibration",

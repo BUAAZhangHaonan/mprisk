@@ -40,7 +40,7 @@ def _write_inputs(tmp_path: Path, count: int = 8) -> tuple[Path, Path]:
         diagnostic_rows.append(
             {
                 "schema_name": "mprisk_diagnostic_affect_description",
-                "run_id": "diagnostic-affect-test-v2",
+                "run_id": "diagnostic-affect-test",
                 "sample_id": sample_id,
                 "DIAGNOSTIC_AFFECT_DESCRIPTION": f"Diagnostic description {index}.",
                 "subject_model_key": "subject_model",
@@ -55,8 +55,8 @@ def _write_inputs(tmp_path: Path, count: int = 8) -> tuple[Path, Path]:
 
 def _config(tmp_path: Path, references: Path, diagnostics: Path) -> MisreadJudgeConfig:
     return MisreadJudgeConfig(
-        schema_name="mprisk_misread_judgment_config_v2",
-        run_id="misread-judgment-test-v2",
+        schema_name="mprisk_misread_judgment_config",
+        run_id="misread-judgment-test",
         status="ready",
         judge_model="deepseek-v4-flash",
         subject_model_key="subject_model",
@@ -70,7 +70,7 @@ def _config(tmp_path: Path, references: Path, diagnostics: Path) -> MisreadJudge
         diagnostic_affect_description_schema_name=(
             "mprisk_diagnostic_affect_description"
         ),
-        diagnostic_run_id="diagnostic-affect-test-v2",
+        diagnostic_run_id="diagnostic-affect-test",
         gt_description_manifest_path=references,
         diagnostic_affect_description_manifest_path=diagnostics,
         output_root=tmp_path / "output",

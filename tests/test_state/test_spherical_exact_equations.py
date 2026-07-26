@@ -109,7 +109,7 @@ def test_pattern_assignment_rejects_stale_sdr_equations(tmp_path) -> None:
         ],
     )
 
-    with pytest.raises(ValueError, match="exact spherical SDR v2"):
+    with pytest.raises(ValueError, match="exact spherical SDR"):
         assign_state_patterns(
             sdr_scores_path=scores,
             thresholds={"kappa": 0.5, "tau": 0.3},

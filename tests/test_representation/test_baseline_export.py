@@ -110,7 +110,7 @@ def _checkpoint(tmp_path: Path, repr_key: str) -> Path:
     path = tmp_path / f"{repr_key}.pt"
     torch.save(
         {
-            "schema": "mprisk_representation_checkpoint_v2",
+            "schema": "mprisk_representation_checkpoint",
             "repr_key": repr_key,
             "architecture_version": repr_key,
             "model_key": "qwen3_vl_8b",
