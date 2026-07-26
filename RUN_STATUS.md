@@ -51,7 +51,7 @@ Source: `data/processed/manifests/splits/representation_v1/representation_split_
 | `official_test` | 734 | 634 | 100 | All main-paper metrics and figure inputs |
 | **Total** | **4,754** | **4,169** | **585** | Group-disjoint registered split |
 
-- Split key: `representation_split_seed20260716_all_ac_v2`
+- Split key: `representation_split_seed20260716_all_ac`
 - Manifest SHA-256: `681114e1d8e9a94a1ac243d44b4194327431eb2bdaf5557de87a0e58cd404475`
 - Split-assignment checksum: `bd784c316e2b6ff886c5223b749745606fecf8155c6122b0c0ebe79a415c88b0`
 
