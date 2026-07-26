@@ -17,7 +17,7 @@ def test_misread_imports():
 
 
 def test_sdr_hinge_loss_imports():
-    """The v2 SDR-aware hinge loss is now inlined into mainline losses.
+    """The SDR-aware hinge loss is now inlined into mainline losses.
 
     Previously this smoke test imported ``mprisk.representation.sdr_loss``
     (a separate viz module that monkey-patched
@@ -30,10 +30,10 @@ def test_sdr_hinge_loss_imports():
     assert SphericalSDRHingeLoss.__name__ == "SphericalSDRHingeLoss"
 
 
-def test_pipeline_no_install_v2_pipeline_patches():
-    """install_v2_pipeline_patches must be gone after P2.3.
+def test_pipeline_no_install_legacy_pipeline_patches():
+    """install_v2_pipeline_patches must be gone (legacy).
 
-    All four v2 monkey-patches (BOOTSTRAP_REPLICATES, encoder factory,
+    All four legacy monkey-patches (BOOTSTRAP_REPLICATES, encoder factory,
     SDR hinge, strict shape) are now expressed declaratively through
     function arguments or TrainingConfig fields, so the install entry
     point is removed entirely.
@@ -53,7 +53,7 @@ def test_bilstm_tme_class_imports():
     """The bi-LSTM TME class is now inlined into relation_models.
 
     Previously this smoke test imported ``mprisk.representation.lstm_tme``
-    (a separate module with the viz ``SphericalTMEV2`` and the
+    (a separate module with the viz ``SphericalTME_BiLSTM`` and the
     ``install_v2_tme_factory`` monkey-patch). After P2.2 the class lives
     in the mainline relation_models module as ``SphericalTME_BiLSTM`` and
     the viz pipeline selects it declaratively via encoder_type=\"bilstm\".
