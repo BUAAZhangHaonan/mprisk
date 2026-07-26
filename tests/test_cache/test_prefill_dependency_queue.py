@@ -206,7 +206,9 @@ def test_capacity_gate_projects_artifact_bytes_and_hard_blocks_above_limit(
         **{**vars(safe_filesystem), "f_bavail": 400}
     )
     reserved = evaluate_capacity(queue, statvfs_fn=lambda _: reserved_filesystem)
-    assert reserved.projected_utilization == pytest.approx(1080 / 1000)
+    # v1 master capacity formula treats df capacity as used_bytes + free_bytes
+    # (not f_blocks * f_frsize), so df_capacity = 900 and projected = 980/900.
+    assert reserved.projected_utilization == pytest.approx(980 / 900)
 
     roomy_filesystem = SimpleNamespace(
         **{
