@@ -75,6 +75,14 @@ class TrainingConfig:
     angular_supervision_weight: float = 0.0
     angular_ranking_margin_rad: float = 0.0
     d_aux_samples_per_class: int = 0
+    # V2 SDR-aware hinge aux loss on condition_z geometry. Defaults keep the
+    # loss off so mainline behavior is unchanged; viz pipeline overrides to
+    # sdr_aux_weight=1.0, sdr_margin_D=0.6, sdr_margin_R=0.4,
+    # sdr_warmup_epochs=10 to reproduce the published v2 checkpoints.
+    sdr_aux_weight: float = 0.0
+    sdr_margin_D: float = 0.6
+    sdr_margin_R: float = 0.4
+    sdr_warmup_epochs: int = 10
     state_selection_min_d_gap: float = 1e-6
     state_selection_min_raw_theta_gap_rad: float = 0.08726646259971647
     state_selection_max_d_mannwhitney_p: float = 0.05
