@@ -12,6 +12,7 @@ The project studies misjudgment risk before generation in multimodal affective c
 - Compute `S`, `D`, and `R` state measures and assign four state patterns.
 - Compare pre-generation analysis against behavior, uncertainty, classifier, and post-hoc baselines.
 - Export paper-ready figures, tables, appendix material, and response-letter evidence.
+- Includes a visualization exploration pipeline (`mprisk.pipeline.run_for_model()` entry point) with bi-LSTM TME and SDR-aware hinge loss for ablation studies.
 
 ## Repository Map
 
@@ -19,7 +20,11 @@ The project studies misjudgment risk before generation in multimodal affective c
 - `docs/`: project protocol, pipeline, model panel, figure map, and response-letter map.
 - `data/`: data source notes, annotations, processed manifests, prompt banks, and mini smoke data.
 - `outputs/`: generated caches, scores, baselines, evaluations, reports, and paper exports.
-- `src/mprisk/`: Python package for data, models, cache, representation, state, baselines, evaluation, policy, and visualization.
+- `src/mprisk/`: Python package containing:
+  - Top-level viz-exploration modules: `pipeline.py`, `setup_helper.py`, `plotting.py`, `misread.py`.
+  - Mainline subpackages: `assets/`, `cache/`, `config/`, `data/`, `diagnostic_affect/`, `evaluation/`, `experiments/`, `ground_truth/`, `judge/`, `models/`, `policy/`, `prompts/`, `representation/`, `state/`, `utils/`, `viz/`.
+  - Representation subpackage holds `relation_models.py` (TME encoders incl. `SphericalTME_BiLSTM`), `losses.py` (incl. `SphericalSDRHingeLoss`), `training.py` (incl. `TrainingConfig`), `baselines/`, `sdr_loss.py`.
+  - State subpackage holds `s_measure.py`, `d_measure.py`, `r_measure.py`, `spherical.py`, `thresholds.py`, `patterns.py`, `aggregation.py`.
 - `scripts/`: command-line entry points for the paper pipeline.
 - `tests/`: smoke tests and contract tests.
 - `paper/`: LaTeX manuscript, appendix, figures, tables, legacy material, and response letter.
@@ -43,3 +48,14 @@ Raw datasets, generated media, hidden-state shards, KV caches, checkpoints, and 
 ## Core Principle
 
 Every result must be traceable from paper figure or table back to a script, output summary, cache manifest, model asset, prompt bank, and sample manifest.
+
+## Architecture Notes
+
+The viz exploration pipeline lives alongside the mainline pipeline and shares the same data and state-measure contracts. Key configuration knobs:
+
+- **bi-LSTM TME** is selected via `TrainingConfig(encoder_type="bilstm")` (registered as the `SphericalTME_BiLSTM` branch in `relation_models.py`). The default `encoder_type` is the mainline GRU-based TME.
+- **SDR-aware hinge loss** is enabled via `TrainingConfig(sdr_aux_weight > 0)` together with `sdr_margin_d`, `sdr_warmup_epochs`, and `sdr_dominant_only`. The default `sdr_aux_weight=0` keeps the mainline Proxy-Anchor-only objective.
+- **Bootstrap replicates** for spherical state variance: `BOOTSTRAP_REPLICATES` defaults to `2000` in the mainline S/D/R pipeline; the viz exploration pipeline passes `bootstrap_replicates=200` explicitly to `compute_spherical_state`.
+- **Entry-shape check** is strict by default (`_require_consistent_entry_shape(..., strict=True)`). The viz exploration pipeline passes `strict_shape=False` so prompt-level trajectory slices of different lengths are accepted.
+
+These knobs are the only sanctioned deviation points; everything else (cache manifests, split assignment, spherical normalization contracts, spherical S/D/R formulas, threshold calibration, state-pattern assignment) is shared between the two pipelines.
