@@ -92,10 +92,6 @@ def install_v2_pipeline_patches() -> None:
         return
     _V2_PATCHES_INSTALLED = True
 
-    # V2 speed-up: smaller bootstrap replicates (200 vs 2000).
-    # SDR formulas stay exactly as paper (no normalization of D or delta);
-    # cross-model normalization uses S/kappa, D/tau, R/delta downstream.
-    _spherical_mod.BOOTSTRAP_REPLICATES = 200
 
     # Swap GRU-TME for LSTM-TME.
     from mprisk.representation.lstm_tme import install_v2_tme_factory
@@ -315,7 +311,7 @@ def run_v2_for_model(
     print(f"[v2][{spec.model_key}] computing SDR scores...", flush=True)
     sdr_rows = []
     for row in read_jsonl(embedding_result.bundle_manifest_path):
-        sdr = compute_spherical_state(row)
+        sdr = compute_spherical_state(row, bootstrap_replicates=200)
         sdr["representation_split"] = row.get("representation_split", "")
         sdr["master_split"] = row.get("master_split", "")
         sdr["calibration_split"] = row.get("calibration_split", "") or row.get("representation_split", "")
