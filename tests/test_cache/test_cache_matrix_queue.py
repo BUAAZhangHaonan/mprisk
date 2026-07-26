@@ -21,6 +21,7 @@ from mprisk.cache.cache_matrix_queue import (
     _smoke_status,
     _task_estimate,
     _terminate_running_processes,
+    _validate_accepted_bundle,
     _wait_for_gpu_capacity,
     _write_cache_asset_signature,
     build_asset_signature,
@@ -807,3 +808,80 @@ def test_asset_signature_captures_runtime_model_processor_and_wrapper(
     assert signature["wrapper_git_sha"] == "a" * 40
     assert len(signature["model_config_sha256"]) == 64
     assert len(signature["processor_contract_sha256"]) == 64
+
+
+def test_accepted_bundle_does_not_compare_unrelated_extractor_digest_schemas(
+    tmp_path: Path, monkeypatch
+) -> None:
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "caches": {
+                    "generated": {
+                        "model": {
+                            "samples": 1,
+                            "successful_tasks": 24,
+                            "protocol": "VT",
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    index = tmp_path / "manifest.package.json"
+    index.write_text("{}\n", encoding="utf-8")
+    manifest = tmp_path / "source_vt.jsonl"
+    manifest.write_text('{"sample_id":"s0"}\n', encoding="utf-8")
+    prompt_set = tmp_path / "prompts.yaml"
+    prompt_set.write_text("prompts\n", encoding="utf-8")
+    config = SimpleNamespace(
+        bundle_inventory=inventory,
+        bundle_root=tmp_path,
+        prompt_sets={"vt": prompt_set},
+        repo_root=tmp_path,
+    )
+    job = SimpleNamespace(
+        domain=SimpleNamespace(
+            expected_samples=1,
+            expected_tasks=24,
+            protocol="vt",
+            prepared_manifest=manifest,
+        ),
+        model=SimpleNamespace(
+            model_key="model",
+            family="internvl",
+            protocol="vt",
+            dtype="bfloat16",
+        ),
+    )
+    captured: dict = {}
+    monkeypatch.setattr(queue, "_prompt_ids", lambda _: [f"p{i}" for i in range(8)])
+    monkeypatch.setattr(queue, "_manifest_sample_ids", lambda _: ["s0"])
+    monkeypatch.setattr(
+        queue,
+        "validate_accepted_bundle",
+        lambda index_path, **kwargs: captured.update(index_path=index_path, **kwargs),
+    )
+
+    _validate_accepted_bundle(
+        config,
+        job,
+        {
+            "inventory_pointer": "caches.generated.model",
+            "index_path": "manifest.package.json",
+        },
+        asset_signature={
+            "model_path": "/models/model",
+            "model_asset_fingerprint": "asset",
+            "extractor_semantic_sha256": "integrity-v1-digest",
+        },
+    )
+
+    expected_identity = captured["expected_identity"]
+    assert "extractor_semantic_fingerprint" not in expected_identity
+    assert expected_identity["manifest_sha256"] == hashlib.sha256(
+        manifest.read_bytes()
+    ).hexdigest()
+    assert expected_identity["model_asset_fingerprint"] == "asset"

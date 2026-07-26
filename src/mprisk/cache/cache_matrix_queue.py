@@ -1208,9 +1208,8 @@ def _validate_accepted_bundle(
             "model_asset_fingerprint": asset_signature[
                 "model_asset_fingerprint"
             ],
-            "extractor_semantic_fingerprint": asset_signature[
-                "extractor_semantic_sha256"
-            ],
+            # The union fingerprint and live integrity digest use different
+            # schemas, so comparing them directly is invalid.
         },
         equivalence_waiver=waiver_path,
     )
