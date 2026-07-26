@@ -334,7 +334,7 @@ def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
     for representation in ("Single-Point", "Trajectory MLP", "TME"):
         rows.extend(
             {
-                "panel": "ac",
+                "panel": "ac_umap",
                 "representation": representation,
                 "model": "qwen3_vl_8b",
                 "protocol": "VT",
@@ -343,6 +343,10 @@ def test_fig8_rejects_duplicate_sample_rows_before_projection(tmp_path) -> None:
                 "sample_type": "Aligned",
                 "representation_split": "official_test",
                 "feature": "[0.1, 0.2]",
+                "umap_x": 0.0,
+                "umap_y": 0.0,
+                "silhouette_original": 0.0,
+                "knn5_purity_original": 1.0,
                 "status": "Ready",
             }
             for _ in range(2)
