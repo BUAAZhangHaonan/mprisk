@@ -44,6 +44,33 @@ PROMPT_CONDITIONED_MANIFEST=$SETUP_ROOT/prompt_conditioned_cache/$MODEL/${PROTO,
 TME_RUN=outputs/cache_matrix_20260722/runs/tme_bilstm/${MODEL}_seed20260717
 ENCODER_CKPT=$TME_RUN/best_encoder.pt
 
+# layer_count is model-specific; read it from the source cache manifest's
+# first row. Falls back to 36 if the manifest is missing or unreadable.
+LAYER_COUNT=$(python3 -c "
+import json, sys
+try:
+    with open('$SOURCE_CACHE_ROOT/manifest.jsonl') as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            row = json.loads(line)
+            print(int(row.get('layer_count', 36)))
+            sys.exit(0)
+except Exception:
+    pass
+print(36)
+" 2>/dev/null || echo 36)
+
+# Filtered cache dir: source cache reduced to the canonical prompt id. The
+# state_dataset pipeline would otherwise pick per-condition entries from
+# different prompts (each with a different t0_token_index).
+FILTERED_CACHE_ROOT=outputs/cache_matrix_20260722/cache_manifests_filtered/$MODEL
+FILTERED_MANIFEST=$FILTERED_CACHE_ROOT/unified_full_cache_manifest.json
+
+# Enriched checkpoint: train_tme_e2e.py's best_encoder.pt remapped to the
+# SphericalTME_BiLSTM state_dict layout + the SDR-pipeline-required fields.
+ENRICHED_CKPT=$TME_RUN/best_encoder.enriched.pt
+
 OUT_ROOT=outputs/cache_matrix_20260722/thresholds/$MODEL
 mkdir -p "$OUT_ROOT"
 
@@ -87,18 +114,40 @@ setup_cache_manifests(
 EOF
 fi
 
-echo "[calibrate] MODEL=$MODEL GPU=$GPU proto=$PROTO ckpt=$ENCODER_CKPT"
+# Filter source cache to canonical prompt (idempotent).
+if [ ! -f "$FILTERED_MANIFEST" ]; then
+  echo "[calibrate] Filtering cache for $MODEL -> $FILTERED_CACHE_ROOT"
+  PYTHONPATH=src python scripts/cache_matrix_20260722/filter_cache_manifest.py \
+    --source-cache-root "$SOURCE_CACHE_ROOT" \
+    --target-cache-root "$FILTERED_CACHE_ROOT" \
+    --canonical-prompt pregen_risk_v1_p001 2>&1 | tee -a "$LOG"
+fi
+
+# Enrich the train_tme_e2e.py checkpoint for the SDR pipeline (idempotent).
+if [ ! -f "$ENRICHED_CKPT" ] || [ "$ENCODER_CKPT" -nt "$ENRICHED_CKPT" ]; then
+  echo "[calibrate] Enriching checkpoint for $MODEL -> $ENRICHED_CKPT"
+  PYTHONPATH=src python scripts/cache_matrix_20260722/enrich_checkpoint.py \
+    --in-ckpt "$ENCODER_CKPT" \
+    --out-ckpt "$ENRICHED_CKPT" \
+    --encoder-type bilstm \
+    --model-key "$MODEL" \
+    --protocol "${PROTO,,}" \
+    --prompt-set "$PROMPT_SET" \
+    --layer-count "$LAYER_COUNT" 2>&1 | tee -a "$LOG"
+fi
+
+echo "[calibrate] MODEL=$MODEL GPU=$GPU proto=$PROTO ckpt=$ENRICHED_CKPT (enriched)"
 PYTHONPATH=src python scripts/cache_matrix_20260722/calibrate_thresholds.py \
   --model "$MODEL" \
   --protocol "${PROTO,,}" \
   --prompt-set-key "$PROMPT_SET_KEY" \
   --prompt-set "$PROMPT_SET" \
   --manifest "$MANIFEST" \
-  --full-cache-root "$SOURCE_CACHE_ROOT" \
+  --full-cache-root "$FILTERED_CACHE_ROOT" \
   --prompt-cache-manifest "$PROMPT_CACHE_MANIFEST" \
   --prompt-conditioned-cache-manifest "$PROMPT_CONDITIONED_MANIFEST" \
   --split-assignment "$SPLIT" \
-  --checkpoint "$ENCODER_CKPT" \
+  --checkpoint "$ENRICHED_CKPT" \
   --output-dir "$OUT_ROOT" \
   --device cuda \
   2>&1 | tee -a "$LOG"

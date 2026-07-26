@@ -45,38 +45,66 @@ from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.utils.io import ensure_parent, write_json
 
 
-def _ensure_wrapped_manifest(cache_root: Path) -> Path:
-    """Ensure cache_root has a unified_full_cache_manifest.json the loader can read.
+def _ensure_wrapped_manifest(
+    cache_root: Path,
+    *,
+    canonical_prompt: str = "pregen_risk_v1_p001",
+) -> Path:
+    """Materialise a wrapped + canonical-prompt-filtered cache manifest.
 
     cache_matrix_20260722 source caches store rows as JSONL (one JSON object
-    per line at cache_root/manifest.jsonl). load_full_cache_manifest expects a
-    JSON OBJECT with an entries list (DEFAULT_MANIFEST_PATH). We materialise
-    a wrapped JSON next to the JSONL and return its path so the caller can pass
-    it via manifest_path=.
+    per line at cache_root/manifest.jsonl) with 8 prompt variants per
+    (sample, condition). load_full_cache_manifest expects a JSON OBJECT with
+    an entries list (DEFAULT_MANIFEST_PATH). resolve_m_conditions picks the
+    first entry per condition; if M1/M2/M12 come from different prompts they
+    have different t0_token_index values, which trips
+    _require_consistent_entry_shape in state_dataset.
 
-    Idempotent: if the wrapped file already exists and is newer than the JSONL,
-    return it without rewriting.
+    We materialise a wrapped JSON next to the JSONL that contains ONLY rows
+    whose prompt_id matches canonical_prompt, and return its path so the
+    caller can pass it via manifest_path=. The caller must also pass
+    strict_shape=False to build_state_dataset because t0_token_index can
+    still differ across M1/M2/M12 even within one prompt (each condition
+    uses a different delivery-overlap prefix).
+
+    Idempotent: if the wrapped file already exists and is newer than the
+    JSONL, return it without rewriting.
     """
     import json as _json
 
     jsonl = cache_root / "manifest.jsonl"
     wrapped = cache_root / "unified_full_cache_manifest.json"
     if wrapped.exists() and jsonl.exists() and wrapped.stat().st_mtime >= jsonl.stat().st_mtime:
-        return wrapped
+        return Path("unified_full_cache_manifest.json")
     if not jsonl.exists():
         # Already in wrapped form or absent; let the downstream loader handle it.
-        return cache_root / "unified_full_cache_manifest.json"
+        return Path("unified_full_cache_manifest.json")
 
-    rows: list[dict] = []
+    kept_rows: list[dict] = []
+    total = 0
     with jsonl.open() as fh:
         for line in fh:
             line = line.strip()
             if not line:
                 continue
-            rows.append(_json.loads(line))
+            total += 1
+            row = _json.loads(line)
+            if row.get("prompt_id") == canonical_prompt:
+                kept_rows.append(row)
+    if not kept_rows:
+        raise ValueError(
+            f"canonical prompt_id {canonical_prompt!r} not found in {jsonl} "
+            f"(out of {total} rows)"
+        )
     with wrapped.open("w") as fh:
-        _json.dump({"entries": rows, "schema": "cache_matrix_20260722_wrapped_jsonl_v1"}, fh)
-    return wrapped
+        _json.dump(
+            {"entries": kept_rows, "schema": "cache_matrix_20260722_wrapped_jsonl_v1"},
+            fh,
+        )
+    # Return bare filename so load_full_cache_manifest._resolve_path joins it
+    # with cache_root correctly (returning cache_root / wrapped would be
+    # re-resolved against cache_root, producing a duplicated path).
+    return Path("unified_full_cache_manifest.json")
 
 
 def _filter_manifest_to_assigned(
@@ -203,6 +231,13 @@ def calibrate(
         protocol=normalized_protocol,
         split_assignment_path=split_assignment,
         output_dir=output_base / "state_data" / model_key / normalized_protocol,
+        # t0_token_index legitimately varies across M1/M2/M12 within a single
+        # prompt in cache_matrix_20260722 (each condition uses a different
+        # delivery-overlap prefix). The strict shape check assumes a single
+        # shared t0 across conditions, which does not hold here. layer_count
+        # and hidden_dim still must match (and they do: both are
+        # model-constants).
+        strict_shape=False,
     )
 
     print(f"[calibrate] {model_key}: state_bundles", flush=True)

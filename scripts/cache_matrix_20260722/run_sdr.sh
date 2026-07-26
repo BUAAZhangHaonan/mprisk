@@ -34,7 +34,7 @@ else
 fi
 PROMPT_SET_KEY=${PROTO,,}_main_p8_seed20260717
 PROMPT_SET=configs/prompts/equiv_sets/${PROTO,,}_main_p8_seed20260717.yaml
-SPLIT=outputs/cache_matrix_20260722/split_assignments/${PROTO,,}.jsonl
+SPLIT=data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_${PROTO,,}.jsonl
 MANIFEST=data/processed/manifests/protocol_manifests_merged/${PROTO,,}_merged_primary.jsonl
 
 if [ "$MODEL" = "internvl3_5_8b" ]; then
@@ -52,8 +52,33 @@ PROMPT_CONDITIONED_MANIFEST=$SETUP_ROOT/prompt_conditioned_cache/$MODEL/${PROTO,
 TME_RUN=outputs/cache_matrix_20260722/runs/tme_bilstm/${MODEL}_seed20260717
 ENCODER_CKPT=$TME_RUN/best_encoder.pt
 
+# layer_count is model-specific; read it from the source cache manifest's
+# first row. Falls back to 36 if the manifest is missing or unreadable.
+LAYER_COUNT=$(python3 -c "
+import json, sys
+try:
+    with open('$SOURCE_CACHE_ROOT/manifest.jsonl') as f:
+        for line in f:
+            line = line.strip()
+            if not line: continue
+            row = json.loads(line)
+            print(int(row.get('layer_count', 36)))
+            sys.exit(0)
+except Exception:
+    pass
+print(36)
+" 2>/dev/null || echo 36)
+
+# Filtered cache dir: source cache reduced to the canonical prompt id.
+FILTERED_CACHE_ROOT=outputs/cache_matrix_20260722/cache_manifests_filtered/$MODEL
+FILTERED_MANIFEST=$FILTERED_CACHE_ROOT/unified_full_cache_manifest.json
+
+# Enriched checkpoint: train_tme_e2e.py's best_encoder.pt remapped to the
+# SphericalTME_BiLSTM state_dict layout + the SDR-pipeline-required fields.
+ENRICHED_CKPT=$TME_RUN/best_encoder.enriched.pt
+
 OUT_ROOT=outputs/cache_matrix_20260722/sdr/$MODEL
-STATE_PATTERN_FILE=$OUT_ROOT/outputs/states/$MODEL/${PROTO,,}/$PROMPT_SET_KEY/tme_proxy_anchor_v1/state_patterns.jsonl
+STATE_PATTERN_FILE=$OUT_ROOT/outputs/states/$MODEL/${PROTO^^}/$PROMPT_SET_KEY/tme_proxy_anchor_v1/state_patterns.jsonl
 
 if [ -f "$STATE_PATTERN_FILE" ]; then
   echo "SKIP: $STATE_PATTERN_FILE exists"
@@ -111,21 +136,57 @@ else
   exit 0
 fi
 
-echo "[SDR] MODEL=$MODEL GPU=$GPU proto=$PROTO ckpt=$ENCODER_CKPT thresholds=$THRESHOLDS_ARG"
+# Filter source cache to canonical prompt (idempotent).
+if [ ! -f "$FILTERED_MANIFEST" ]; then
+  echo "[SDR] Filtering cache for $MODEL -> $FILTERED_CACHE_ROOT"
+  PYTHONPATH=src python scripts/cache_matrix_20260722/filter_cache_manifest.py \
+    --source-cache-root "$SOURCE_CACHE_ROOT" \
+    --target-cache-root "$FILTERED_CACHE_ROOT" \
+    --canonical-prompt pregen_risk_v1_p001 2>&1 | tee "$LOG"
+fi
+
+# Enrich the train_tme_e2e.py checkpoint for the SDR pipeline (idempotent).
+if [ ! -f "$ENRICHED_CKPT" ] || [ "$ENCODER_CKPT" -nt "$ENRICHED_CKPT" ]; then
+  echo "[SDR] Enriching checkpoint for $MODEL -> $ENRICHED_CKPT"
+  PYTHONPATH=src python scripts/cache_matrix_20260722/enrich_checkpoint.py \
+    --in-ckpt "$ENCODER_CKPT" \
+    --out-ckpt "$ENRICHED_CKPT" \
+    --encoder-type bilstm \
+    --model-key "$MODEL" \
+    --protocol "${PROTO,,}" \
+    --prompt-set "$PROMPT_SET" \
+    --layer-count "$LAYER_COUNT" 2>&1 | tee "$LOG"
+fi
+
+# Reuse calibration's frozen embeddings so the SDR scoring identity matches
+# the thresholds' identity binding (export_frozen_representations is non-
+# deterministic across GPU runs due to floating-point reduction order).
+CALIB_EMBEDDING_MANIFEST=outputs/cache_matrix_20260722/thresholds/$MODEL/outputs/embeddings/$MODEL/${PROTO^^}/$PROMPT_SET_KEY/tme_proxy_anchor_v1/spherical_embedding_manifest.jsonl
+EMBEDDING_ARG=""
+if [ -f "$CALIB_EMBEDDING_MANIFEST" ]; then
+  EMBEDDING_ARG="--embedding-manifest-path $CALIB_EMBEDDING_MANIFEST"
+  echo "[SDR] Reusing calibration embeddings: $CALIB_EMBEDDING_MANIFEST"
+else
+  echo "[SDR] No calibration embeddings found at $CALIB_EMBEDDING_MANIFEST; will re-export"
+fi
+
+echo "[SDR] MODEL=$MODEL GPU=$GPU proto=$PROTO ckpt=$ENRICHED_CKPT (enriched) thresholds=$THRESHOLDS_ARG"
 PYTHONPATH=src python scripts/run_core_sdr_pipeline.py \
   --model-key "$MODEL" \
   --protocol "${PROTO,,}" \
   --prompt-set-key "$PROMPT_SET_KEY" \
   --repr-key tme_proxy_anchor_v1 \
   --manifest-paths "$MANIFEST" \
-  --full-cache-root "$SOURCE_CACHE_ROOT" \
+  --full-cache-root "$FILTERED_CACHE_ROOT" \
+  --cache-manifest-path "unified_full_cache_manifest.json" \
   --prompt-cache-manifest "$PROMPT_CACHE_MANIFEST" \
   --prompt-conditioned-cache-manifest "$PROMPT_CONDITIONED_MANIFEST" \
   --prompt-set "$PROMPT_SET" \
   --split-assignment "$SPLIT" \
   --thresholds "$THRESHOLDS_ARG" \
-  --checkpoint "$ENCODER_CKPT" \
+  --checkpoint "$ENRICHED_CKPT" \
   --output-root "$OUT_ROOT" \
+  $EMBEDDING_ARG \
   2>&1 | tee "$LOG"
 
 touch "${LOG}.done"

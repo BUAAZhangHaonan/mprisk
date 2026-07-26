@@ -11,6 +11,9 @@ from typing import Any
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# scripts/cache_matrix_20260722 holds the canonical manifest-filter helper we
+# share with calibrate_thresholds.py.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 try:
     from scripts.assign_state_patterns import StatePatternResult, assign_state_patterns
@@ -18,6 +21,15 @@ try:
 except ModuleNotFoundError:
     from assign_state_patterns import StatePatternResult, assign_state_patterns
     from compute_sdr_scores import SdrScoreResult, compute_sdr_scores
+
+try:
+    # Shared manifest filter helper (filters labels manifest to split-
+    # assigned samples so build_state_dataset doesn't trip on samples that
+    # are absent from the assignment).
+    from cache_matrix_20260722.calibrate_thresholds import _filter_manifest_to_assigned
+except ModuleNotFoundError:
+    # Fallback when imported as scripts.cache_matrix_20260722.calibrate_thresholds
+    from scripts.cache_matrix_20260722.calibrate_thresholds import _filter_manifest_to_assigned
 
 from mprisk.data.manifests import read_jsonl
 from mprisk.data.protocol_views import normalize_protocol
@@ -65,6 +77,9 @@ def run_core_sdr_pipeline(
     output_root: str | Path = ".",
     thresholds: dict[str, Any] | str | Path | None = None,
     checkpoint: str | Path | None = None,
+    cache_manifest_path: str | Path | None = None,
+    strict_shape: bool = False,
+    embedding_manifest_path: str | Path | None = None,
 ) -> CoreSdrPipelineResult:
     """Run the minimal core SDR pipeline without training or baseline stages."""
     normalized_protocol = normalize_protocol(protocol)
@@ -73,14 +88,33 @@ def run_core_sdr_pipeline(
         raise ValueError("calibrated Aligned thresholds are required")
     _validate_repr_request(repr_key=repr_key, checkpoint=checkpoint)
 
-    state_dataset_result = build_state_dataset(
-        manifest_paths=[Path(path) for path in manifest_paths],
+    # Filter labels manifest(s) to split-assigned samples so
+    # _resolve_split_assignment doesn't trip on cross-domain rows that are
+    # absent from the registered split assignment (cache_matrix_20260722
+    # primary manifests include ch_sims_v2 cross-domain samples that the
+    # representation_v1 split assignment does not cover).
+    filtered_label_manifests: list[Path] = []
+    for path in manifest_paths:
+        filtered, _kept, _total = _filter_manifest_to_assigned(
+            manifest_path=Path(path),
+            split_assignment=Path(split_assignment),
+        )
+        filtered_label_manifests.append(filtered)
+    state_dataset_kwargs: dict[str, Any] = dict(
+        manifest_paths=filtered_label_manifests,
         cache_root=full_cache_root,
         model_key=model_key,
         protocol=normalized_protocol,
         split_assignment_path=split_assignment,
         output_dir=output_base / "state_data" / model_key / normalized_protocol,
+        # t0_token_index legitimately varies across M1/M2/M12 in
+        # cache_matrix_20260722 (each condition uses a different
+        # delivery-overlap prefix). Only layer_count/hidden_dim must match.
+        strict_shape=strict_shape,
     )
+    if cache_manifest_path is not None:
+        state_dataset_kwargs["manifest_path"] = Path(cache_manifest_path)
+    state_dataset_result = build_state_dataset(**state_dataset_kwargs)
     bundle_result = build_state_bundles(
         state_dataset_manifest_path=state_dataset_result.manifest_path,
         prompt_cache_manifest_path=prompt_cache_manifest,
@@ -103,15 +137,18 @@ def run_core_sdr_pipeline(
         expected_prompt_count=training_config.expected_prompt_count,
         expected_prompt_ids=training_config.expected_prompt_ids,
     )
-    embedding_result = _export_embeddings(
-        relation_dataset_path=relation_dataset_result.dataset_path,
-        repr_key=repr_key,
-        output_base=output_base,
-        checkpoint=checkpoint,
-        model_key=model_key,
-        protocol=normalized_protocol,
-        prompt_set_key=prompt_set_key,
-    )
+    if embedding_manifest_path is not None:
+        embedding_result = _reuse_embeddings(Path(embedding_manifest_path))
+    else:
+        embedding_result = _export_embeddings(
+            relation_dataset_path=relation_dataset_result.dataset_path,
+            repr_key=repr_key,
+            output_base=output_base,
+            checkpoint=checkpoint,
+            model_key=model_key,
+            protocol=normalized_protocol,
+            prompt_set_key=prompt_set_key,
+        )
     state_output_dir = (
         output_base / "states" / model_key / normalized_protocol / prompt_set_key / repr_key
     )
@@ -148,6 +185,38 @@ def run_core_sdr_pipeline(
         state_patterns_path=pattern_result.patterns_path,
         state_summary_path=pattern_result.summary_path,
         core_summary_path=core_summary_path,
+    )
+
+
+def _reuse_embeddings(
+    embedding_manifest_path: Path,
+) -> FrozenRepresentationExportResult:
+    """Reuse a previously-exported frozen representation manifest.
+
+    Calibration writes its embedding bundle manifest to
+    outputs/cache_matrix_20260722/thresholds/<MODEL>/outputs/embeddings/.../spherical_embedding_manifest.jsonl.
+    To stay identity-consistent with the calibrated thresholds, the SDR
+    pipeline should consume that manifest verbatim instead of re-running
+    export_frozen_representations (which is non-deterministic on GPU due
+    to floating-point reduction order).
+    """
+    embedding_manifest_path = Path(embedding_manifest_path)
+    if not embedding_manifest_path.is_file():
+        raise FileNotFoundError(
+            f"embedding manifest not found: {embedding_manifest_path}"
+        )
+    summary_path = embedding_manifest_path.parent / "frozen_representation_summary.json"
+    # Count rows so the result.count field is meaningful.
+    count = 0
+    with embedding_manifest_path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            if line.strip():
+                count += 1
+    return FrozenRepresentationExportResult(
+        manifest_path=embedding_manifest_path.parent / "frozen_representations.jsonl",
+        bundle_manifest_path=embedding_manifest_path,
+        summary_path=summary_path,
+        count=count,
     )
 
 
@@ -300,6 +369,34 @@ def build_parser() -> argparse.ArgumentParser:
         help="Independent Aligned calibration JSON path.",
     )
     parser.add_argument("--checkpoint", default=None)
+    parser.add_argument(
+        "--cache-manifest-path",
+        default=None,
+        help=(
+            "Path to a wrapped cache manifest JSON (unified_full_cache_manifest.json). "
+            "When omitted, build_state_dataset falls back to the loader default."
+        ),
+    )
+    parser.add_argument(
+        "--strict-shape",
+        action="store_true",
+        help=(
+            "Require identical (layer_count, hidden_dim, t0_token_index) across "
+            "M1/M2/M12. Default is False because cache_matrix_20260722 conditions "
+            "use different delivery-overlap prefixes and naturally produce "
+            "different t0_token_index values."
+        ),
+    )
+    parser.add_argument(
+        "--embedding-manifest-path",
+        default=None,
+        help=(
+            "Path to an existing spherical_embedding_manifest.jsonl to reuse "
+            "(e.g. calibration's export). When set, the SDR pipeline skips "
+            "export_frozen_representations entirely, preserving the identity "
+            "binding required by assign_state_patterns."
+        ),
+    )
     return parser
 
 
@@ -319,6 +416,9 @@ def main(argv: list[str] | None = None) -> int:
         output_root=Path(args.output_root),
         thresholds=args.thresholds,
         checkpoint=Path(args.checkpoint) if args.checkpoint else None,
+        cache_manifest_path=Path(args.cache_manifest_path) if args.cache_manifest_path else None,
+        strict_shape=args.strict_shape,
+        embedding_manifest_path=Path(args.embedding_manifest_path) if args.embedding_manifest_path else None,
     )
     print(f"sdr_scores={result.sdr_scores_path}")
     print(f"state_patterns={result.state_patterns_path}")
