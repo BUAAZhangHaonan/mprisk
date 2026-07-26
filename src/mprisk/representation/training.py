@@ -73,7 +73,11 @@ class TrainingConfig:
     weight_decay: float = 1e-4
     proxy_alpha: float = 32.0
     proxy_margin: float = 0.1
-    enable_state_supervision: bool = True
+    # State supervision is opt-in: legacy v2 fixtures
+    # construct TrainingConfig without d/angular supervision weights, so the
+    # default keeps the legacy proxy-anchor path. Viz pipeline opts in by
+    # setting enable_state_supervision=True together with positive weights.
+    enable_state_supervision: bool = False
     d_supervision_weight: float = 0.0
     d_ranking_margin: float = 0.0
     angular_supervision_weight: float = 0.0
