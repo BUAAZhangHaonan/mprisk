@@ -68,8 +68,7 @@ def install_v2_pipeline_patches() -> None:
     Deferred to an explicit call (invoked by ``run_v2_for_model``) instead of
     firing at import time, so ``import mprisk.pipeline`` is side effect
     free. Tests that import this module for smoke checks must not corrupt
-    publication library state (BOOTSTRAP_REPLICATES, build_representation_model,
-    batch loss, shape check).
+    publication library state (BOOTSTRAP_REPLICATES, batch loss, shape check).
 
     Idempotent: re-entry is a no-op so repeated calls from a long-lived
     process are safe.
@@ -80,11 +79,13 @@ def install_v2_pipeline_patches() -> None:
     _V2_PATCHES_INSTALLED = True
 
 
-    # Swap GRU-TME for LSTM-TME.
-    from mprisk.representation.lstm_tme import install_v2_tme_factory
-    install_v2_tme_factory()
-
     # Replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
+    # NOTE: the bi-LSTM TME encoder is no longer installed here as a
+    # monkey-patch on build_representation_model. The viz pipeline selects
+    # the bi-LSTM encoder declaratively via encoder_type='bilstm' in the
+    # training config (see run_v2_for_model). Patch 2.3 will inline the
+    # SDR-aware hinge loss the same way; until then this install call
+    # remains.
     from mprisk.representation.sdr_loss import install_sdr_aware_loss
     install_sdr_aware_loss(
         aux_weight=1.0,
@@ -218,10 +219,16 @@ def run_v2_for_model(
         "hidden_dim", "condition_dim", "relation_dim", "dropout",
         "max_epochs", "batch_size", "lr", "weight_decay",
         "proxy_alpha", "proxy_margin", "patience", "min_delta", "seed",
+        "encoder_type",
     }
     config_dict = {k: v for k, v in raw_config.items() if k in allowed}
     if "expected_prompt_ids" in config_dict and isinstance(config_dict["expected_prompt_ids"], list):
         config_dict["expected_prompt_ids"] = tuple(config_dict["expected_prompt_ids"])
+    # The viz pipeline always uses the bi-LSTM TME encoder. Override any
+    # encoder_type value the YAML happens to carry so a stale config cannot
+    # silently fall back to the mainline GRU/LSTM encoders and produce a
+    # checkpoint that is incompatible with the published viz artifacts.
+    config_dict["encoder_type"] = "bilstm"
     config_dict["max_epochs"] = max_epochs
     config_dict["patience"] = patience
     config_dict["seed"] = int(config_dict.get("seed", 20260717))
