@@ -1,8 +1,8 @@
 """SP-MLP baseline encoders (single-point, last-layer hidden state -> MLP head).
 
-Extracted from the original ``mprisk_viz.baselines`` module (P4-F refactor)
+Extracted from the original ``mprisk.representation.baselines`` module (P4-F refactor)
 to keep each encoder family in its own file. The public surface stays
-re-exported from ``mprisk_viz.baselines`` — callers should keep importing
+re-exported from ``mprisk.representation.baselines`` — callers should keep importing
 from there.
 
 Architecture is intentionally pure:

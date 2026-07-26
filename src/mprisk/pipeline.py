@@ -30,7 +30,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 # IMPORTANT: this module manipulates sys.path at import time so that the
-# ``mprisk`` and ``scripts`` packages resolve when ``mprisk_viz.pipeline``
+# ``mprisk`` and ``scripts`` packages resolve when ``mprisk.pipeline``
 # is imported from arbitrary cwd. Deferring this to a main() guard would
 # break callers that import this module from outside the project root
 # (e.g. tests invoked from /tmp). Keep these insertions here and make sure
@@ -79,7 +79,7 @@ def install_v2_pipeline_patches() -> None:
     """Apply v2-specific monkey-patches to the canonical ``mprisk`` library.
 
     Deferred to an explicit call (invoked by ``run_v2_for_model``) instead of
-    firing at import time, so ``import mprisk_viz.pipeline`` is side effect
+    firing at import time, so ``import mprisk.pipeline`` is side effect
     free. Tests that import this module for smoke checks must not corrupt
     publication library state (BOOTSTRAP_REPLICATES, build_representation_model,
     batch loss, shape check).
@@ -98,11 +98,11 @@ def install_v2_pipeline_patches() -> None:
     _spherical_mod.BOOTSTRAP_REPLICATES = 200
 
     # Swap GRU-TME for LSTM-TME.
-    from mprisk_viz.lstm_tme import install_v2_tme_factory
+    from mprisk.representation.lstm_tme import install_v2_tme_factory
     install_v2_tme_factory()
 
     # Replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
-    from mprisk_viz.sdr_loss import install_sdr_aware_loss
+    from mprisk.representation.sdr_loss import install_sdr_aware_loss
     install_sdr_aware_loss(
         aux_weight=1.0,
         margin_D=0.60,   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
@@ -192,7 +192,7 @@ def run_v2_for_model(
     Callers may pass any combination of the three cache manifests. If any of
     ``prompt_cache_manifest`` / ``prompt_conditioned_cache_manifest`` /
     ``unified_cache_manifest`` is missing, all three are auto-built from
-    ``cache_root`` via :func:`mprisk_viz.setup_helper.setup_v2_cache_manifests`.
+    ``cache_root`` via :func:`mprisk.setup_helper.setup_v2_cache_manifests`.
     """
     install_v2_pipeline_patches()
 
@@ -216,7 +216,7 @@ def run_v2_for_model(
                 "together: prompt_cache_manifest, prompt_conditioned_cache_manifest, "
                 "and unified_cache_manifest. Pass either all three or none (auto-build)."
             )
-        from mprisk_viz.setup_helper import setup_v2_cache_manifests
+        from mprisk.setup_helper import setup_v2_cache_manifests
         print(f"[v2][{spec.model_key}] auto-building cache manifests...", flush=True)
         setup_out = setup_v2_cache_manifests(
             cache_root=cache_root,

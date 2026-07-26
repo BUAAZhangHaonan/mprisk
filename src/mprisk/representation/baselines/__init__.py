@@ -26,13 +26,13 @@ The trajectory contract is ``[B, L, H]`` for SP-* / T-MLP, and ``[B, 3, L, H]``
 
 Encoder classes live in dedicated submodules:
 
-  * :mod:`mprisk_viz.baseline_sp_mlp`    — ``SinglePointMLP`` / ``SinglePointLayerX``
-  * :mod:`mprisk_viz.baseline_t_mlp`     — ``TrajectoryMLP``
-  * :mod:`mprisk_viz.baseline_tme_wrapper` — ``TMEEncoder`` + its private
+  * :mod:`mprisk.representation.baselines.sp_mlp`    — ``SinglePointMLP`` / ``SinglePointLayerX``
+  * :mod:`mprisk.representation.baselines.t_mlp`     — ``TrajectoryMLP``
+  * :mod:`mprisk.representation.baselines.tme_wrapper` — ``TMEEncoder`` + its private
     GRU/LSTM compatibility wrappers
 
 This module re-exports every encoder class so existing call sites that
-``from mprisk_viz.baselines import ...`` continue to work unchanged. It
+``from mprisk.representation.baselines import ...`` continue to work unchanged. It
 also hosts the factory + save/load helpers (``build_baseline``,
 ``save_encoder``, ``load_encoder``, ``encoder_out_dim``) because those
 need to dispatch across all three encoder families.
@@ -45,9 +45,9 @@ from pathlib import Path
 import torch
 from torch import nn
 
-from mprisk_viz.baseline_sp_mlp import SinglePointLayerX, SinglePointMLP
-from mprisk_viz.baseline_t_mlp import TrajectoryMLP
-from mprisk_viz.baseline_tme_wrapper import TMEEncoder, _infer_tme_dims_from_state
+from .sp_mlp import SinglePointLayerX, SinglePointMLP
+from .t_mlp import TrajectoryMLP
+from .tme_wrapper import TMEEncoder, _infer_tme_dims_from_state
 
 
 __all__ = [

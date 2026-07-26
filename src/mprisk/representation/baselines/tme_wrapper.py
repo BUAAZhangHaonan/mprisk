@@ -1,8 +1,8 @@
 """TME wrapper baseline encoder (wraps a trained ``SphericalTME`` checkpoint).
 
-Extracted from the original ``mprisk_viz.baselines`` module (P4-F refactor)
+Extracted from the original ``mprisk.representation.baselines`` module (P4-F refactor)
 to keep each encoder family in its own file. Public surface stays
-re-exported from ``mprisk_viz.baselines``.
+re-exported from ``mprisk.representation.baselines``.
 
 This module contains:
   * :func:`_infer_tme_dims_from_state` — introspects a TME checkpoint to
@@ -41,7 +41,7 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
     ``encoder_type`` is one of:
 
     * ``"lstm"`` — keys like ``condition_encoder.lstm.weight_ih_l0`` are
-      present (legacy ``SphericalTMEV2`` from ``mprisk_viz.lstm_tme``,
+      present (legacy ``SphericalTMEV2`` from ``mprisk.representation.lstm_tme``,
       bi-directional multi-layer LSTM + MLP, 4*H gate factor).
     * ``"gru"`` — keys like ``condition_encoder.sequence.weight_ih_l0``
       are present and NO ``condition_encoder.sequence.weight_ih_l1`` exists
@@ -200,7 +200,7 @@ class TMEEncoder(nn.Module):
             )
         else:
             # Legacy bi-LSTM V2 checkpoint: original SphericalTMEV2 path.
-            from mprisk_viz.lstm_tme import SphericalTMEV2  # noqa: WPS433
+            from mprisk.representation.lstm_tme import SphericalTMEV2  # noqa: WPS433
 
             self.tme = SphericalTMEV2(
                 input_dim=input_dim,

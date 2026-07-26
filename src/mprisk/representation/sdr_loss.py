@@ -140,7 +140,7 @@ def install_sdr_aware_loss(
     """Monkey-patch _batch_loss_and_outputs to add SDR hinge.
 
     Idempotent: subsequent calls are a no-op (the first call wins). This
-    guards against re-import side effects when ``mprisk_viz.pipeline`` is
+    guards against re-import side effects when ``mprisk.pipeline`` is
     reloaded.
     """
     global _INSTALLED

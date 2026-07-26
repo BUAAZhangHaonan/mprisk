@@ -1,8 +1,8 @@
 """T-MLP baseline encoder (full trajectory flattened -> 2-layer MLP).
 
-Extracted from the original ``mprisk_viz.baselines`` module (P4-F refactor)
+Extracted from the original ``mprisk.representation.baselines`` module (P4-F refactor)
 to keep each encoder family in its own file. Public surface stays
-re-exported from ``mprisk_viz.baselines``.
+re-exported from ``mprisk.representation.baselines``.
 
 Architecture is intentionally pure: no LayerNorm, no sphere normalization.
 The penultimate 1024-d GELU output is the representation handed off to
