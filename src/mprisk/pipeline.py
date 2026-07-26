@@ -59,41 +59,6 @@ from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.data.manifests import read_jsonl
 from mprisk.utils.io import write_json, write_jsonl
 
-_V2_PATCHES_INSTALLED = False
-
-
-def install_v2_pipeline_patches() -> None:
-    """Apply v2-specific monkey-patches to the canonical ``mprisk`` library.
-
-    Deferred to an explicit call (invoked by ``run_v2_for_model``) instead of
-    firing at import time, so ``import mprisk.pipeline`` is side effect
-    free. Tests that import this module for smoke checks must not corrupt
-    publication library state (BOOTSTRAP_REPLICATES, batch loss, shape check).
-
-    Idempotent: re-entry is a no-op so repeated calls from a long-lived
-    process are safe.
-    """
-    global _V2_PATCHES_INSTALLED
-    if _V2_PATCHES_INSTALLED:
-        return
-    _V2_PATCHES_INSTALLED = True
-
-
-    # Replace PA-only batch loss with SDR-aware hinge (Conflict push apart).
-    # NOTE: the bi-LSTM TME encoder is no longer installed here as a
-    # monkey-patch on build_representation_model. The viz pipeline selects
-    # the bi-LSTM encoder declaratively via encoder_type='bilstm' in the
-    # training config (see run_v2_for_model). Patch 2.3 will inline the
-    # SDR-aware hinge loss the same way; until then this install call
-    # remains.
-    from mprisk.representation.sdr_loss import install_sdr_aware_loss
-    install_sdr_aware_loss(
-        aux_weight=1.0,
-        margin_D=0.60,   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
-        margin_R=0.40,
-        warmup_epochs=10,
-    )
-
 
 
 @dataclass(frozen=True)
@@ -176,8 +141,6 @@ def run_v2_for_model(
     ``unified_cache_manifest`` is missing, all three are auto-built from
     ``cache_root`` via :func:`mprisk.setup_helper.setup_v2_cache_manifests`.
     """
-    install_v2_pipeline_patches()
-
     protocol = normalize_protocol(spec.protocol)
     out = Path(output_root)
     train_dir = out / "checkpoints" / spec.model_key
@@ -232,6 +195,15 @@ def run_v2_for_model(
     config_dict["max_epochs"] = max_epochs
     config_dict["patience"] = patience
     config_dict["seed"] = int(config_dict.get("seed", 20260717))
+    # Enable the v2 SDR-aware hinge aux loss. Previously applied via the
+    # monkey-patch install_sdr_aware_loss on training._batch_loss_and_outputs.
+    # Now expressed declaratively through TrainingConfig so the mainline
+    # training loop owns the geometry constraint (warmup ramp + aux weight)
+    # instead of relying on import-time module rebinding.
+    config_dict["sdr_aux_weight"] = 1.0
+    config_dict["sdr_margin_D"] = 0.60   # push Conflict d(M1,M2) > Aligned by >=0.6 rad (~34 deg)
+    config_dict["sdr_margin_R"] = 0.40
+    config_dict["sdr_warmup_epochs"] = 10
     config = TrainingConfig(**config_dict)
 
     print(f"[v2][{spec.model_key}] building state dataset...", flush=True)
