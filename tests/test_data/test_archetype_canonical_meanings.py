@@ -14,11 +14,11 @@ from mprisk.data.archetype_canonical_meanings import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-FROZEN = ROOT / "data/frozen/generated_round1"
-DICTIONARY = FROZEN / "archetype_canonical_meanings.jsonl"
+FROZEN = ROOT / "data/frozen/generated_round1_v1"
+DICTIONARY = FROZEN / "archetype_canonical_meanings_v1.jsonl"
 ASSIGNMENTS = FROZEN / "archetype_semantic_assignments_v1.jsonl"
 REVIEW_QUEUE = FROZEN / "archetype_canonical_review_queue_v1.jsonl"
-PROVENANCE = FROZEN / "archetype_canonical_meanings.provenance.json"
+PROVENANCE = FROZEN / "archetype_canonical_meanings_v1.provenance.json"
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:
