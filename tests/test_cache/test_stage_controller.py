@@ -526,11 +526,17 @@ def test_controller_stops_after_single_lane_startup_failure(tmp_path: Path, monk
         expected_accepted=0,
     )
     launch_calls = 0
+    audit_calls = 0
 
     def fail_launch(*args, **kwargs):
         nonlocal launch_calls
         launch_calls += 1
         raise RuntimeError("target lane 0 startup failed before acquiring its live lock")
+
+    def fake_audit(config):
+        nonlocal audit_calls
+        audit_calls += 1
+        return audit
 
     monkeypatch.setattr(
         controller,
@@ -564,12 +570,13 @@ def test_controller_stops_after_single_lane_startup_failure(tmp_path: Path, monk
         poll_interval_seconds=1,
         source_sessions={0: "source0", 1: "source1"},
         target_sessions={0: "target0", 1: "target1"},
-        audit_fn=lambda _: audit,
+        audit_fn=fake_audit,
         sleep_fn=lambda _: pytest.fail("controller must not retry startup"),
     )
 
     assert stage_controller.run() == 1
     assert launch_calls == 1
+    assert audit_calls == 1
     status = json.loads((tmp_path / "status" / "status.json").read_text(encoding="utf-8"))
     assert status["status"] == "failed"
     assert "startup failed" in status["error"]

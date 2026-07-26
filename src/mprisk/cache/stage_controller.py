@@ -579,6 +579,7 @@ class StageController:
         try:
             self.emit("controller_started")
             while True:
+                cycle_audit: dict[str, Any] | None = None
                 source = read_stage_progress(self.config, "source")
                 target = read_stage_progress(self.config, "target")
                 for summary in (source, target):
@@ -609,6 +610,7 @@ class StageController:
                     and not extraction_launch_audit_passed
                 ):
                     launch_audit = self.audit_fn(self.config)
+                    cycle_audit = launch_audit
                     audited_source = summarize_stage(
                         launch_audit,
                         stage="source",
@@ -642,7 +644,7 @@ class StageController:
                     extraction_launch_audit_passed = True
                     self.emit("parallel_extraction_launch_audit_complete")
                 if source["strict_complete"] and source_finalized and not source_gate_passed:
-                    audit = self.audit_fn(self.config)
+                    audit = cycle_audit if cycle_audit is not None else self.audit_fn(self.config)
                     source = summarize_stage(
                         audit,
                         stage="source",
