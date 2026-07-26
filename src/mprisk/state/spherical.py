@@ -46,8 +46,13 @@ def require_exact_sdr_rows(rows: Sequence[Mapping[str, Any]]) -> None:
         raise ValueError("state rows must use exact spherical SDR v2 with geodesic acos distance")
 
 
-def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
+def compute_spherical_state(
+    bundle: Mapping[str, Any],
+    *,
+    bootstrap_replicates: int | None = None,
+) -> dict[str, Any]:
     """Compute State Dispersion, Modality Split, signed Joint Lean, and prompt SE."""
+    replicates = bootstrap_replicates if bootstrap_replicates is not None else BOOTSTRAP_REPLICATES
     _reject_misread_fields(bundle)
     embeddings = bundle.get("embeddings")
     if not isinstance(embeddings, Mapping) or set(embeddings) != set(CONDITIONS):
@@ -98,6 +103,7 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
         normalized,
         prompt_ids,
         sample_id=str(bundle.get("sample_id", "")),
+        bootstrap_replicates=replicates,
     )
     return {
         "sdr_schema": SDR_SCHEMA,
@@ -115,7 +121,7 @@ def compute_spherical_state(bundle: Mapping[str, Any]) -> dict[str, Any]:
         "R_prompt_values": prompt_r,
         "R_prompt_se": prompt_se,
         "R_bootstrap_se": bootstrap_se,
-        "bootstrap_replicates": BOOTSTRAP_REPLICATES,
+        "bootstrap_replicates": replicates,
         "delta_method": DELTA_METHOD,
         "delta_i": 1.96 * bootstrap_se,
         "lean": "V" if r_score > 0.0 else "T/A" if r_score < 0.0 else "Balanced",
@@ -136,7 +142,9 @@ def _synchronous_prompt_bootstrap_se(
     prompt_ids: list[str],
     *,
     sample_id: str,
+    bootstrap_replicates: int | None = None,
 ) -> float:
+    replicates = bootstrap_replicates if bootstrap_replicates is not None else BOOTSTRAP_REPLICATES
     if len(prompt_ids) < 2:
         return 0.0
     signature = json.dumps(
@@ -149,7 +157,7 @@ def _synchronous_prompt_bootstrap_se(
     indexes = random.integers(
         0,
         len(prompt_ids),
-        size=(BOOTSTRAP_REPLICATES, len(prompt_ids)),
+        size=(replicates, len(prompt_ids)),
     )
     prompt_vectors = {
         condition: np.asarray(
@@ -158,9 +166,9 @@ def _synchronous_prompt_bootstrap_se(
         )
         for condition in CONDITIONS
     }
-    estimates = np.empty(BOOTSTRAP_REPLICATES, dtype=np.float64)
-    for start in range(0, BOOTSTRAP_REPLICATES, BOOTSTRAP_BATCH_SIZE):
-        stop = min(start + BOOTSTRAP_BATCH_SIZE, BOOTSTRAP_REPLICATES)
+    estimates = np.empty(replicates, dtype=np.float64)
+    for start in range(0, replicates, BOOTSTRAP_BATCH_SIZE):
+        stop = min(start + BOOTSTRAP_BATCH_SIZE, replicates)
         estimates[start:stop] = _bootstrap_r_batch(
             prompt_vectors,
             indexes[start:stop],
