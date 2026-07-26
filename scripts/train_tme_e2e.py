@@ -71,9 +71,21 @@ from mprisk.cache.hidden_state_cache import normalize_protocol  # noqa: E402
 from mprisk.cache.prefill_extract import extract_t0_trajectory  # noqa: E402
 from mprisk.data.manifests import read_final_manifest  # noqa: E402
 from mprisk.representation.relation_models import (  # noqa: E402
+    LSTMSequentialEncoderBi,
+    SequentialTrajectoryEncoderLSTMV1,
     SequentialTrajectoryEncoderV1,
     strict_l2_normalize,
 )
+
+# Map --encoder-type to the per-condition sequence encoder class. All three
+# share the same I/O contract: [B, 3, L, H] -> [B, 3, embed_dim]. The MLP
+# classification head sits on top and is identical across variants.
+TME_ENCODER_CLASSES = {
+    "gru": SequentialTrajectoryEncoderV1,
+    "lstm": SequentialTrajectoryEncoderLSTMV1,
+    "bilstm": LSTMSequentialEncoderBi,
+}
+
 from _trainer_lib import (  # noqa: E402  # P5-B shared helpers
     CONDITIONS, COND_IDX,
     _load_prompt_ids, _scan_cache, _load_split_assignment,
@@ -177,12 +189,24 @@ class TME_E2E_v3B(nn.Module):
         dropout: float = 0.1,
         head_hidden_dim: int = 32,
         n_classes: int = 2,
+        encoder_type: str = "bilstm",
     ) -> None:
         super().__init__()
+        if encoder_type not in TME_ENCODER_CLASSES:
+            raise ValueError(
+                f"unknown encoder_type={encoder_type!r} "
+                f"(expected one of {sorted(TME_ENCODER_CLASSES)})"
+            )
         self.input_dim = int(input_dim)
         self.sequence_hidden_dim = int(sequence_hidden_dim)
         self.embed_dim = int(embed_dim)
-        self.encoder = SequentialTrajectoryEncoderV1(
+        self.encoder_type = str(encoder_type)
+        encoder_cls = TME_ENCODER_CLASSES[encoder_type]
+        # All three encoder classes accept the same constructor kwargs
+        # (input_dim, sequence_hidden_dim, embed_dim, dropout). The bi-LSTM
+        # also has lstm_layers=2 and the uni-LSTM num_lstm_layers=2 as
+        # class-specific defaults; we let those defaults apply.
+        self.encoder = encoder_cls(
             input_dim=input_dim,
             sequence_hidden_dim=sequence_hidden_dim,
             embed_dim=embed_dim,
@@ -305,6 +329,7 @@ def train_tme_v3b(
     head_hidden_dim,
     seed,
     tme_pa_checkpoint: Path | None,
+    encoder_type: str = "bilstm",
 ):
     set_deterministic_seed(seed)
 
@@ -320,6 +345,7 @@ def train_tme_v3b(
         dropout=dropout,
         head_hidden_dim=head_hidden_dim,
         n_classes=2,
+        encoder_type=encoder_type,
     ).to(device)
 
     # Optional warm start from T1 PA checkpoint.
@@ -361,7 +387,7 @@ def train_tme_v3b(
     # perturb convergence without a principled reason.
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"[model] TME v3-B trainable params = {n_params:,}", file=sys.stderr, flush=True)
+    print(f"[model] TME v3-B encoder={encoder_type} trainable params = {n_params:,}", file=sys.stderr, flush=True)
 
     trainable = [p for p in model.parameters() if p.requires_grad]
     if not trainable:
@@ -511,6 +537,7 @@ def save_artifacts(out_dir, *, model, args, best_metrics, history_payload, n_par
                 for k, v in model.state_dict().items()
             },
             "architecture_version": model.architecture_version,
+            "encoder_type": str(model.encoder_type),
             "input_dim": int(model.input_dim),
             "sequence_hidden_dim": int(model.sequence_hidden_dim),
             "embed_dim": int(model.embed_dim),
@@ -539,7 +566,8 @@ def save_artifacts(out_dir, *, model, args, best_metrics, history_payload, n_par
         "experiment": "tme_e2e_v3b",
         "model_key": args.model_key,
         "method": "tme_v3b",
-        "encoder_mode": "shared_gru_3cond_concat_e2e",
+        "encoder_type": args.encoder_type,
+        "encoder_mode": f"shared_{args.encoder_type}_3cond_concat_e2e",
         "warm_start_checkpoint": str(tme_pa_checkpoint) if tme_pa_checkpoint else None,
         "warm_start_used": bool(warm_start_used),
         "lr": float(args.lr),
@@ -595,6 +623,10 @@ def _build_parser():
     p.add_argument("--dropout", type=float, default=0.1)
     p.add_argument("--sequence-hidden-dim", type=int, default=256)
     p.add_argument("--embed-dim", type=int, default=128)
+    p.add_argument(
+        "--encoder-type", choices=("bilstm", "lstm", "gru"), default="bilstm",
+        help="TME encoder architecture (default: bilstm = refactor mainline)",
+    )
     p.add_argument("--head-hidden-dim", type=int, default=32)
     p.add_argument(
         "--tme-pa-checkpoint", default=None,
@@ -680,6 +712,7 @@ def main():
         head_hidden_dim=args.head_hidden_dim,
         seed=args.seed,
         tme_pa_checkpoint=tme_pa_ckpt,
+        encoder_type=args.encoder_type,
     )
 
     out_dir = Path(args.output_dir)
