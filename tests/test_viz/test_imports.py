@@ -16,8 +16,37 @@ def test_misread_imports():
     import mprisk.misread  # noqa: F401
 
 
-def test_sdr_loss_imports():
-    import mprisk.representation.sdr_loss  # noqa: F401
+def test_sdr_hinge_loss_imports():
+    """The v2 SDR-aware hinge loss is now inlined into mainline losses.
+
+    Previously this smoke test imported ``mprisk.representation.sdr_loss``
+    (a separate viz module that monkey-patched
+    ``training._batch_loss_and_outputs`` via install_sdr_aware_loss). After
+    P2.3 the hinge lives in the mainline losses module as
+    ``SphericalSDRHingeLoss`` and the viz pipeline enables it declaratively
+    through TrainingConfig.sdr_aux_weight.
+    """
+    from mprisk.representation.losses import SphericalSDRHingeLoss
+    assert SphericalSDRHingeLoss.__name__ == "SphericalSDRHingeLoss"
+
+
+def test_pipeline_no_install_v2_pipeline_patches():
+    """install_v2_pipeline_patches must be gone after P2.3.
+
+    All four v2 monkey-patches (BOOTSTRAP_REPLICATES, encoder factory,
+    SDR hinge, strict shape) are now expressed declaratively through
+    function arguments or TrainingConfig fields, so the install entry
+    point is removed entirely.
+    """
+    import mprisk.pipeline as pipeline
+    assert not hasattr(pipeline, "install_v2_pipeline_patches"), (
+        "mprisk.pipeline still exposes install_v2_pipeline_patches; the "
+        "monkey-patch entry point must be removed now that all v2 patches "
+        "are inlined."
+    )
+    assert not hasattr(pipeline, "_V2_PATCHES_INSTALLED"), (
+        "mprisk.pipeline still exposes _V2_PATCHES_INSTALLED guard."
+    )
 
 
 def test_bilstm_tme_class_imports():
