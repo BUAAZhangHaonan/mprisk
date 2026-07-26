@@ -18,8 +18,10 @@ from mprisk.cache.cache_union import (
     relocate_extractor_evidence,
     write_extractor_evidence,
 )
+from mprisk.cache.prefill_batch import build_batch_plan
 from mprisk.cache.prefill_writer import write_prefill_result
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
+from scripts.build_prefill_cache_union import build_parser as build_union_parser
 
 
 def _sha256(path: Path) -> str:
@@ -859,3 +861,65 @@ def test_relocate_evidence_requires_byte_identical_ledger_content(
             ledger_path=source.ledger_path,
             output_path=tmp_path / "invalid.json",
         )
+
+
+def test_union_build_parser_supplies_complete_batch_plan_namespace(tmp_path: Path) -> None:
+    media = tmp_path / "sample.mp4"
+    media.write_bytes(b"media")
+    manifest = tmp_path / "manifest.jsonl"
+    manifest.write_text(
+        json.dumps(
+            {
+                "sample_id": "sample",
+                "protocol": "vt",
+                "source_dataset": "dataset",
+                "split": "test",
+                "sample_type": "Aligned",
+                "text_content": "sample",
+                "media_paths": {"vision": str(media)},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    prompt_set = tmp_path / "prompts.yaml"
+    prompt_set.write_text(
+        """schema: mprisk_equiv_prompt_set_v1
+key: vt
+protocol: vt
+version: v1
+active: true
+templates:
+  - prompt_id: p1
+    role: user
+    enabled: true
+    template_text: "Sample {sample_text}"
+""",
+        encoding="utf-8",
+    )
+    args = build_union_parser().parse_args(
+        [
+            "build",
+            "--manifest",
+            str(manifest),
+            "--prompt-set",
+            str(prompt_set),
+            "--protocol",
+            "vt",
+            "--model-key",
+            "internvl3_5_8b",
+            "--source",
+            str(tmp_path / "source.json"),
+            "--expected-resolved-tasks",
+            "3",
+            "--expected-raw-tasks",
+            "3",
+            "--output",
+            str(tmp_path / "union.json"),
+        ]
+    )
+
+    plan = build_batch_plan(args)
+
+    assert len(plan.tasks) == 3
+    assert plan.signature["frame_plan_path"] is None

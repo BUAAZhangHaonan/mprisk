@@ -72,6 +72,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     union.add_argument("--video-fps", type=float, default=1.0)
     union.add_argument("--video-num-segments", type=int, default=8)
+    union.add_argument("--frame-plan", type=Path)
     union.add_argument("--internvl-max-num", type=int, default=1)
     union.add_argument("--model-key", required=True)
     union.add_argument("--asset-config", default=DEFAULT_ASSET_CONFIG, type=Path)
