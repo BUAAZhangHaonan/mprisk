@@ -20,8 +20,23 @@ def test_sdr_loss_imports():
     import mprisk.representation.sdr_loss  # noqa: F401
 
 
-def test_lstm_tme_imports():
-    import mprisk.representation.lstm_tme  # noqa: F401
+def test_bilstm_tme_class_imports():
+    """The bi-LSTM TME class is now inlined into relation_models.
+
+    Previously this smoke test imported ``mprisk.representation.lstm_tme``
+    (a separate module with the viz ``SphericalTMEV2`` and the
+    ``install_v2_tme_factory`` monkey-patch). After P2.2 the class lives
+    in the mainline relation_models module as ``SphericalTME_BiLSTM`` and
+    the viz pipeline selects it declaratively via encoder_type=\"bilstm\".
+    """
+    from mprisk.representation.relation_models import (
+        LSTMSequentialEncoderBi,
+        SphericalTME_BiLSTM,
+        TME_ARCHITECTURE_BILSTM_V1,
+    )
+    assert SphericalTME_BiLSTM.architecture_version == TME_ARCHITECTURE_BILSTM_V1
+    assert SphericalTME_BiLSTM.__name__ == "SphericalTME_BiLSTM"
+    assert LSTMSequentialEncoderBi.__name__ == "LSTMSequentialEncoderBi"
 
 
 def test_plotting_imports():
