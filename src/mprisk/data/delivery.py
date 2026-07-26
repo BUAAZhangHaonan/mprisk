@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import tarfile
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -561,13 +562,17 @@ def _count_media_paths(rows: list[dict[str, Any]]) -> int:
 
 
 def _resolve_repo_path(root: Path, path: str | Path) -> Path:
+    # Compute lexically so symlinked data roots (for example
+    # ``data/frozen -> ../../mprisk/data/frozen``) still resolve to a path
+    # inside the repository. We only need to reject paths that try to escape
+    # via ``..`` or by being absolute; physical resolution is the OS's job.
     candidate = Path(path)
     if candidate.is_absolute():
         raise ValueError(f"Repository artifact path must be relative: {candidate}")
-    resolved = (root / candidate).resolve()
-    if resolved != root and root not in resolved.parents:
+    posix = PurePosixPath(PurePosixPath(str(candidate)).as_posix())
+    if posix.is_absolute() or any(part == ".." for part in posix.parts):
         raise ValueError(f"Repository artifact path escapes the repository: {candidate}")
-    return resolved
+    return root / candidate
 
 
 def _sha256(path: Path) -> str:
