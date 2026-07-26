@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -318,6 +319,9 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
         _expected(_request("sample-a", split="relation_train")),
         _expected(_request("sample-b", split="official_test")),
     ]
+    expected = [
+        replace(task, task_id=f"current-schema-{task.task_id}") for task in expected
+    ]
 
     result = build_cache_union(
         expected_tasks=expected,
@@ -344,6 +348,16 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     }
     assert result.source_counts == {"new-only": 1, "overlap-reextracted": 1}
     assert all(Path(entry["shard_path"]).is_absolute() for entry in payload["entries"])
+    assert {entry["task_id"] for entry in payload["entries"]} == {
+        task.task_id for task in expected
+    }
+    assert {
+        entry["source_provenance"]["expected_task_id"] for entry in payload["entries"]
+    } == {task.task_id for task in expected}
+    assert all(
+        entry["source_provenance"]["source_task_id"] != entry["task_id"]
+        for entry in payload["entries"]
+    )
 
     frame_plan_signature = {
         **expected_signature,

@@ -98,6 +98,7 @@ RUNTIME_PROVENANCE_FIELDS = (
 )
 MODEL_RUNTIME_ASSET_SUFFIXES = frozenset({".json", ".model", ".py", ".tiktoken", ".txt"})
 WEIGHT_INDEX_FILENAMES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")
+TASK_IDENTITY_SCHEMA = "mprisk_cache_task_identity_v1"
 
 
 class CacheUnionError(ValueError):
@@ -395,14 +396,19 @@ def build_cache_union(
     if len(source_ids) != len(set(source_ids)):
         raise CacheUnionError("Cache source IDs must be unique")
 
-    source_rows: defaultdict[str, list[SourceTask]] = defaultdict(list)
+    source_rows: defaultdict[tuple[str, str, str, str, str], list[SourceTask]] = (
+        defaultdict(list)
+    )
+    source_rows_by_task_id: defaultdict[str, list[SourceTask]] = defaultdict(list)
     evidence_records = []
     for source in sources:
         evidence = _validate_source_evidence(source)
         _require_signature_compatible(expected_signature, evidence["extraction_signature"])
         evidence_records.append(evidence)
         for row in _read_source_tasks(source, evidence):
-            source_rows[row.task_id].append(row)
+            source_rows_by_task_id[row.task_id].append(row)
+            if row.entry is not None:
+                source_rows[_source_task_identity(row)].append(row)
     strategy_identities = {
         _source_prefill_identity(record, context="cache source evidence")
         for record in evidence_records
@@ -428,10 +434,12 @@ def build_cache_union(
         raise CacheUnionError("Cache sources use different model assets")
     model_asset_fingerprint = next(iter(model_asset_fingerprints))
 
-    blocked_payload = _blocked_payload(blocked_tasks, source_rows)
+    blocked_payload = _blocked_payload(blocked_tasks, source_rows_by_task_id)
     jobs = []
     for expected in expected_tasks:
-        matches = source_rows.get(expected.task_id, [])
+        matches = source_rows.get(_expected_task_identity(expected), [])
+        if not matches:
+            matches = source_rows_by_task_id.get(expected.task_id, [])
         if len(matches) != 1:
             state = "missing" if not matches else "duplicated"
             raise CacheUnionError(f"Expected task is {state}: {expected.task_id}")
@@ -710,6 +718,7 @@ def _validate_and_materialize_entry(
     union_metadata = dict(metadata)
     union_metadata["sidecar_path"] = str(sidecar)
     union_metadata["semantic_request_fingerprint"] = semantic_request_fingerprint
+    union_entry["task_id"] = expected.task_id
     union_entry.update(
         {
             "dataset_key": expected.source_dataset,
@@ -719,6 +728,9 @@ def _validate_and_materialize_entry(
             "metadata": union_metadata,
             "source_provenance": {
                 "source_id": source_task.source.source_id,
+                "task_identity_schema": TASK_IDENTITY_SCHEMA,
+                "expected_task_id": expected.task_id,
+                "source_task_id": source_task.task_id,
                 "task_id": source_task.task_id,
                 "ledger_path": str(source_task.source.ledger_path),
                 "source_cache_root": str(source_task.source.cache_root),
@@ -809,6 +821,38 @@ def _blocked_payload(
             }
         )
     return sorted(payload, key=lambda item: item["task_id"])
+
+
+def _expected_task_identity(
+    task: ExpectedCacheTask,
+) -> tuple[str, str, str, str, str]:
+    request = task.request
+    return (
+        request.sample_id,
+        request.prompt_id,
+        request.condition.upper(),
+        request.model_key,
+        request.protocol.lower(),
+    )
+
+
+def _source_task_identity(
+    task: SourceTask,
+) -> tuple[str, str, str, str, str]:
+    if task.entry is None:
+        raise CacheUnionError(f"Source task has no entry: {task.task_id}")
+    fields = ("sample_id", "prompt_id", "condition", "model_key", "protocol")
+    values = tuple(str(task.entry.get(field, "")).strip() for field in fields)
+    if any(not value for value in values):
+        raise CacheUnionError(f"Source task identity is incomplete: {task.task_id}")
+    sample_id, prompt_id, condition, model_key, protocol = values
+    return (
+        sample_id,
+        prompt_id,
+        condition.upper(),
+        model_key,
+        protocol.lower(),
+    )
 
 
 def _require_signature_compatible(
