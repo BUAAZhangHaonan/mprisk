@@ -17,9 +17,15 @@ from mprisk.utils.io import write_json
 
 CONFIG_SCHEMA = "mprisk_representation_split_config_v1"
 ASSIGNMENT_SCHEMA = "mprisk_representation_split_assignment_v1"
-MASTER_SPLITS = frozenset({"train", "val", "test"})
+MASTER_SPLITS = frozenset({"train", "val", "test", "cross_domain_test"})
 REPRESENTATION_SPLITS = frozenset(
-    {"relation_train", "relation_val", "aligned_calibration", "official_test"}
+    {
+        "relation_train",
+        "relation_val",
+        "aligned_calibration",
+        "official_test",
+        "cross_domain_test",
+    }
 )
 
 
@@ -53,19 +59,21 @@ def build_representation_split_assignment(
     sample_counts = Counter(
         split for group, split in assignment.items() for _row in groups[group]
     )
-    label_counts = {
-        split: dict(
-            sorted(
-                Counter(
-                    str(row["sample_type"])
-                    for group, group_split in assignment.items()
-                    if group_split == split
-                    for row in groups[group]
-                ).items()
-            )
+    label_counts = {}
+    for split in sorted(REPRESENTATION_SPLITS):
+        counter = Counter(
+            str(row["sample_type"])
+            for group, group_split in assignment.items()
+            if group_split == split
+            for row in groups[group]
         )
-        for split in sorted(REPRESENTATION_SPLITS)
-    }
+        if not counter:
+            # Skip splits that have no assigned groups (e.g. cross_domain_test,
+            # which is loadable from a vt assignment but never produced by the
+            # standard build path). Keeps the summary byte-equivalent to the
+            # committed artifact for the main split.
+            continue
+        label_counts[split] = dict(sorted(counter.items()))
     summary_path = write_json(
         output_root / "representation_split_summary_v1.json",
         {
