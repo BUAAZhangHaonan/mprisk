@@ -8,10 +8,12 @@ import pytest
 
 import mprisk.cache.stage_controller as controller
 from mprisk.cache.stage_controller import (
+    build_stage_lane_command,
     launch_target_lanes,
     plan_target_lane_launches,
     summarize_stage,
     validate_active_lanes,
+    wait_for_lane_startup,
 )
 
 
@@ -90,9 +92,7 @@ def test_signature_mismatch_is_a_terminal_blocker() -> None:
 
     assert summary["strict_complete"] is False
     assert summary["signature_mismatches"] == ["source:model3"]
-    assert summary["blocked"] == [
-        "source:model3=blocked_cache_asset_signature"
-    ]
+    assert summary["blocked"] == ["source:model3=blocked_cache_asset_signature"]
 
 
 def test_incomplete_stage_requires_live_supervisor(monkeypatch) -> None:
@@ -113,14 +113,10 @@ def test_incomplete_stage_requires_live_supervisor(monkeypatch) -> None:
     )
 
     with pytest.raises(RuntimeError, match="supervisor is inactive"):
-        validate_active_lanes(
-            SimpleNamespace(), summary, {0: "source0", 1: "source1"}
-        )
+        validate_active_lanes(SimpleNamespace(), summary, {0: "source0", 1: "source1"})
 
 
-def test_target_launch_is_exactly_two_waiting_target_lanes(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_target_launch_is_exactly_two_waiting_target_lanes(tmp_path: Path, monkeypatch) -> None:
     config = SimpleNamespace(
         repo_root=tmp_path,
         source_path=tmp_path / "matrix.yaml",
@@ -136,6 +132,16 @@ def test_target_launch_is_exactly_two_waiting_target_lanes(
         return SimpleNamespace(returncode=1 if "has-session" in command else 0)
 
     monkeypatch.setattr(controller.subprocess, "run", fake_run)
+    monkeypatch.setattr(
+        controller,
+        "wait_for_lane_startup",
+        lambda config, *, stage, lane, session, manager_log, timeout_seconds: {
+            "stage": stage,
+            "lane": lane,
+            "session": session,
+            "active": True,
+        },
+    )
 
     launched = launch_target_lanes(
         config,
@@ -153,6 +159,7 @@ def test_target_launch_is_exactly_two_waiting_target_lanes(
     assert len(new_sessions) == 2
     for lane, command in enumerate(new_sessions):
         shell_command = command[-1]
+        assert f"PYTHONPATH={tmp_path / 'src'}" in shell_command
         assert "--stage target" in shell_command
         assert f"--lane {lane}" in shell_command
         assert "--wait-for-gpu" in shell_command
@@ -160,9 +167,139 @@ def test_target_launch_is_exactly_two_waiting_target_lanes(
         assert "api" not in shell_command.lower()
 
 
-def test_target_launcher_rechecks_source_lane_ownership(
-    tmp_path: Path, monkeypatch
+def test_stage_lane_command_sets_absolute_pythonpath_for_both_stages(
+    tmp_path: Path,
 ) -> None:
+    config = SimpleNamespace(
+        repo_root=tmp_path.resolve(),
+        source_path=(tmp_path / "matrix.yaml").resolve(),
+    )
+
+    for stage in ("source", "target"):
+        command = build_stage_lane_command(
+            config,
+            python=Path("/env/bin/python"),
+            stage=stage,
+            lane=0,
+        )
+        assert command[:2] == [
+            "env",
+            f"PYTHONPATH={tmp_path.resolve() / 'src'}",
+        ]
+        assert command[2] == "/env/bin/python"
+        assert command[command.index("--stage") + 1] == stage
+
+
+def test_lane_supervisor_requires_session_and_live_scoped_lock(tmp_path: Path, monkeypatch) -> None:
+    config = SimpleNamespace(
+        lock_path=tmp_path / "matrix.lock",
+        runtime_record=tmp_path / "matrix.json",
+    )
+    lock_path, _ = controller._scoped_execution_paths(config, stage="target", lane=0)
+    monkeypatch.setattr(controller, "tmux_session_exists", lambda session: True)
+
+    assert (
+        controller.lane_supervisor_status(config, stage="target", lane=0, session="target0")[
+            "active"
+        ]
+        is False
+    )
+    lock_path.write_text(f"{controller.os.getpid()}\n", encoding="utf-8")
+    assert (
+        controller.lane_supervisor_status(config, stage="target", lane=0, session="target0")[
+            "active"
+        ]
+        is True
+    )
+    lock_path.write_text("999999999\n", encoding="utf-8")
+    assert (
+        controller.lane_supervisor_status(config, stage="target", lane=0, session="target0")[
+            "active"
+        ]
+        is False
+    )
+
+
+def test_lane_startup_waits_for_live_lock(monkeypatch, tmp_path: Path) -> None:
+    statuses = iter(
+        [
+            {"session_exists": True, "active": False},
+            {"session_exists": True, "active": True},
+        ]
+    )
+    clock = {"value": 0.0}
+    monkeypatch.setattr(
+        controller,
+        "lane_supervisor_status",
+        lambda *args, **kwargs: next(statuses),
+    )
+
+    status = wait_for_lane_startup(
+        SimpleNamespace(),
+        stage="target",
+        lane=0,
+        session="target0",
+        manager_log=tmp_path / "target0.log",
+        timeout_seconds=10,
+        sleep_fn=lambda seconds: clock.__setitem__("value", clock["value"] + seconds),
+        monotonic_fn=lambda: clock["value"],
+    )
+
+    assert status["active"] is True
+    assert clock["value"] > 0
+
+
+def test_lane_startup_reports_manager_error_when_pane_exits(monkeypatch, tmp_path: Path) -> None:
+    manager_log = tmp_path / "target0.log"
+    manager_log.write_text("ModuleNotFoundError: No module named 'mprisk'\n", encoding="utf-8")
+    monkeypatch.setattr(
+        controller,
+        "lane_supervisor_status",
+        lambda *args, **kwargs: {"session_exists": False, "active": False},
+    )
+
+    with pytest.raises(RuntimeError, match="ModuleNotFoundError"):
+        wait_for_lane_startup(
+            SimpleNamespace(),
+            stage="target",
+            lane=0,
+            session="target0",
+            manager_log=manager_log,
+            timeout_seconds=10,
+        )
+
+
+def test_lane_startup_timeout_stops_unclaimed_session(monkeypatch, tmp_path: Path) -> None:
+    clock = {"value": 0.0}
+    calls: list[list[str]] = []
+    monkeypatch.setattr(
+        controller,
+        "lane_supervisor_status",
+        lambda *args, **kwargs: {"session_exists": True, "active": False},
+    )
+    monkeypatch.setattr(
+        controller.subprocess,
+        "run",
+        lambda command, **kwargs: calls.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    with pytest.raises(TimeoutError, match="live lock"):
+        wait_for_lane_startup(
+            SimpleNamespace(),
+            stage="target",
+            lane=0,
+            session="target0",
+            manager_log=tmp_path / "target0.log",
+            timeout_seconds=1,
+            poll_seconds=0.6,
+            sleep_fn=lambda seconds: clock.__setitem__("value", clock["value"] + seconds),
+            monotonic_fn=lambda: clock["value"],
+        )
+
+    assert calls == [["tmux", "kill-session", "-t", "target0"]]
+
+
+def test_target_launcher_rechecks_source_lane_ownership(tmp_path: Path, monkeypatch) -> None:
     config = SimpleNamespace(
         repo_root=tmp_path,
         source_path=tmp_path / "matrix.yaml",
@@ -172,9 +309,7 @@ def test_target_launcher_rechecks_source_lane_ownership(
     monkeypatch.setattr(
         controller,
         "lane_supervisor_status",
-        lambda *args, **kwargs: _lane_status(
-            0, session_exists=True, lock_exists=True, active=True
-        ),
+        lambda *args, **kwargs: _lane_status(0, session_exists=True, lock_exists=True, active=True),
     )
 
     with pytest.raises(RuntimeError, match="Source lane 0 still owns GPU 0"):
@@ -215,9 +350,7 @@ def test_parallel_plan_adopts_existing_target_supervisor_without_duplicate() -> 
         ],
         target_statuses=[
             _lane_status(0),
-            _lane_status(
-                1, session_exists=True, lock_exists=True, active=True
-            ),
+            _lane_status(1, session_exists=True, lock_exists=True, active=True),
         ],
         pending_target_lanes={0, 1},
         allow_launch=True,
@@ -232,15 +365,11 @@ def test_parallel_plan_rejects_cross_domain_lane_collision() -> None:
     with pytest.raises(RuntimeError, match="same GPU lanes: 0"):
         plan_target_lane_launches(
             source_statuses=[
-                _lane_status(
-                    0, session_exists=True, lock_exists=True, active=True
-                ),
+                _lane_status(0, session_exists=True, lock_exists=True, active=True),
                 _lane_status(1),
             ],
             target_statuses=[
-                _lane_status(
-                    0, session_exists=True, lock_exists=True, active=True
-                ),
+                _lane_status(0, session_exists=True, lock_exists=True, active=True),
                 _lane_status(1),
             ],
             pending_target_lanes={0},
@@ -268,21 +397,11 @@ def test_controller_runs_parallel_dag_and_completes_only_after_both_domains(
     active_target_lanes: set[int] = set()
     launched_lanes: list[int] = []
     source_running = [_record("source", 0, "ready", lane=0)] + [
-        _record("source", index, "complete", lane=index % 2)
-        for index in range(1, 16)
+        _record("source", index, "complete", lane=index % 2) for index in range(1, 16)
     ]
-    source_complete = [
-        _record("source", index, "complete", lane=index % 2)
-        for index in range(16)
-    ]
-    target_ready = [
-        _record("target", index, "ready", lane=index % 2)
-        for index in range(16)
-    ]
-    target_complete = [
-        _record("target", index, "complete", lane=index % 2)
-        for index in range(16)
-    ]
+    source_complete = [_record("source", index, "complete", lane=index % 2) for index in range(16)]
+    target_ready = [_record("target", index, "ready", lane=index % 2) for index in range(16)]
+    target_complete = [_record("target", index, "complete", lane=index % 2) for index in range(16)]
 
     def summary(records: list[dict], *, stage: str) -> dict:
         return summarize_stage(
@@ -380,22 +499,85 @@ def test_controller_runs_parallel_dag_and_completes_only_after_both_domains(
     assert stage_controller.run() == 0
     assert launched_lanes == [1, 0]
     assert phase == 2
-    status = json.loads(
-        (tmp_path / "status" / "status.json").read_text(encoding="utf-8")
-    )
+    status = json.loads((tmp_path / "status" / "status.json").read_text(encoding="utf-8"))
     assert status["status"] == "complete"
     assert status["source"]["strict_complete"] is True
     assert status["target"]["strict_complete"] is True
     assert (tmp_path / "status" / "SOURCE_COMPLETE_AUDIT.json").is_file()
-    assert (
-        tmp_path / "status" / "EXTRACTION_LAUNCH_AUDIT.json"
-    ).is_file()
+    assert (tmp_path / "status" / "EXTRACTION_LAUNCH_AUDIT.json").is_file()
     assert (tmp_path / "status" / "FINAL_CACHE_AUDIT.json").is_file()
 
 
-def test_controller_fails_closed_without_launching_target(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_controller_stops_after_single_lane_startup_failure(tmp_path: Path, monkeypatch) -> None:
+    source = [_record("source", index, "complete", lane=index % 2) for index in range(16)]
+    target = [_record("target", index, "ready", lane=0) for index in range(16)]
+    audit = _audit(source, target)
+    audit["ready_to_launch"] = True
+    source_summary = summarize_stage(
+        audit,
+        stage="source",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    target_summary = summarize_stage(
+        audit,
+        stage="target",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    launch_calls = 0
+
+    def fail_launch(*args, **kwargs):
+        nonlocal launch_calls
+        launch_calls += 1
+        raise RuntimeError("target lane 0 startup failed before acquiring its live lock")
+
+    monkeypatch.setattr(
+        controller,
+        "read_stage_progress",
+        lambda config, stage: (source_summary if stage == "source" else target_summary),
+    )
+    monkeypatch.setattr(
+        controller,
+        "stage_is_finalized",
+        lambda *args, **kwargs: (True, []),
+    )
+    monkeypatch.setattr(
+        controller,
+        "stage_lane_statuses",
+        lambda config, *, stage, sessions: [
+            _lane_status(0),
+            _lane_status(1),
+        ],
+    )
+    monkeypatch.setattr(controller, "launch_target_lanes", fail_launch)
+    monkeypatch.setattr(controller, "_git_head", lambda path: "head")
+    config = SimpleNamespace(
+        source_path=tmp_path / "matrix.yaml",
+        repo_root=tmp_path,
+        models=(),
+        allow_parallel_domain_extraction=True,
+    )
+    stage_controller = controller.StageController(
+        config,
+        paths=controller.build_controller_paths(tmp_path / "status"),
+        poll_interval_seconds=1,
+        source_sessions={0: "source0", 1: "source1"},
+        target_sessions={0: "target0", 1: "target1"},
+        audit_fn=lambda _: audit,
+        sleep_fn=lambda _: pytest.fail("controller must not retry startup"),
+    )
+
+    assert stage_controller.run() == 1
+    assert launch_calls == 1
+    status = json.loads((tmp_path / "status" / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "failed"
+    assert "startup failed" in status["error"]
+    assert status["target_launches"] == []
+    assert not (tmp_path / "status" / "controller.lock").exists()
+
+
+def test_controller_fails_closed_without_launching_target(tmp_path: Path, monkeypatch) -> None:
     source = [_record("source", index, "complete") for index in range(15)]
     source.append(_record("source", 15, "failed"))
     target = [_record("target", index, "ready") for index in range(16)]
@@ -444,9 +626,7 @@ def test_controller_fails_closed_without_launching_target(
 
     assert stage_controller.run() == 1
     assert launched is False
-    status = json.loads(
-        (tmp_path / "status" / "status.json").read_text(encoding="utf-8")
-    )
+    status = json.loads((tmp_path / "status" / "status.json").read_text(encoding="utf-8"))
     assert status["status"] == "failed"
     assert "Source audit failed" in status["error"]
     assert not (tmp_path / "status" / "SOURCE_COMPLETE_AUDIT.json").exists()

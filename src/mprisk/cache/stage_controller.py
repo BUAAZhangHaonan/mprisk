@@ -28,6 +28,9 @@ CONTROLLER_SCHEMA = "mprisk_cache_stage_controller_v1"
 AUDIT_SCHEMA = "mprisk_complete_cache_matrix_audit_v1"
 NONBLOCKING_STATUSES = frozenset({"ready", "complete", "accepted_bundle"})
 TERMINAL_STATUSES = frozenset({"complete", "accepted_bundle"})
+DEFAULT_LANE_STARTUP_TIMEOUT_SECONDS = 900.0
+LANE_STARTUP_POLL_SECONDS = 0.25
+MANAGER_LOG_TAIL_LINES = 20
 
 
 @dataclass(frozen=True)
@@ -65,15 +68,9 @@ def summarize_stage(
 ) -> dict[str, Any]:
     if audit.get("schema") != AUDIT_SCHEMA:
         raise ValueError("Unexpected cache audit schema")
-    records = [
-        record
-        for record in audit.get("job_records", [])
-        if record.get("domain") == stage
-    ]
+    records = [record for record in audit.get("job_records", []) if record.get("domain") == stage]
     if len(records) != expected_jobs:
-        raise ValueError(
-            f"{stage} audit has {len(records)} jobs; expected {expected_jobs}"
-        )
+        raise ValueError(f"{stage} audit has {len(records)} jobs; expected {expected_jobs}")
     job_ids = [str(record.get("job_id")) for record in records]
     if len(set(job_ids)) != expected_jobs:
         raise ValueError(f"{stage} audit contains duplicate job IDs")
@@ -96,11 +93,7 @@ def summarize_stage(
     for record in records:
         if record.get("status") in TERMINAL_STATUSES:
             continue
-        missing += int(
-            record.get("ledger", {}).get(
-                "missing", record.get("expected_tasks", 0)
-            )
-        )
+        missing += int(record.get("ledger", {}).get("missing", record.get("expected_tasks", 0)))
     expected_complete = expected_jobs - expected_accepted
     strict_complete = (
         counts.get("complete", 0) == expected_complete
@@ -128,8 +121,7 @@ def expected_accepted_jobs(config: MatrixConfig, stage: str) -> int:
     return sum(
         1
         for model in config.models
-        if stage in model.accepted_bundle_domains
-        and stage not in model.invalidated_domains
+        if stage in model.accepted_bundle_domains and stage not in model.invalidated_domains
     )
 
 
@@ -211,9 +203,7 @@ def lane_supervisor_status(
     lane: int,
     session: str,
 ) -> dict[str, Any]:
-    lock_path, runtime_record = _scoped_execution_paths(
-        config, stage=stage, lane=lane
-    )
+    lock_path, runtime_record = _scoped_execution_paths(config, stage=stage, lane=lane)
     lock_pid: int | None = None
     lock_error: str | None = None
     if lock_path.is_file():
@@ -243,7 +233,7 @@ def lane_supervisor_status(
         "lock_error": lock_error,
         "runtime_record": str(runtime_record),
         "runtime_record_exists": runtime_record.is_file(),
-        "active": session_exists and (not lock_path.is_file() or pid_alive),
+        "active": session_exists and lock_path.is_file() and pid_alive,
     }
 
 
@@ -283,14 +273,11 @@ def stage_is_finalized(
     config: MatrixConfig, *, stage: str, sessions: dict[int, str]
 ) -> tuple[bool, list[dict[str, Any]]]:
     statuses = [
-        lane_supervisor_status(
-            config, stage=stage, lane=lane, session=sessions[lane]
-        )
+        lane_supervisor_status(config, stage=stage, lane=lane, session=sessions[lane])
         for lane in (0, 1)
     ]
     finalized = all(
-        not status["session_exists"] and not status["lock_exists"]
-        for status in statuses
+        not status["session_exists"] and not status["lock_exists"] for status in statuses
     )
     return finalized, statuses
 
@@ -299,9 +286,7 @@ def stage_lane_statuses(
     config: MatrixConfig, *, stage: str, sessions: dict[int, str]
 ) -> list[dict[str, Any]]:
     return [
-        lane_supervisor_status(
-            config, stage=stage, lane=lane, session=sessions[lane]
-        )
+        lane_supervisor_status(config, stage=stage, lane=lane, session=sessions[lane])
         for lane in (0, 1)
     ]
 
@@ -326,9 +311,7 @@ def plan_target_lane_launches(
     missing = sorted(pending_target_lanes.difference(target_by_lane))
     if missing:
         raise ValueError(f"Missing target supervisor status for lanes {missing}")
-    target_active = {
-        lane for lane, status in target_by_lane.items() if status["active"]
-    }
+    target_active = {lane for lane, status in target_by_lane.items() if status["active"]}
     overlaps = sorted(source_owned.intersection(target_active))
     if overlaps:
         raise RuntimeError(
@@ -338,8 +321,7 @@ def plan_target_lane_launches(
     inconsistent = sorted(
         lane
         for lane, status in target_by_lane.items()
-        if not status["active"]
-        and (status["session_exists"] or status["lock_exists"])
+        if not status["active"] and (status["session_exists"] or status["lock_exists"])
     )
     if inconsistent:
         raise RuntimeError(
@@ -348,20 +330,91 @@ def plan_target_lane_launches(
         )
     waiting = pending_target_lanes.intersection(source_owned)
     launchable = (
-        pending_target_lanes.difference(source_owned, target_active)
-        if allow_launch
-        else set()
+        pending_target_lanes.difference(source_owned, target_active) if allow_launch else set()
     )
     if not allow_launch and target_active:
-        raise RuntimeError(
-            "Target supervisors are active before the serial source gate passed"
-        )
+        raise RuntimeError("Target supervisors are active before the serial source gate passed")
     return {
         "source_owned": sorted(source_owned),
         "target_active": sorted(target_active),
         "target_waiting": sorted(waiting),
         "target_launchable": sorted(launchable),
     }
+
+
+def build_stage_lane_command(
+    config: MatrixConfig,
+    *,
+    python: Path,
+    stage: str,
+    lane: int,
+) -> list[str]:
+    if stage not in {"source", "target"}:
+        raise ValueError(f"Unsupported cache stage: {stage!r}")
+    if lane not in {0, 1}:
+        raise ValueError(f"Unsupported GPU lane: {lane!r}")
+    return [
+        "env",
+        f"PYTHONPATH={config.repo_root / 'src'}",
+        str(python),
+        str(config.repo_root / "scripts" / "run_cache_matrix_queue.py"),
+        "--config",
+        str(config.source_path),
+        "--execute",
+        "--stage",
+        stage,
+        "--lane",
+        str(lane),
+        "--wait-for-gpu",
+    ]
+
+
+def _manager_log_tail(path: Path) -> str:
+    if not path.is_file():
+        return "<manager log not created>"
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(lines[-MANAGER_LOG_TAIL_LINES:])
+
+
+def wait_for_lane_startup(
+    config: MatrixConfig,
+    *,
+    stage: str,
+    lane: int,
+    session: str,
+    manager_log: Path,
+    timeout_seconds: float,
+    poll_seconds: float = LANE_STARTUP_POLL_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+    monotonic_fn: Callable[[], float] = time.monotonic,
+) -> dict[str, Any]:
+    if timeout_seconds <= 0:
+        raise ValueError("Lane startup timeout must be positive")
+    if poll_seconds <= 0:
+        raise ValueError("Lane startup poll interval must be positive")
+    deadline = monotonic_fn() + timeout_seconds
+    while True:
+        status = lane_supervisor_status(config, stage=stage, lane=lane, session=session)
+        if status["active"]:
+            return status
+        if not status["session_exists"]:
+            raise RuntimeError(
+                f"{stage} lane {lane} startup failed before acquiring its live lock; "
+                f"manager log tail:\n{_manager_log_tail(manager_log)}"
+            )
+        now = monotonic_fn()
+        if now >= deadline:
+            subprocess.run(
+                ["tmux", "kill-session", "-t", session],
+                check=False,
+                capture_output=True,
+            )
+            raise TimeoutError(
+                f"{stage} lane {lane} did not acquire its live lock within "
+                f"{timeout_seconds:.1f}s; manager log tail:\n"
+                f"{_manager_log_tail(manager_log)}"
+            )
+        sleep_fn(min(poll_seconds, deadline - now))
 
 
 def launch_target_lanes(
@@ -372,6 +425,7 @@ def launch_target_lanes(
     manager_logs: dict[int, Path],
     python: Path,
     lanes: tuple[int, ...] = (0, 1),
+    startup_timeout_seconds: float = DEFAULT_LANE_STARTUP_TIMEOUT_SECONDS,
 ) -> list[dict[str, Any]]:
     selected_lanes = tuple(sorted(set(lanes)))
     if not selected_lanes or any(lane not in {0, 1} for lane in selected_lanes):
@@ -384,31 +438,16 @@ def launch_target_lanes(
             session=source_sessions[lane],
         )
         if source_status["session_exists"] or source_status["lock_exists"]:
-            raise RuntimeError(
-                f"Source lane {lane} still owns GPU {lane}; refusing target launch"
-            )
+            raise RuntimeError(f"Source lane {lane} still owns GPU {lane}; refusing target launch")
         lock_path, _ = _scoped_execution_paths(config, stage="target", lane=lane)
         if lock_path.exists():
             raise RuntimeError(f"Target lane {lane} lock already exists: {lock_path}")
         if tmux_session_exists(sessions[lane]):
-            raise RuntimeError(
-                f"Target lane {lane} tmux session already exists: {sessions[lane]}"
-            )
+            raise RuntimeError(f"Target lane {lane} tmux session already exists: {sessions[lane]}")
     launched: list[dict[str, Any]] = []
     for lane in selected_lanes:
         manager_logs[lane].parent.mkdir(parents=True, exist_ok=True)
-        command = [
-            str(python),
-            str(config.repo_root / "scripts" / "run_cache_matrix_queue.py"),
-            "--config",
-            str(config.source_path),
-            "--execute",
-            "--stage",
-            "target",
-            "--lane",
-            str(lane),
-            "--wait-for-gpu",
-        ]
+        command = build_stage_lane_command(config, python=python, stage="target", lane=lane)
         shell_command = (
             "set -o pipefail; "
             + shlex.join(command)
@@ -441,6 +480,14 @@ def launch_target_lanes(
             capture_output=True,
             text=True,
         )
+        startup_status = wait_for_lane_startup(
+            config,
+            stage="target",
+            lane=lane,
+            session=sessions[lane],
+            manager_log=manager_logs[lane],
+            timeout_seconds=startup_timeout_seconds,
+        )
         launched.append(
             {
                 "lane": lane,
@@ -448,6 +495,7 @@ def launch_target_lanes(
                 "pane_pid": int(pane.stdout.strip()),
                 "manager_log": str(manager_logs[lane]),
                 "command": command,
+                "startup_status": startup_status,
             }
         )
     return launched
@@ -462,16 +510,20 @@ class StageController:
         poll_interval_seconds: float,
         source_sessions: dict[int, str],
         target_sessions: dict[int, str],
+        lane_startup_timeout_seconds: float = DEFAULT_LANE_STARTUP_TIMEOUT_SECONDS,
         audit_fn: Callable[[MatrixConfig], dict[str, Any]] = audit_matrix,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
+        if lane_startup_timeout_seconds <= 0:
+            raise ValueError("lane_startup_timeout_seconds must be positive")
         self.config = config
         self.paths = paths
         self.poll_interval_seconds = poll_interval_seconds
         self.source_sessions = source_sessions
         self.target_sessions = target_sessions
+        self.lane_startup_timeout_seconds = lane_startup_timeout_seconds
         self.audit_fn = audit_fn
         self.sleep_fn = sleep_fn
         self.target_launches: list[dict[str, Any]] = []
@@ -501,18 +553,14 @@ class StageController:
             "config": str(self.config.source_path),
             "git_head": _git_head(self.config.repo_root),
             "poll_interval_seconds": self.poll_interval_seconds,
-            "allow_parallel_domain_extraction": (
-                self.config.allow_parallel_domain_extraction
-            ),
+            "allow_parallel_domain_extraction": (self.config.allow_parallel_domain_extraction),
             "source": _compact_summary(source),
             "target": _compact_summary(target),
             "supervisors": supervisors or [],
             "lane_ownership": lane_ownership or {},
             "target_launches": self.target_launches,
             "error": error,
-            "extraction_launch_audit": str(
-                self.paths.extraction_launch_audit
-            ),
+            "extraction_launch_audit": str(self.paths.extraction_launch_audit),
             "source_audit": str(self.paths.source_audit),
             "final_audit": str(self.paths.final_audit),
             "event_log": str(self.paths.event_log),
@@ -521,9 +569,7 @@ class StageController:
         _atomic_text(self.paths.run_status, _status_markdown(payload))
 
     def run(self) -> int:
-        lock_fd = os.open(
-            self.paths.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644
-        )
+        lock_fd = os.open(self.paths.lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         os.write(lock_fd, f"{os.getpid()}\n".encode())
         os.close(lock_fd)
         source: dict[str, Any] | None = None
@@ -543,9 +589,7 @@ class StageController:
                         + json.dumps(
                             {
                                 "blocked": summary["blocked"],
-                                "signature_mismatches": summary[
-                                    "signature_mismatches"
-                                ],
+                                "signature_mismatches": summary["signature_mismatches"],
                             },
                             sort_keys=True,
                         )
@@ -558,9 +602,7 @@ class StageController:
                         sessions=self.source_sessions,
                     )
                 else:
-                    validate_active_lanes(
-                        self.config, source, self.source_sessions
-                    )
+                    validate_active_lanes(self.config, source, self.source_sessions)
                 if (
                     self.config.allow_parallel_domain_extraction
                     and not target["strict_complete"]
@@ -571,17 +613,13 @@ class StageController:
                         launch_audit,
                         stage="source",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "source"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "source"),
                     )
                     audited_target = summarize_stage(
                         launch_audit,
                         stage="target",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "target"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "target"),
                     )
                     launch_blockers = (
                         audited_source["blocked"]
@@ -595,16 +633,12 @@ class StageController:
                             + json.dumps(
                                 {
                                     "blockers": launch_blockers,
-                                    "ready_to_launch": launch_audit.get(
-                                        "ready_to_launch"
-                                    ),
+                                    "ready_to_launch": launch_audit.get("ready_to_launch"),
                                 },
                                 sort_keys=True,
                             )
                         )
-                    _atomic_json(
-                        self.paths.extraction_launch_audit, launch_audit
-                    )
+                    _atomic_json(self.paths.extraction_launch_audit, launch_audit)
                     extraction_launch_audit_passed = True
                     self.emit("parallel_extraction_launch_audit_complete")
                 if source["strict_complete"] and source_finalized and not source_gate_passed:
@@ -613,22 +647,16 @@ class StageController:
                         audit,
                         stage="source",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "source"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "source"),
                     )
                     target = summarize_stage(
                         audit,
                         stage="target",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "target"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "target"),
                     )
                     if not source["strict_complete"]:
-                        raise RuntimeError(
-                            "Source ledger candidate failed the full strict audit"
-                        )
+                        raise RuntimeError("Source ledger candidate failed the full strict audit")
                     if not audit.get("ready_to_launch") and not target["strict_complete"]:
                         raise RuntimeError(
                             "Full strict audit is not launchable after source completion"
@@ -641,9 +669,7 @@ class StageController:
                             + json.dumps(
                                 {
                                     "blocked": target["blocked"],
-                                    "signature_mismatches": target[
-                                        "signature_mismatches"
-                                    ],
+                                    "signature_mismatches": target["signature_mismatches"],
                                 },
                                 sort_keys=True,
                             )
@@ -665,8 +691,7 @@ class StageController:
                     sessions=self.target_sessions,
                 )
                 allow_target_launch = (
-                    self.config.allow_parallel_domain_extraction
-                    or source_gate_passed
+                    self.config.allow_parallel_domain_extraction or source_gate_passed
                 )
                 lane_ownership = plan_target_lane_launches(
                     source_statuses=source_lane_status,
@@ -677,23 +702,21 @@ class StageController:
                 launchable = tuple(lane_ownership["target_launchable"])
                 if launchable:
                     manager_logs = {
-                        lane: self.paths.output_dir
-                        / f"target_gpu{lane}.manager.log"
+                        lane: self.paths.output_dir / f"target_gpu{lane}.manager.log"
                         for lane in launchable
                     }
-                    launches = launch_target_lanes(
-                        self.config,
-                        source_sessions=self.source_sessions,
-                        sessions=self.target_sessions,
-                        manager_logs=manager_logs,
-                        python=Path(sys.executable).resolve(),
-                        lanes=launchable,
-                    )
-                    self.target_launches.extend(launches)
-                    self.emit(
-                        "target_lanes_launched lanes="
-                        + ",".join(str(lane) for lane in launchable)
-                    )
+                    for lane in launchable:
+                        launches = launch_target_lanes(
+                            self.config,
+                            source_sessions=self.source_sessions,
+                            sessions=self.target_sessions,
+                            manager_logs={lane: manager_logs[lane]},
+                            python=Path(sys.executable).resolve(),
+                            lanes=(lane,),
+                            startup_timeout_seconds=(self.lane_startup_timeout_seconds),
+                        )
+                        self.target_launches.extend(launches)
+                        self.emit(f"target_lane_launched lane={lane}")
                     target_lane_status = stage_lane_statuses(
                         self.config,
                         stage="target",
@@ -706,41 +729,29 @@ class StageController:
                         allow_launch=allow_target_launch,
                     )
                     inactive_launched = sorted(
-                        set(launchable).difference(
-                            lane_ownership["target_active"]
-                        )
+                        set(launchable).difference(lane_ownership["target_active"])
                     )
                     if inactive_launched:
                         raise RuntimeError(
                             "Launched target lanes have no active supervisor: "
                             + ", ".join(str(lane) for lane in inactive_launched)
                         )
-                if (
-                    source_gate_passed
-                    and source["strict_complete"]
-                    and target["strict_complete"]
-                ):
+                if source_gate_passed and source["strict_complete"] and target["strict_complete"]:
                     audit = self.audit_fn(self.config)
                     source = summarize_stage(
                         audit,
                         stage="source",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "source"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "source"),
                     )
                     target = summarize_stage(
                         audit,
                         stage="target",
                         expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(
-                            self.config, "target"
-                        ),
+                        expected_accepted=expected_accepted_jobs(self.config, "target"),
                     )
                     if not source["strict_complete"] or not target["strict_complete"]:
-                        raise RuntimeError(
-                            "Final ledger candidate failed the full strict audit"
-                        )
+                        raise RuntimeError("Final ledger candidate failed the full strict audit")
                     target_finalized, target_supervisors = stage_is_finalized(
                         self.config,
                         stage="target",
@@ -757,9 +768,7 @@ class StageController:
                         self.sleep_fn(self.poll_interval_seconds)
                         continue
                     _atomic_json(self.paths.final_audit, audit)
-                    self.write_status(
-                        "complete", source=source, target=target
-                    )
+                    self.write_status("complete", source=source, target=target)
                     self.emit("cache_matrix_complete")
                     return 0
                 if not source["strict_complete"]:
@@ -841,10 +850,7 @@ def _status_markdown(payload: dict[str, Any]) -> str:
         f"- PID: `{payload['pid']}`",
         f"- Git HEAD: `{payload['git_head']}`",
         f"- Config: `{payload['config']}`",
-        (
-            "- Parallel source/target extraction: "
-            f"`{payload['allow_parallel_domain_extraction']}`"
-        ),
+        (f"- Parallel source/target extraction: `{payload['allow_parallel_domain_extraction']}`"),
         "- API/Misread actions: `disabled`",
         "",
         "## Source",
@@ -876,11 +882,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--poll-interval-seconds", type=float, default=60.0)
+    parser.add_argument("--source-session-prefix", default="mprisk-cache-source-gpu")
+    parser.add_argument("--target-session-prefix", default="mprisk-cache-target-gpu")
     parser.add_argument(
-        "--source-session-prefix", default="mprisk-cache-source-gpu"
-    )
-    parser.add_argument(
-        "--target-session-prefix", default="mprisk-cache-target-gpu"
+        "--lane-startup-timeout-seconds",
+        type=float,
+        default=DEFAULT_LANE_STARTUP_TIMEOUT_SECONDS,
     )
     return parser
 
@@ -892,11 +899,8 @@ def cli(argv: list[str] | None = None) -> int:
         config,
         paths=build_controller_paths(args.output_dir),
         poll_interval_seconds=args.poll_interval_seconds,
-        source_sessions={
-            lane: f"{args.source_session_prefix}{lane}" for lane in (0, 1)
-        },
-        target_sessions={
-            lane: f"{args.target_session_prefix}{lane}" for lane in (0, 1)
-        },
+        source_sessions={lane: f"{args.source_session_prefix}{lane}" for lane in (0, 1)},
+        target_sessions={lane: f"{args.target_session_prefix}{lane}" for lane in (0, 1)},
+        lane_startup_timeout_seconds=args.lane_startup_timeout_seconds,
     )
     return controller.run()
