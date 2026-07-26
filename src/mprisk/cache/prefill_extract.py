@@ -24,14 +24,20 @@ class TrajectoryBundle:
     trajectory_meta: dict[str, int]
 
 
-def t0_token_index(entry: HiddenStateEntry | None = None) -> int:
-    """Return the token index used for pre-generation state extraction."""
+def t0_token_index(entry: HiddenStateEntry | None = None) -> int | None:
+    """Return the token index used for pre-generation state extraction.
+
+    Returns None when the entry is absent or metadata lacks an explicit
+    "t0_token_index" override. Callers that require a concrete index
+    (e.g. resolving a slice on a hidden-state shard) must raise their own
+    ValueError when they receive None.
+    """
     if entry is None:
-        return -1
+        return None
     metadata = entry.metadata or {}
     if "t0_token_index" in metadata and metadata["t0_token_index"] not in (None, ""):
         return int(metadata["t0_token_index"])
-    return -1
+    return None
 
 
 def extract_t0_trajectory(entry: HiddenStateEntry) -> Trajectory:
@@ -121,6 +127,8 @@ def _select_tensor_key(keys: list[str], metadata: dict[str, Any]) -> str:
 
 def _resolved_token_index(token_count: int, entry: HiddenStateEntry) -> int:
     token_index = t0_token_index(entry)
+    if token_index is None:
+        raise ValueError("t0_token_index metadata required")
     if not -token_count <= token_index < token_count:
         raise IndexError(f"t0_token_index {token_index} is out of range for {token_count} tokens")
     return token_index
