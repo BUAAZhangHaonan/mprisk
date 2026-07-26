@@ -41,8 +41,10 @@ def _infer_tme_dims_from_state(state: dict) -> dict:
     ``encoder_type`` is one of:
 
     * ``"lstm"`` — keys like ``condition_encoder.lstm.weight_ih_l0`` are
-      present (legacy ``SphericalTMEV2`` from ``mprisk.representation.lstm_tme``,
-      bi-directional multi-layer LSTM + MLP, 4*H gate factor).
+      present (bi-LSTM ``SphericalTME_BiLSTM`` from
+      ``mprisk.representation.relation_models``, originally the viz
+      ``SphericalTMEV2``; bi-directional multi-layer LSTM + MLP, 4*H gate
+      factor).
     * ``"gru"`` — keys like ``condition_encoder.sequence.weight_ih_l0``
       are present and NO ``condition_encoder.sequence.weight_ih_l1`` exists
       (``SphericalTMEV1`` / ``SequentialTrajectoryEncoderV1``, single-layer
@@ -199,10 +201,13 @@ class TMEEncoder(nn.Module):
                 dropout=dropout,
             )
         else:
-            # Legacy bi-LSTM V2 checkpoint: original SphericalTMEV2 path.
-            from mprisk.representation.lstm_tme import SphericalTMEV2  # noqa: WPS433
+            # Legacy bi-LSTM V2 checkpoint (originally produced by the viz
+            # SphericalTMEV2). The class is now inlined into the mainline
+            # relation_models module as SphericalTME_BiLSTM with an identical
+            # state-dict layout, so existing checkpoints load unchanged.
+            from mprisk.representation.relation_models import SphericalTME_BiLSTM  # noqa: WPS433
 
-            self.tme = SphericalTMEV2(
+            self.tme = SphericalTME_BiLSTM(
                 input_dim=input_dim,
                 sequence_hidden_dim=sequence_hidden_dim,
                 condition_dim=condition_dim,
