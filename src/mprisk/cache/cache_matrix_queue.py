@@ -547,10 +547,43 @@ def prepare_frame_plans(
 
 
 def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
+    return _audit_jobs(config, tuple(config.jobs))
+
+
+def audit_job_subset(
+    config: MatrixConfig, job_ids: tuple[str, ...]
+) -> dict[str, Any]:
+    """Audit exactly the prospective jobs that a scoped queue will launch."""
+    if not job_ids or len(set(job_ids)) != len(job_ids):
+        raise ValueError("Scoped cache audit requires unique job IDs")
+    requested = set(job_ids)
+    selected = tuple(job for job in config.jobs if job.job_id in requested)
+    found = {job.job_id for job in selected}
+    missing = sorted(requested.difference(found))
+    if missing:
+        raise ValueError("Unknown scoped cache jobs: " + ", ".join(missing))
+    audit = _audit_jobs(config, selected)
+    audit["scope"] = {
+        "kind": "prospective_jobs",
+        "job_ids": list(job_ids),
+        "excluded_job_ids": [
+            job.job_id for job in config.jobs if job.job_id not in requested
+        ],
+    }
+    return audit
+
+
+def _audit_jobs(
+    config: MatrixConfig, selected_jobs: tuple[CacheJob, ...]
+) -> dict[str, Any]:
     _validate_bundle(config)
     assets = index_assets(load_model_assets(config.asset_config))
     manifest_status: dict[tuple[str, str], dict[str, Any]] = {}
-    for key, domain in config.domains.items():
+    selected_domain_keys = {
+        (job.domain.domain, job.domain.protocol) for job in selected_jobs
+    }
+    for key in sorted(selected_domain_keys):
+        domain = config.domains[key]
         rows, digest = normalize_manifest(domain)
         prepared_ok = False
         if domain.prepared_manifest.is_file():
@@ -565,7 +598,11 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
 
     environment_checks: dict[str, dict[str, Any]] = {}
     asset_signature_checks: dict[str, dict[str, Any]] = {}
-    for model in config.models:
+    selected_model_keys = {job.model.model_key for job in selected_jobs}
+    selected_models = [
+        model for model in config.models if model.model_key in selected_model_keys
+    ]
+    for model in selected_models:
         asset = assets.get(model.model_key)
         if asset is None:
             raise KeyError(f"Missing asset {model.model_key}")
@@ -589,7 +626,7 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
             manifest_status,
             asset_signature_checks[job.model.model_key],
         )
-        for job in config.jobs
+        for job in selected_jobs
     ]
     counts = Counter(str(job["status"]) for job in jobs)
     pending = [job for job in jobs if job["status"] not in {"complete", "accepted_bundle"}]
@@ -605,8 +642,8 @@ def audit_matrix(config: MatrixConfig) -> dict[str, Any]:
         "schema": "mprisk_complete_cache_matrix_audit_v1",
         "status": "ready" if ready else "blocked",
         "ready_to_launch": ready,
-        "models": len(config.models),
-        "jobs": len(config.jobs),
+        "models": len(selected_models),
+        "jobs": len(selected_jobs),
         "matrix": {"vt_models": 13, "va_models": 3, "domains": ["source", "target"]},
         "manifest_status": {
             f"{domain}:{protocol}": status for (domain, protocol), status in manifest_status.items()
@@ -715,13 +752,16 @@ def execute_matrix(
     ]
     if not selected_jobs:
         raise ValueError(f"No cache jobs selected for stage={stage}, lane={lane}")
-    audit = audit_matrix(config)
-    selected_ids = {job.job_id for job in selected_jobs}
+    prospective_jobs = _prospective_jobs_by_lane(selected_jobs)
+    if not prospective_jobs:
+        return
+    audit = audit_job_subset(
+        config, tuple(job.job_id for job in prospective_jobs)
+    )
     blockers = [
         f"{row['job_id']}={row['status']}"
         for row in audit["job_records"]
-        if row["job_id"] in selected_ids
-        and row["status"] not in {"complete", "accepted_bundle", "ready"}
+        if row["status"] != "ready"
     ]
     if blockers or not audit["capacity"]["safe"]:
         if not audit["capacity"]["safe"]:
@@ -749,6 +789,27 @@ def execute_matrix(
             )
     finally:
         lock_path.unlink(missing_ok=True)
+
+
+def _prospective_jobs_by_lane(jobs: list[CacheJob]) -> list[CacheJob]:
+    prospective: list[CacheJob] = []
+    selected_lanes: set[int] = set()
+    for job in jobs:
+        lane = job.model.gpu_lane
+        if lane in selected_lanes:
+            continue
+        accepted = (
+            job.domain.domain in job.model.accepted_bundle_domains
+            and job.domain.domain not in job.model.invalidated_domains
+        )
+        if accepted:
+            continue
+        ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
+        if ledger["status"] == "complete":
+            continue
+        prospective.append(job)
+        selected_lanes.add(lane)
+    return prospective
 
 
 def _scoped_execution_paths(
@@ -803,6 +864,15 @@ def _execute_stage(
                 if lane in running or not queues[lane]:
                     continue
                 job = queues[lane].popleft()
+                accepted = (
+                    job.domain.domain in job.model.accepted_bundle_domains
+                    and job.domain.domain not in job.model.invalidated_domains
+                )
+                if accepted:
+                    continue
+                ledger = _ledger_status(job.output_root, job.domain.expected_tasks)
+                if ledger["status"] == "complete":
+                    continue
                 status = _audit_job(config, job, {})
                 if status["status"] in {"complete", "accepted_bundle"}:
                     continue

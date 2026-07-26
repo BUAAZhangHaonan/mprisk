@@ -106,13 +106,23 @@ def test_scoped_execution_paths_isolate_source_gpu_lanes(tmp_path: Path) -> None
 def test_source_lane_execution_never_enters_target(tmp_path: Path, monkeypatch) -> None:
     source_job = SimpleNamespace(
         job_id="source:model",
-        domain=SimpleNamespace(domain="source"),
-        model=SimpleNamespace(gpu_lane=0),
+        domain=SimpleNamespace(domain="source", expected_tasks=24),
+        model=SimpleNamespace(
+            gpu_lane=0,
+            accepted_bundle_domains={},
+            invalidated_domains={},
+        ),
+        output_root=tmp_path / "source",
     )
     target_job = SimpleNamespace(
         job_id="target:model",
-        domain=SimpleNamespace(domain="target"),
-        model=SimpleNamespace(gpu_lane=0),
+        domain=SimpleNamespace(domain="target", expected_tasks=24),
+        model=SimpleNamespace(
+            gpu_lane=0,
+            accepted_bundle_domains={},
+            invalidated_domains={},
+        ),
+        output_root=tmp_path / "target",
     )
     config = SimpleNamespace(
         jobs=(source_job, target_job),
@@ -121,12 +131,11 @@ def test_source_lane_execution_never_enters_target(tmp_path: Path, monkeypatch) 
     )
     monkeypatch.setattr(
         queue,
-        "audit_matrix",
-        lambda config: {
+        "audit_job_subset",
+        lambda config, job_ids: {
             "capacity": {"safe": True},
             "job_records": [
-                {"job_id": "source:model", "status": "ready"},
-                {"job_id": "target:model", "status": "ready"},
+                {"job_id": job_id, "status": "ready"} for job_id in job_ids
             ],
         },
     )

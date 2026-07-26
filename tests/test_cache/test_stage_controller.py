@@ -11,6 +11,8 @@ from mprisk.cache.stage_controller import (
     build_stage_lane_command,
     launch_target_lanes,
     plan_target_lane_launches,
+    prospective_target_job_ids,
+    scoped_launch_blockers,
     summarize_stage,
     validate_active_lanes,
     wait_for_lane_startup,
@@ -93,6 +95,37 @@ def test_signature_mismatch_is_a_terminal_blocker() -> None:
     assert summary["strict_complete"] is False
     assert summary["signature_mismatches"] == ["source:model3"]
     assert summary["blocked"] == ["source:model3=blocked_cache_asset_signature"]
+
+
+def test_scoped_launch_ignores_unrelated_completed_signature_mismatch() -> None:
+    source = [_record("source", index, "complete") for index in range(16)]
+    source[3]["status"] = "blocked_cache_asset_signature"
+    source[3]["cache_asset_signature"] = {"passed": False}
+    target = [
+        _record("target", index, "ready", lane=index % 2) for index in range(16)
+    ]
+    audit = _audit(source, target)
+    audit["ready_to_launch"] = False
+
+    prospective = prospective_target_job_ids(target, (0,))
+
+    assert prospective == ("target:model0",)
+    assert scoped_launch_blockers(audit, prospective) == []
+
+
+def test_scoped_launch_blocks_current_lane_job_mismatch() -> None:
+    target = [
+        _record("target", index, "ready", lane=index % 2) for index in range(16)
+    ]
+    target[0]["status"] = "blocked_cache_asset_signature"
+    target[0]["cache_asset_signature"] = {"passed": False}
+    audit = _audit([], target)
+
+    prospective = prospective_target_job_ids(target, (0,))
+
+    assert scoped_launch_blockers(audit, prospective) == [
+        "target:model0=blocked_cache_asset_signature"
+    ]
 
 
 def test_incomplete_stage_requires_live_supervisor(monkeypatch) -> None:
@@ -493,6 +526,7 @@ def test_controller_runs_parallel_dag_and_completes_only_after_both_domains(
         source_sessions={0: "source0", 1: "source1"},
         target_sessions={0: "target0", 1: "target1"},
         audit_fn=fake_audit,
+        launch_audit_fn=lambda config, job_ids: fake_audit(config),
         sleep_fn=fake_sleep,
     )
 
@@ -571,6 +605,7 @@ def test_controller_stops_after_single_lane_startup_failure(tmp_path: Path, monk
         source_sessions={0: "source0", 1: "source1"},
         target_sessions={0: "target0", 1: "target1"},
         audit_fn=fake_audit,
+        launch_audit_fn=lambda config, job_ids: fake_audit(config),
         sleep_fn=lambda _: pytest.fail("controller must not retry startup"),
     )
 
@@ -637,3 +672,82 @@ def test_controller_fails_closed_without_launching_target(tmp_path: Path, monkey
     assert status["status"] == "failed"
     assert "Source audit failed" in status["error"]
     assert not (tmp_path / "status" / "SOURCE_COMPLETE_AUDIT.json").exists()
+
+
+def test_controller_final_audit_remains_global_and_fail_closed(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source_records = [
+        _record("source", index, "complete", lane=index % 2) for index in range(16)
+    ]
+    target_records = [
+        _record("target", index, "complete", lane=index % 2) for index in range(16)
+    ]
+    progress_audit = _audit(source_records, target_records)
+    source_summary = summarize_stage(
+        progress_audit,
+        stage="source",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    target_summary = summarize_stage(
+        progress_audit,
+        stage="target",
+        expected_jobs=16,
+        expected_accepted=0,
+    )
+    strict_audit = _audit(
+        [dict(record) for record in source_records],
+        [dict(record) for record in target_records],
+    )
+    strict_audit["job_records"][3]["status"] = "blocked_cache_asset_signature"
+    strict_audit["job_records"][3]["cache_asset_signature"] = {"passed": False}
+    strict_audit["ready_to_launch"] = False
+    audit_calls = 0
+
+    def fake_audit(config):
+        nonlocal audit_calls
+        audit_calls += 1
+        return strict_audit
+
+    monkeypatch.setattr(
+        controller,
+        "read_stage_progress",
+        lambda config, stage: source_summary if stage == "source" else target_summary,
+    )
+    monkeypatch.setattr(
+        controller,
+        "stage_is_finalized",
+        lambda *args, **kwargs: (True, []),
+    )
+    monkeypatch.setattr(
+        controller,
+        "stage_lane_statuses",
+        lambda config, *, stage, sessions: [_lane_status(0), _lane_status(1)],
+    )
+    monkeypatch.setattr(controller, "_git_head", lambda path: "head")
+    config = SimpleNamespace(
+        source_path=tmp_path / "matrix.yaml",
+        repo_root=tmp_path,
+        models=(),
+        allow_parallel_domain_extraction=True,
+    )
+    stage_controller = controller.StageController(
+        config,
+        paths=controller.build_controller_paths(tmp_path / "status"),
+        poll_interval_seconds=1,
+        source_sessions={0: "source0", 1: "source1"},
+        target_sessions={0: "target0", 1: "target1"},
+        audit_fn=fake_audit,
+        launch_audit_fn=lambda config, job_ids: pytest.fail(
+            "no target launch audit is expected"
+        ),
+        sleep_fn=lambda _: pytest.fail("controller must fail in this cycle"),
+    )
+
+    assert stage_controller.run() == 1
+    assert audit_calls == 1
+    status = json.loads((tmp_path / "status" / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "failed"
+    assert "Final ledger candidate failed the full strict audit" in status["error"]
+    assert not (tmp_path / "status" / "FINAL_CACHE_AUDIT.json").exists()

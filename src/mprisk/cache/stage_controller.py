@@ -20,6 +20,7 @@ from mprisk.cache.cache_matrix_queue import (
     MatrixConfig,
     _ledger_status,
     _scoped_execution_paths,
+    audit_job_subset,
     audit_matrix,
     load_matrix_config,
 )
@@ -123,6 +124,41 @@ def expected_accepted_jobs(config: MatrixConfig, stage: str) -> int:
         for model in config.models
         if stage in model.accepted_bundle_domains and stage not in model.invalidated_domains
     )
+
+
+def prospective_target_job_ids(
+    records: list[dict[str, Any]], lanes: tuple[int, ...]
+) -> tuple[str, ...]:
+    selected_lanes = tuple(sorted(set(lanes)))
+    if not selected_lanes or any(lane not in {0, 1} for lane in selected_lanes):
+        raise ValueError("Prospective target lanes must be a non-empty subset of {0, 1}")
+    pending = set(selected_lanes)
+    selected: list[str] = []
+    for record in records:
+        if record.get("domain") != "target":
+            continue
+        lane = int(record["gpu_lane"])
+        if lane not in pending or record.get("status") in TERMINAL_STATUSES:
+            continue
+        selected.append(str(record["job_id"]))
+        pending.remove(lane)
+    if pending:
+        raise ValueError(
+            "No prospective target job for lanes " + ", ".join(map(str, sorted(pending)))
+        )
+    return tuple(selected)
+
+
+def scoped_launch_blockers(audit: dict[str, Any], job_ids: tuple[str, ...]) -> list[str]:
+    records = {str(record.get("job_id")): record for record in audit.get("job_records", [])}
+    missing = sorted(set(job_ids).difference(records))
+    if missing:
+        raise ValueError("Scoped launch audit omitted jobs: " + ", ".join(missing))
+    return [
+        f"{job_id}={records[job_id].get('status')}"
+        for job_id in job_ids
+        if records[job_id].get("status") != "ready"
+    ]
 
 
 def read_stage_progress(config: MatrixConfig, stage: str) -> dict[str, Any]:
@@ -512,6 +548,9 @@ class StageController:
         target_sessions: dict[int, str],
         lane_startup_timeout_seconds: float = DEFAULT_LANE_STARTUP_TIMEOUT_SECONDS,
         audit_fn: Callable[[MatrixConfig], dict[str, Any]] = audit_matrix,
+        launch_audit_fn: Callable[
+            [MatrixConfig, tuple[str, ...]], dict[str, Any]
+        ] = audit_job_subset,
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         if poll_interval_seconds <= 0:
@@ -525,6 +564,7 @@ class StageController:
         self.target_sessions = target_sessions
         self.lane_startup_timeout_seconds = lane_startup_timeout_seconds
         self.audit_fn = audit_fn
+        self.launch_audit_fn = launch_audit_fn
         self.sleep_fn = sleep_fn
         self.target_launches: list[dict[str, Any]] = []
         self.paths.output_dir.mkdir(parents=True, exist_ok=True)
@@ -575,11 +615,9 @@ class StageController:
         source: dict[str, Any] | None = None
         target: dict[str, Any] | None = None
         source_gate_passed = False
-        extraction_launch_audit_passed = False
         try:
             self.emit("controller_started")
             while True:
-                cycle_audit: dict[str, Any] | None = None
                 source = read_stage_progress(self.config, "source")
                 target = read_stage_progress(self.config, "target")
                 for summary in (source, target):
@@ -604,79 +642,48 @@ class StageController:
                     )
                 else:
                     validate_active_lanes(self.config, source, self.source_sessions)
-                if (
-                    self.config.allow_parallel_domain_extraction
-                    and not target["strict_complete"]
-                    and not extraction_launch_audit_passed
-                ):
-                    launch_audit = self.audit_fn(self.config)
-                    cycle_audit = launch_audit
-                    audited_source = summarize_stage(
-                        launch_audit,
-                        stage="source",
-                        expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(self.config, "source"),
-                    )
-                    audited_target = summarize_stage(
-                        launch_audit,
-                        stage="target",
-                        expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(self.config, "target"),
-                    )
-                    launch_blockers = (
-                        audited_source["blocked"]
-                        + audited_source["signature_mismatches"]
-                        + audited_target["blocked"]
-                        + audited_target["signature_mismatches"]
-                    )
-                    if launch_blockers or not launch_audit.get("ready_to_launch"):
-                        raise RuntimeError(
-                            "Parallel extraction launch audit failed: "
-                            + json.dumps(
-                                {
-                                    "blockers": launch_blockers,
-                                    "ready_to_launch": launch_audit.get("ready_to_launch"),
-                                },
-                                sort_keys=True,
-                            )
-                        )
-                    _atomic_json(self.paths.extraction_launch_audit, launch_audit)
-                    extraction_launch_audit_passed = True
-                    self.emit("parallel_extraction_launch_audit_complete")
                 if source["strict_complete"] and source_finalized and not source_gate_passed:
-                    audit = cycle_audit if cycle_audit is not None else self.audit_fn(self.config)
-                    source = summarize_stage(
-                        audit,
-                        stage="source",
-                        expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(self.config, "source"),
-                    )
-                    target = summarize_stage(
-                        audit,
-                        stage="target",
-                        expected_jobs=16,
-                        expected_accepted=expected_accepted_jobs(self.config, "target"),
-                    )
-                    if not source["strict_complete"]:
-                        raise RuntimeError("Source ledger candidate failed the full strict audit")
-                    if not audit.get("ready_to_launch") and not target["strict_complete"]:
-                        raise RuntimeError(
-                            "Full strict audit is not launchable after source completion"
+                    if self.config.allow_parallel_domain_extraction:
+                        source_gate_passed = True
+                        self.emit("source_progress_gate_complete")
+                    else:
+                        audit = self.audit_fn(self.config)
+                        source = summarize_stage(
+                            audit,
+                            stage="source",
+                            expected_jobs=16,
+                            expected_accepted=expected_accepted_jobs(self.config, "source"),
                         )
-                    _atomic_json(self.paths.source_audit, audit)
-                    self.emit("source_audit_complete")
-                    if target["blocked"] or target["signature_mismatches"]:
-                        raise RuntimeError(
-                            "Target prelaunch audit failed: "
-                            + json.dumps(
-                                {
-                                    "blocked": target["blocked"],
-                                    "signature_mismatches": target["signature_mismatches"],
-                                },
-                                sort_keys=True,
+                        target = summarize_stage(
+                            audit,
+                            stage="target",
+                            expected_jobs=16,
+                            expected_accepted=expected_accepted_jobs(self.config, "target"),
+                        )
+                        if not source["strict_complete"]:
+                            raise RuntimeError(
+                                "Source ledger candidate failed the full strict audit"
                             )
-                        )
-                    source_gate_passed = True
+                        if not audit.get("ready_to_launch") and not target["strict_complete"]:
+                            raise RuntimeError(
+                                "Full strict audit is not launchable after source completion"
+                            )
+                        _atomic_json(self.paths.source_audit, audit)
+                        self.emit("source_audit_complete")
+                        if target["blocked"] or target["signature_mismatches"]:
+                            raise RuntimeError(
+                                "Target prelaunch audit failed: "
+                                + json.dumps(
+                                    {
+                                        "blocked": target["blocked"],
+                                        "signature_mismatches": target[
+                                            "signature_mismatches"
+                                        ],
+                                    },
+                                    sort_keys=True,
+                                )
+                            )
+                        source_gate_passed = True
                 source_lane_status = stage_lane_statuses(
                     self.config,
                     stage="source",
@@ -703,6 +710,34 @@ class StageController:
                 )
                 launchable = tuple(lane_ownership["target_launchable"])
                 if launchable:
+                    prospective_ids = prospective_target_job_ids(
+                        target["records"], launchable
+                    )
+                    launch_audit = self.launch_audit_fn(self.config, prospective_ids)
+                    launch_blockers = scoped_launch_blockers(
+                        launch_audit, prospective_ids
+                    )
+                    capacity_safe = bool(
+                        launch_audit.get("capacity", {}).get("safe", True)
+                    )
+                    if launch_blockers or not capacity_safe:
+                        raise RuntimeError(
+                            "Parallel extraction launch audit failed: "
+                            + json.dumps(
+                                {
+                                    "blockers": launch_blockers,
+                                    "capacity_safe": capacity_safe,
+                                    "prospective_job_ids": prospective_ids,
+                                },
+                                sort_keys=True,
+                            )
+                        )
+                    _atomic_json(self.paths.extraction_launch_audit, launch_audit)
+                    self.emit(
+                        "parallel_extraction_launch_audit_complete "
+                        + "jobs="
+                        + ",".join(prospective_ids)
+                    )
                     manager_logs = {
                         lane: self.paths.output_dir / f"target_gpu{lane}.manager.log"
                         for lane in launchable
@@ -769,6 +804,7 @@ class StageController:
                         )
                         self.sleep_fn(self.poll_interval_seconds)
                         continue
+                    _atomic_json(self.paths.source_audit, audit)
                     _atomic_json(self.paths.final_audit, audit)
                     self.write_status("complete", source=source, target=target)
                     self.emit("cache_matrix_complete")
