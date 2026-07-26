@@ -1,5 +1,5 @@
 schema: mprisk_representation_split_config_v1
-key: representation_split_seed20260716_all_ac_v2
+key: representation_split_seed20260716_all_ac
 scope: all_valid_conflict_aligned
 source_manifests:
   - ../../data/processed/manifests/protocol_manifests/vt_primary.jsonl

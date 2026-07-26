@@ -24,7 +24,7 @@ relation_dim: 64
 dropout: 0.1
 max_epochs: 200
 batch_size: 32
-lr: 5.0e-4  # Omni LSTM diverges at 1e-3; spec requires 5e-4 (canonical_rerun_v2 lr_override_20260721)
+lr: 5.0e-4  # Omni LSTM diverges at 1e-3; spec requires 5e-4 (canonical_rerun lr_override_20260721)
 weight_decay: 0.0001
 proxy_alpha: 32.0
 proxy_margin: 0.1

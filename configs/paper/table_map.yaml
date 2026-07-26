@@ -1,4 +1,4 @@
-schema: mprisk_paper_table_map_v2
+schema: mprisk_paper_table_map
 tables:
   tab01_cross_backbone_results:
     title: Cross-Backbone Results

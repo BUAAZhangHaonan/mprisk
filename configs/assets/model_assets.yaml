@@ -1,4 +1,4 @@
-schema: mprisk_model_assets_v2
+schema: mprisk_model_assets
 model_root: /home/team/lvshuyang/Models
 models:
   - key: gemma3_4b
