@@ -72,7 +72,7 @@ def test_validation_reports_missing_condition_inconsistent_shape_missing_shard_a
         ],
     )
 
-    report = validate_full_cache_manifest(load_full_cache_manifest(tmp_path, strict=False))
+    report = validate_full_cache_manifest(load_full_cache_manifest(tmp_path))
     codes = {error.code for error in report.errors}
 
     assert report.ok is False
