@@ -18,12 +18,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resume-checkpoint", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
-        "--exclude-prefix",
-        default=None,
-        help="Drop training rows whose sample_id starts with this prefix "
-        "(e.g. 'ch_sims_v2:' to keep only generated-domain samples).",
-    )
-    parser.add_argument(
         "--encoder-type",
         choices=("gru", "lstm"),
         default=None,
@@ -60,7 +54,6 @@ def main(argv: list[str] | None = None) -> int:
         output_dir=args.output_dir,
         resume_checkpoint=args.resume_checkpoint,
         device=args.device,
-        exclude_prefix=args.exclude_prefix,
     )
     print(f"best_checkpoint={result.best_checkpoint_path}")
     print(f"last_checkpoint={result.last_checkpoint_path}")
