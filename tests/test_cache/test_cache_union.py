@@ -282,8 +282,16 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     model, config_sha, weight_sha = _make_model(tmp_path)
     code_repo = _make_code_repo(tmp_path)
     expected_signature = _signature(model, manifest="new-full")
+    expected_signature["schema"] = "mprisk_prefill_batch_signature_v3"
     expected_signature["prompt_ids"] = ("p1",)
     expected_signature["conditions"] = ("M1", "M2", "M12")
+    expected_signature.update(
+        {
+            "frame_plan_path": None,
+            "frame_plan_schema": None,
+            "frame_plan_sha256": None,
+        }
+    )
     first_source_request = _request("sample-a", split="delivery_test")
     second_source_request = _request("sample-b", split="delivery_train")
     sources = [
@@ -336,6 +344,21 @@ def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: P
     }
     assert result.source_counts == {"new-only": 1, "overlap-reextracted": 1}
     assert all(Path(entry["shard_path"]).is_absolute() for entry in payload["entries"])
+
+    frame_plan_signature = {
+        **expected_signature,
+        "frame_plan_sha256": "f" * 64,
+    }
+    with pytest.raises(CacheUnionError, match="Source extraction signature differs"):
+        build_cache_union(
+            expected_tasks=expected,
+            expected_signature=frame_plan_signature,
+            sources=sources,
+            output_path=tmp_path / "frame-plan-mismatch.json",
+            expected_resolved_tasks=2,
+            expected_raw_tasks=2,
+            checksum_workers=1,
+        )
 
 
 def test_union_uses_selected_model_semantics_not_whole_registry_hash(

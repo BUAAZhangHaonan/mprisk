@@ -62,6 +62,19 @@ COMPATIBILITY_SIGNATURE_IGNORED_FIELDS = SIGNATURE_IGNORED_FIELDS | frozenset(
         "asset_config_sha256",
     }
 )
+FRAME_PLAN_SIGNATURE_FIELDS = frozenset(
+    {
+        "frame_plan_path",
+        "frame_plan_schema",
+        "frame_plan_sha256",
+    }
+)
+COMPATIBILITY_SIGNATURE_SCHEMA_FIELDS = {
+    # Historical ledgers predate signature versioning and frame-plan contracts.
+    None: frozenset(),
+    "mprisk_prefill_batch_signature_v2": frozenset(),
+    "mprisk_prefill_batch_signature_v3": FRAME_PLAN_SIGNATURE_FIELDS,
+}
 RUNTIME_PROVENANCE_FIELDS = (
     "schema",
     "model_path",
@@ -823,10 +836,26 @@ def _extractor_compatibility_fingerprint(evidence: dict[str, Any]) -> str:
 
 
 def _compatibility_signature(signature: dict[str, Any]) -> dict[str, Any]:
+    schema = signature.get("schema")
+    schema_fields = COMPATIBILITY_SIGNATURE_SCHEMA_FIELDS.get(schema)
+    if schema_fields is None:
+        raise CacheUnionError(f"Unsupported extraction signature schema: {schema!r}")
+    missing = schema_fields - signature.keys()
+    if missing:
+        raise CacheUnionError(
+            f"Extraction signature schema {schema!r} is missing fields: {sorted(missing)}"
+        )
+    undeclared = (FRAME_PLAN_SIGNATURE_FIELDS - schema_fields) & signature.keys()
+    if undeclared:
+        raise CacheUnionError(
+            f"Extraction signature schema {schema!r} has undeclared fields: "
+            f"{sorted(undeclared)}"
+        )
     filtered = {
         key: value
         for key, value in signature.items()
         if key not in COMPATIBILITY_SIGNATURE_IGNORED_FIELDS
+        and not (key in schema_fields and value is None)
     }
     normalized = json.loads(_canonical_json(filtered))
     if not isinstance(normalized, dict):
