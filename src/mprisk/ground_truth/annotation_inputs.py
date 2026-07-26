@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import tempfile
 from collections import Counter
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -99,10 +97,10 @@ def build_gt_annotation_input_pilot(
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Build the deterministic two-per-sample-type/protocol pilot in memory."""
     root = Path(repo_root).resolve()
-    input_root = root / "data/frozen/generated_round1"
+    input_root = root / "data/frozen/generated_round1_v1"
     archive_path = input_root / "archive_manifest.jsonl"
     assignment_path = input_root / "archetype_semantic_assignments_v1.jsonl"
-    dictionary_path = input_root / "archetype_canonical_meanings.jsonl"
+    dictionary_path = input_root / "archetype_canonical_meanings_v1.jsonl"
     archive_rows = _read_jsonl(archive_path)
     assignments = _index(_read_jsonl(assignment_path), "sample_id")
     meanings = _index(_read_jsonl(dictionary_path), "archetype_semantic_id")
@@ -145,6 +143,7 @@ def build_gt_annotation_input_pilot(
             assignment=assignments[_text(row, "sample_id")],
             meanings=meanings,
             assignment_path=assignment_path,
+            repo_root=root,
         )
         for row in selected
     ]
@@ -159,9 +158,18 @@ def build_gt_annotation_input_pilot(
         "pilot_sample_ids": list(PILOT_SAMPLE_IDS),
         "selection": "lexicographic_first_2_per_sample_type_protocol_cell",
         "source_artifacts": {
-            "archive_manifest": {"path": str(archive_path), "sha256": _sha256(archive_path)},
-            "assignments": {"path": str(assignment_path), "sha256": _sha256(assignment_path)},
-            "dictionary": {"path": str(dictionary_path), "sha256": _sha256(dictionary_path)},
+            "archive_manifest": {
+                "path": _repository_locator(root, archive_path),
+                "sha256": _sha256(archive_path),
+            },
+            "assignments": {
+                "path": _repository_locator(root, assignment_path),
+                "sha256": _sha256(assignment_path),
+            },
+            "dictionary": {
+                "path": _repository_locator(root, dictionary_path),
+                "sha256": _sha256(dictionary_path),
+            },
         },
         "pilot_manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
     }
@@ -193,6 +201,7 @@ def _annotation_input_row(
     assignment: dict[str, Any],
     meanings: dict[str, dict[str, Any]],
     assignment_path: Path,
+    repo_root: Path,
 ) -> dict[str, Any]:
     sample_id = _text(archive_row, "sample_id")
     if assignment.get("sample_id") != sample_id:
@@ -233,13 +242,16 @@ def _annotation_input_row(
         "scenario_context": scenario_context,
         "scenario_context_source": scenario_source,
         "surface_emotion": meaning.get("surface_emotion"),
-        "media": {"path": str(media_path), "sha256": media_sha256},
+        "media": {
+            "path": _archive_media_locator(archive_row),
+            "sha256": media_sha256,
+        },
         "source_provenance": {
             "source_archive": _text(archive_row, "source_archive"),
             "source_class_code": source_class_code,
             "source_row_sha256": source_row_sha256,
             "source_assignment": {
-                "path": str(assignment_path),
+                "path": _repository_locator(repo_root, assignment_path),
                 "schema_name": _text(assignment, "schema_name"),
                 "dictionary_id": _text(assignment, "dictionary_id"),
                 "assignment_source": _text(assignment, "assignment_source"),
@@ -249,6 +261,29 @@ def _annotation_input_row(
         },
     }
     return GTAnnotationInput.model_validate(payload).model_dump(mode="json")
+
+
+def _repository_locator(root: Path, path: Path) -> str:
+    try:
+        relative = path.resolve().relative_to(root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"Repository artifact escapes root: {path}") from exc
+    return f"repo://{relative.as_posix()}"
+
+
+def _archive_media_locator(archive_row: dict[str, Any]) -> str:
+    source_row = archive_row.get("source_row")
+    if not isinstance(source_row, dict):
+        raise TypeError("Archive row source_row must be an object")
+    files = source_row.get("files")
+    if not isinstance(files, dict):
+        raise TypeError("Archive source row files must be an object")
+    relative_value = _text(files, "primary").replace("\\", "/")
+    relative = PurePosixPath(relative_value)
+    if relative.is_absolute() or ".." in relative.parts:
+        raise ValueError(f"Archive media path must be relative: {relative_value!r}")
+    source_archive = _text(archive_row, "source_archive")
+    return f"archive://{source_archive}/{relative.as_posix()}"
 
 
 def _optional_text(value: Any) -> str | None:
@@ -299,13 +334,4 @@ def _write_immutable(path: Path, content: bytes) -> None:
             raise ValueError(f"Immutable GT annotation artifact differs: {path}")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    path.write_bytes(content)

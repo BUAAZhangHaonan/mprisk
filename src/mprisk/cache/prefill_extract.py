@@ -24,14 +24,14 @@ class TrajectoryBundle:
     trajectory_meta: dict[str, int]
 
 
-def t0_token_index(entry: HiddenStateEntry | None = None) -> int | None:
-    """Return the token index used for pre-generation state extraction, or None when absent."""
+def t0_token_index(entry: HiddenStateEntry | None = None) -> int:
+    """Return the token index used for pre-generation state extraction."""
     if entry is None:
-        return None
+        return -1
     metadata = entry.metadata or {}
     if "t0_token_index" in metadata and metadata["t0_token_index"] not in (None, ""):
         return int(metadata["t0_token_index"])
-    return None
+    return -1
 
 
 def extract_t0_trajectory(entry: HiddenStateEntry) -> Trajectory:
@@ -84,7 +84,6 @@ def _load_entry_t0(entry: HiddenStateEntry) -> np.ndarray:
         tensor = tensors.get_slice(tensor_key)
         shape = tuple(tensor.get_shape())
         if len(shape) == 4:
-            _require_t0_metadata(entry)
             if entry.index_in_shard >= shape[0]:
                 raise IndexError(
                     f"index_in_shard {entry.index_in_shard} is out of range for "
@@ -93,29 +92,14 @@ def _load_entry_t0(entry: HiddenStateEntry) -> np.ndarray:
             token_index = _resolved_token_index(shape[2], entry)
             return np.asarray(tensor[entry.index_in_shard, :, token_index, :])
         if len(shape) == 3:
-            _require_t0_metadata(entry)
             token_index = _resolved_token_index(shape[1], entry)
             return np.asarray(tensor[:, token_index, :])
         if len(shape) == 2:
-            # 2D shards (layer, hidden) are already t0-extracted at write
-            # time by prefill_writer: only the t0 token row is stored. The
-            # entry.token_count field reflects the ORIGINAL prompt length
-            # (e.g. 1058 tokens), not the contents of this shard, so the
-            # previous token_count == 1 assertion was incorrect and broke
-            # all canonical_rerun_v2 inference (including val-selected
-            # best_test_preds.pt regeneration). Drop it.
             return np.asarray(tensor[:, :])
     raise ValueError(
         "Hidden-state tensor must have shape [sample, layer, token, hidden], "
         "[layer, token, hidden], or [layer, hidden]"
     )
-
-
-def _require_t0_metadata(entry: HiddenStateEntry) -> None:
-    if t0_token_index(entry) is None:
-        raise ValueError(
-            "t0_token_index metadata required for token-indexed cache shards"
-        )
 
 
 def _select_tensor_key(keys: list[str], metadata: dict[str, Any]) -> str:
@@ -137,10 +121,6 @@ def _select_tensor_key(keys: list[str], metadata: dict[str, Any]) -> str:
 
 def _resolved_token_index(token_count: int, entry: HiddenStateEntry) -> int:
     token_index = t0_token_index(entry)
-    if token_index is None:
-        raise ValueError(
-            "t0_token_index metadata required for token-indexed cache shards"
-        )
     if not -token_count <= token_index < token_count:
         raise IndexError(f"t0_token_index {token_index} is out of range for {token_count} tokens")
     return token_index

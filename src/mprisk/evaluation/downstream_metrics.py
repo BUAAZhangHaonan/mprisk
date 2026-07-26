@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 from collections import Counter, defaultdict
@@ -12,8 +13,8 @@ from typing import Any
 
 import torch
 
-from mprisk.utils.io import read_jsonl as _read_jsonl, sha256_file as _sha256, write_json, write_jsonl
 from mprisk.representation.relation_models import strict_l2_normalize
+from mprisk.utils.io import write_json, write_jsonl
 
 T_CRITICAL_DF2_975 = 4.302652729911275
 
@@ -92,19 +93,12 @@ def evaluate_official_representation(
     return {**payload, "metrics_path": str(metrics_path)}
 
 
-def _load_and_validate_paired_seed_runs(
+def aggregate_three_seeds(
     *,
     model_key: str,
     runs: list[dict[str, Any]],
-) -> tuple[dict[int, dict[str, dict[str, Any]]], dict[int, dict[str, Any]]]:
-    """Validate paired run inputs and load per-seed state rows + calibration.
-
-    Verifies the three registered seeds and distinct prompt sets, then for each
-    run reads the official state patterns, validates the state provenance
-    binding, loads the aligned-calibration artifact, and checks that the split
-    identity is shared across seeds and the per-sample IDs are exactly paired.
-    Returns ``(rows_by_seed, thresholds)`` keyed by seed.
-    """
+    output_dir: str | Path,
+) -> dict[str, Path]:
     if len(runs) != 3 or {int(run["seed"]) for run in runs} != {
         20260715,
         20260716,
@@ -153,29 +147,8 @@ def _load_and_validate_paired_seed_runs(
     sample_sets = [set(rows) for rows in rows_by_seed.values()]
     if any(sample_set != sample_sets[0] for sample_set in sample_sets[1:]):
         raise ValueError("three-seed aggregation requires exact paired sample IDs")
-    return rows_by_seed, thresholds
 
-
-def _build_paired_sample_rows(
-    *,
-    model_key: str,
-    rows_by_seed: dict[int, dict[str, dict[str, Any]]],
-    thresholds: dict[int, dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
-    """Build paired-sample statistics, per-seed raw rows, and seed summaries.
-
-    Produces three row lists in one pass over the paired seeds:
-    - ``seed_level_rows``: per-seed per-sample raw state values with kappa/tau
-      attached, for transparency and the ``seed_level_state_rows.csv`` artifact.
-    - ``seed_summary_rows``: per-seed aggregate statistics produced by
-      :func:`_seed_state_statistics` (mean_S / mean_D / mean_abs_R and pattern
-      proportions, sliced by sample_type).
-    - ``paired_rows``: cross-seed paired statistics with seed_mean / sample_sd
-      / ci95_low / ci95_high per metric, plus pattern agreement counts and the
-      ``stable_all_seeds`` / ``direction_interpretable_all_seeds`` flags.
-    """
-    sorted_seeds = sorted(rows_by_seed)
-    sample_set = set(rows_by_seed[sorted_seeds[0]])
+    paired_rows: list[dict[str, Any]] = []
     seed_level_rows: list[dict[str, Any]] = []
     seed_summary_rows: list[dict[str, Any]] = []
     for seed, sample_rows in sorted(rows_by_seed.items()):
@@ -198,9 +171,8 @@ def _build_paired_sample_rows(
             seed_level_rows.append(base)
         seed_summary_rows.extend(_seed_state_statistics(model_key, seed, sample_rows.values()))
 
-    paired_rows: list[dict[str, Any]] = []
-    for sample_id in sorted(sample_set):
-        rows = [rows_by_seed[seed][sample_id] for seed in sorted_seeds]
+    for sample_id in sorted(sample_sets[0]):
+        rows = [rows_by_seed[seed][sample_id] for seed in sorted(rows_by_seed)]
         if len({row["sample_type"] for row in rows}) != 1:
             raise ValueError("paired sample_type differs across prompt seeds")
         values = {
@@ -218,11 +190,11 @@ def _build_paired_sample_rows(
             "pattern_agreement_count": max(Counter(row["pattern"] for row in rows).values()),
             "stable_all_seeds": all(
                 float(row["S_mean"]) <= float(thresholds[seed]["kappa"])
-                for seed, row in zip(sorted_seeds, rows, strict=True)
+                for seed, row in zip(sorted(rows_by_seed), rows, strict=True)
             ),
             "direction_interpretable_all_seeds": all(
                 float(row["D"]) > float(thresholds[seed]["tau"])
-                for seed, row in zip(sorted_seeds, rows, strict=True)
+                for seed, row in zip(sorted(rows_by_seed), rows, strict=True)
             ),
         }
         for metric, metric_values in values.items():
@@ -236,22 +208,8 @@ def _build_paired_sample_rows(
                 }
             )
         paired_rows.append(result)
-    return paired_rows, seed_level_rows, seed_summary_rows
 
-
-def _collect_classification_metric_rows(
-    *,
-    model_key: str,
-    runs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Read official Conflict/Aligned classification metrics across runs.
-
-    For each run and each representation key, reads the metrics JSON produced
-    by :func:`evaluate_official_representation`, enforces that the payload is a
-    Conflict-vs-Aligned official-test result (rejecting Misread or generic
-    correctness metrics), and emits one row per (seed, repr_key) pair carrying
-    ``accuracy`` / ``macro_f1`` / ``auprc`` for downstream seed aggregation.
-    """
+    model_summary_rows = _aggregate_seed_statistics(seed_summary_rows)
     classification_rows: list[dict[str, Any]] = []
     for run in runs:
         for repr_key, metrics_path in sorted(run["classification_metrics"].items()):
@@ -268,25 +226,6 @@ def _collect_classification_metric_rows(
                     "auprc": payload["auprc"],
                 }
             )
-    return classification_rows
-
-
-def aggregate_three_seeds(
-    *,
-    model_key: str,
-    runs: list[dict[str, Any]],
-    output_dir: str | Path,
-) -> dict[str, Path]:
-    rows_by_seed, thresholds = _load_and_validate_paired_seed_runs(
-        model_key=model_key, runs=runs
-    )
-    paired_rows, seed_level_rows, seed_summary_rows = _build_paired_sample_rows(
-        model_key=model_key, rows_by_seed=rows_by_seed, thresholds=thresholds
-    )
-    model_summary_rows = _aggregate_seed_statistics(seed_summary_rows)
-    classification_rows = _collect_classification_metric_rows(
-        model_key=model_key, runs=runs
-    )
     model_summary_rows.extend(_aggregate_classification_statistics(classification_rows))
     figure_sdr = [
         {
@@ -357,7 +296,7 @@ def aggregate_three_seeds(
         "seeds": sorted(rows_by_seed),
         "pairing_unit": "model_key,sample_id",
         "seed_count": 3,
-        "sample_count": len(next(iter(rows_by_seed.values()))),
+        "sample_count": len(sample_sets[0]),
         "standard_deviation": "sample_sd_ddof_1_across_three_prompt_seeds",
         "confidence_interval": "two_sided_t_95_percent_df_2",
         "t_critical": T_CRITICAL_DF2_975,
@@ -566,6 +505,18 @@ def _mean_sd_ci(values: list[float]) -> tuple[float, float, float, float]:
     return mean, sd, mean - half_width, mean + half_width
 
 
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    rows = []
+    with Path(path).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                row = json.loads(line)
+                if not isinstance(row, dict):
+                    raise ValueError(f"JSONL row is not an object: {path}")
+                rows.append(row)
+    return rows
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> Path:
     if not rows:
         raise ValueError(f"refusing to write an empty data artifact: {path}")
@@ -587,3 +538,9 @@ def _one(rows: list[dict[str, Any]], field: str) -> str:
     return next(iter(values))
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

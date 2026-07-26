@@ -10,22 +10,12 @@ from mprisk.state.identity import homogeneous_identity
 from mprisk.state.spherical import DISTANCE_METRIC, SDR_SCHEMA, require_exact_sdr_rows
 
 
-def quantile_nearest_rank(values: list[float], q: float) -> float:
-    """Return the q-th quantile using the nearest-rank method.
-
-    Nearest-rank method, NOT numpy linear interpolation: ranks are rounded to
-    the closest integer index, so the result is always an element of ``values``.
-    """
+def quantile(values: list[float], q: float) -> float:
     if not values:
         raise ValueError("Cannot compute quantile of empty values")
     ordered = sorted(values)
     index = min(len(ordered) - 1, max(0, round((len(ordered) - 1) * q)))
     return ordered[index]
-
-
-# Deprecated alias kept for one release cycle; prefer quantile_nearest_rank.
-def quantile(values: list[float], q: float) -> float:
-    return quantile_nearest_rank(values, q)
 
 
 def calibrate_aligned_thresholds(
@@ -46,9 +36,9 @@ def calibrate_aligned_thresholds(
     sample_ids = [str(row.get("sample_id", "")) for row in rows]
     if any(not sample_id for sample_id in sample_ids) or len(set(sample_ids)) != len(sample_ids):
         raise ValueError("Aligned calibration sample IDs must be non-empty and unique")
-    kappa = quantile_nearest_rank([float(row["S_mean"]) for row in rows], quantile_level)
+    kappa = quantile([float(row["S_mean"]) for row in rows], quantile_level)
     stable_rows = [row for row in rows if float(row["S_mean"]) <= kappa]
-    tau = quantile_nearest_rank([float(row["D"]) for row in stable_rows], quantile_level)
+    tau = quantile([float(row["D"]) for row in stable_rows], quantile_level)
     signature = hashlib.sha256(
         json.dumps(sorted(sample_ids), separators=(",", ":")).encode("utf-8")
     ).hexdigest()

@@ -7,14 +7,13 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from safetensors.numpy import save_file
 
-from mprisk.utils.io import sha256_file as _sha256
 from mprisk.models.base_wrapper import PrefillRequest, PrefillResult
 
 DEFAULT_PREFILL_MANIFEST = Path("manifests/unified_full_cache_manifest.json")
@@ -125,6 +124,7 @@ def write_prefill_result(
             "messages": list(result.request.messages),
             "media_paths": dict(result.request.media_paths),
             "use_audio_in_video": result.request.use_audio_in_video,
+            "runtime_contracts": dict(result.request.runtime_contracts),
         },
         "provenance": dict(result.provenance),
     }
@@ -142,16 +142,10 @@ def write_prefill_result(
             encoding="utf-8",
         )
 
-    # Rename order: shard first, sidecar second, manifest LAST.
-    # The manifest is the atomic in-progress marker: readers querying the
-    # manifest will not see this entry until both shard and sidecar are in
-    # place. The sidecar carries the checksum used for crash-recovery
-    # verification (see _recover_entry), so it must be present before the
-    # manifest entry commits.
     os.replace(tmp_shard, shard)
     os.replace(tmp_sidecar, sidecar)
     if tmp_manifest is not None:
-        os.replace(tmp_manifest, manifest)  # LAST: commits the entry
+        os.replace(tmp_manifest, manifest)
     return PrefillCacheArtifact(
         shard_path=shard,
         sidecar_path=sidecar,
@@ -230,7 +224,10 @@ def _manifest_entry(
             "hidden_state_index_offset": 1,
             "sidecar_path": relative_sidecar.as_posix(),
             "use_audio_in_video": result.request.use_audio_in_video,
-            "created_at": datetime.now(UTC).isoformat(),
+            "prefill_strategy": result.provenance.get("prefill_strategy"),
+            "prefill_strategy_version": result.provenance.get("prefill_strategy_version"),
+            "prefix_identity": result.provenance.get("prefix_identity"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         },
     }
 
@@ -270,3 +267,9 @@ def _artifact_stem(sample_id: str) -> str:
     return f"{readable[:80]}-{digest}"
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()

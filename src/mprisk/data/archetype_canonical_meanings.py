@@ -13,15 +13,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
-from mprisk.data._freeze_helpers import (
-    artifact_payload as _artifact_payload,
-    json_bytes as _json_bytes,
-    jsonl_bytes as _jsonl_bytes,
-    literal_assignment as _literal_assignment,
-    read_jsonl_strict as _read_jsonl_strict,
-    write_immutable_outputs as _write_immutable_outputs,
+from mprisk.data.generated_archive_freeze import (
+    _artifact_payload,
+    _canonical_json,
+    _json_bytes,
+    _jsonl_bytes,
+    _literal_assignment,
+    _read_jsonl_strict,
+    _sha256,
+    _write_immutable_outputs,
 )
-from mprisk.utils.io import canonical_json as _canonical_json, sha256_file as _sha256
 
 
 class StrictModel(BaseModel):
@@ -30,12 +31,12 @@ class StrictModel(BaseModel):
 
 class DictionaryConfig(StrictModel):
     schema_name: Literal["mprisk_archetype_canonical_dictionary_config_v1"]
-    dictionary_id: Literal["archetype_canonical_meanings"]
+    dictionary_id: Literal["archetype_canonical_meanings_v1"]
     freeze_root: Path
-    dictionary_file: Literal["archetype_canonical_meanings.jsonl"]
+    dictionary_file: Literal["archetype_canonical_meanings_v1.jsonl"]
     assignments_file: Literal["archetype_semantic_assignments_v1.jsonl"]
     review_queue_file: Literal["archetype_canonical_review_queue_v1.jsonl"]
-    provenance_file: Literal["archetype_canonical_meanings.provenance.json"]
+    provenance_file: Literal["archetype_canonical_meanings_v1.provenance.json"]
     max_description_words: int
     recorded_name_aliases: dict[str, str]
     recorded_surface_aliases: dict[str, str]
@@ -142,8 +143,8 @@ def _prepare_artifacts(*, repo_root: str | Path, config_path: str | Path) -> _Pr
     _require_within_repo(freeze_root, root)
     freeze_provenance_path = freeze_root / "provenance.json"
     freeze_provenance = _read_json_object(freeze_provenance_path)
-    if freeze_provenance.get("freeze_id") != "generated_round1":
-        raise ValueError("Canonical dictionary requires generated_round1")
+    if freeze_provenance.get("freeze_id") != "generated_round1_v1":
+        raise ValueError("Canonical dictionary requires generated_round1_v1")
     _verify_freeze_artifacts(root, freeze_provenance)
     freeze_provenance_sha = _sha256(freeze_provenance_path)
 
@@ -328,7 +329,7 @@ def _build_assignments(
             raise ValueError(f"{sample_id}: eligible/source snapshot hashes differ")
         assignment = {
             "schema_name": "mprisk_archetype_semantic_assignment_v1",
-            "dictionary_id": "archetype_canonical_meanings",
+            "dictionary_id": "archetype_canonical_meanings_v1",
             "sample_id": sample_id,
             "source_archive": row["source_archive"],
             "original_variant_id": row["original_variant_id"],

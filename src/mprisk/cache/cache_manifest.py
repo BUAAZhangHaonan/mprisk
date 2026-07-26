@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable
 
-from mprisk.cache._row_helpers import field_present, optional_string
 from mprisk.cache.hidden_state_cache import (
     HiddenStateEntry,
     normalize_condition,
@@ -78,7 +77,6 @@ class FullCacheManifest:
         ledger_path: str | Path,
         ledger_rows: list[dict[str, str]] | None = None,
         raw_manifest: dict[str, Any] | None = None,
-        strict: bool = True,
     ) -> None:
         self.entries = list(entries)
         self.cache_root = Path(cache_root)
@@ -86,13 +84,9 @@ class FullCacheManifest:
         self.ledger_path = Path(ledger_path)
         self.ledger_rows = ledger_rows or []
         self.raw_manifest = raw_manifest or {}
-        self._entries_by_key: dict[tuple[str, str, str, str], HiddenStateEntry] = {}
+        self._entries_by_key: dict[tuple[str, str, str, str], list[HiddenStateEntry]] = {}
         for entry in self.entries:
-            if entry.key in self._entries_by_key:
-                if strict:
-                    raise ValueError(f"duplicate manifest key: {entry.key!r}")
-            else:
-                self._entries_by_key[entry.key] = entry
+            self._entries_by_key.setdefault(entry.key, []).append(entry)
 
     def query(
         self,
@@ -102,7 +96,10 @@ class FullCacheManifest:
         condition: str,
     ) -> HiddenStateEntry | None:
         key = (sample_id, model_key, normalize_protocol(protocol), normalize_condition(condition))
-        return self._entries_by_key.get(key)
+        entries = self._entries_by_key.get(key)
+        if not entries:
+            return None
+        return entries[0]
 
     def resolve_m_conditions(
         self,
@@ -171,7 +168,6 @@ def load_full_cache_manifest(
     *,
     manifest_path: str | Path | None = None,
     ledger_path: str | Path | None = None,
-    strict: bool = True,
 ) -> FullCacheManifest:
     root = Path(cache_root)
     manifest_file = _resolve_path(root, manifest_path or DEFAULT_MANIFEST_PATH)
@@ -180,8 +176,6 @@ def load_full_cache_manifest(
     raw_manifest = _read_manifest(manifest_file)
     manifest_entries = list(raw_manifest.get("entries") or [])
     ledger_rows = _read_ledger(ledger_file)
-    # Empty manifest falls back to ledger: the ledger captures ongoing
-    # extraction progress before the unified manifest is materialized.
     source_entries = manifest_entries if manifest_entries else ledger_rows
     entries = [
         _entry_from_row(row, cache_root=root)
@@ -196,7 +190,6 @@ def load_full_cache_manifest(
         ledger_path=ledger_file,
         ledger_rows=ledger_rows,
         raw_manifest=raw_manifest,
-        strict=strict,
     )
 
 
@@ -252,7 +245,7 @@ def _read_ledger(path: Path) -> list[dict[str, str]]:
 
 def _can_materialize_entry(row: dict[str, Any]) -> bool:
     return all(
-        field_present(row.get(field))
+        _present(row.get(field))
         for field in (
             "sample_id",
             "model_key",
@@ -265,7 +258,7 @@ def _can_materialize_entry(row: dict[str, Any]) -> bool:
             "hidden_dim",
             "token_count",
         )
-    ) and field_present(row.get("shard_path") or row.get("artifact_uri"))
+    ) and _present(row.get("shard_path") or row.get("artifact_uri"))
 
 
 def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntry:
@@ -274,7 +267,7 @@ def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntr
         {
             key: value
             for key, value in row.items()
-            if key not in ENTRY_FIELDS and field_present(value)
+            if key not in ENTRY_FIELDS and _present(value)
         }
     )
     shard_path = row.get("shard_path") or row.get("artifact_uri")
@@ -291,9 +284,19 @@ def _entry_from_row(row: dict[str, Any], *, cache_root: Path) -> HiddenStateEntr
         hidden_dim=int(row["hidden_dim"]),
         token_count=int(row["token_count"]),
         cache_root=row.get("cache_root") or cache_root,
-        checksum=optional_string(row.get("checksum")),
+        checksum=_optional_string(row.get("checksum")),
         metadata=metadata,
     )
+
+
+def _optional_string(value: Any) -> str | None:
+    if not _present(value):
+        return None
+    return str(value)
+
+
+def _present(value: Any) -> bool:
+    return value is not None and value != ""
 
 
 def _resolution_to_dict(resolution: CacheResolution) -> dict[str, Any]:

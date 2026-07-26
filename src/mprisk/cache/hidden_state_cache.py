@@ -8,14 +8,19 @@ from typing import Any
 
 
 CONDITION_ALIASES = {
+    "m1": "M1",
     "M1": "M1",
+    "m2": "M2",
     "M2": "M2",
+    "m12": "M12",
     "M12": "M12",
 }
 
 
 def normalize_condition(condition: str) -> str:
-    normalized = CONDITION_ALIASES.get(condition.upper())
+    normalized = CONDITION_ALIASES.get(condition)
+    if normalized is None:
+        normalized = CONDITION_ALIASES.get(condition.upper())
     if normalized is None:
         raise ValueError(f"Unsupported cache condition: {condition!r}")
     return normalized

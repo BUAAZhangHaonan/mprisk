@@ -4,37 +4,24 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
 import sqlite3
+import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from pydantic import BaseModel, ConfigDict, field_validator
 
 from mprisk.config.loader import load_yaml
-from mprisk.ground_truth.providers.base import (
-    GTDescriptionProviderRequest,
-    PermanentProviderError,
-    TransientProviderError,
-)
-from mprisk.ground_truth.providers.registry import get_provider as _get_gt_provider
 
-from mprisk.utils.api_runner import SqliteLedgerBase
-from mprisk.utils.io import atomic_write_bytes as _atomic_bytes, canonical_json as _canonical_json, hash_text as _hash_text, now_iso as _now, read_json_object as _read_json, read_jsonl as _read_jsonl, sha256_file as _sha256
-
-# DeepSeek chat-completions envelope settings shared with the GT Description
-# provider. ``env_file`` is unused here because ``load_api_key`` reads the key
-# directly from ``DEEPSEEK_API_KEY``; we pass a placeholder path that satisfies
-# the provider settings schema without ever being read on disk.
-_MISREAD_JUDGE_MAX_TOKENS = 256
-_MISREAD_JUDGE_PROVIDER_SETTINGS_PLACEHOLDER_ENV_FILE = Path(
-    "/nonexistent-misread-judge.env"
-)
 MISREAD_JUDGMENT_PROMPT = (
     "Compare the reference description with the diagnostic affect description. Return MISREAD "
     "when the diagnostic is led by surface cues, contradicts the primary affect, wrongly "
@@ -77,7 +64,7 @@ class MisreadJudgeConfig(BaseModel):
     gt_description_schema_name: Literal["mprisk_gt_description_v1"]
     gt_input_schema_version: Literal["gt_annotation_input_v1"]
     diagnostic_affect_description_schema_name: Literal[
-        "mprisk_diagnostic_affect_description"
+        "mprisk_diagnostic_affect_description_v2"
     ]
     diagnostic_run_id: str
     gt_description_manifest_path: Path
@@ -180,109 +167,77 @@ def build_tasks(config: MisreadJudgeConfig) -> list[MisreadJudgeTask]:
 
 
 class MisreadJudgeClient:
-    """Thin wrapper around the shared ``DeepSeekProvider`` for misread judgment.
-
-    The judging pipeline historically duplicated the DeepSeek chat-completions
-    envelope (HTTP call, retry classification, response validation). It now
-    delegates to ``ground_truth.providers.registry`` so envelope validation,
-    retryable/permanent error classification, and HTTP timeouts live in one
-    place. The misread-specific bits (fixed model, judge prompt, blinded
-    payload, response-shape contract for ``validate_misread_judgment_response``)
-    stay here.
-    """
-
     def __init__(self, config: MisreadJudgeConfig, api_key: str) -> None:
         self.config = config
-        # ``api_key`` is read from DEEPSEEK_API_KEY by ``load_api_key``; the
-        # provider would otherwise re-read it. We inject it via env so the
-        # shared provider's ``load_api_key`` finds it without touching disk.
-        os.environ["DEEPSEEK_API_KEY"] = api_key
-        provider_settings = {
-            "api_url": config.api_url,
-            "api_key_env": "DEEPSEEK_API_KEY",
-            "env_file": _MISREAD_JUDGE_PROVIDER_SETTINGS_PLACEHOLDER_ENV_FILE,
-            "temperature": config.temperature,
-            "max_tokens": _MISREAD_JUDGE_MAX_TOKENS,
-            "thinking": "disabled",
-            "request_timeout_seconds": config.request_timeout_seconds,
-        }
-        self._provider = _get_gt_provider(
-            "deepseek", config.judge_model, provider_settings
-        )
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(config.request_timeout_seconds))
+        self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
     async def complete(self, task: MisreadJudgeTask) -> str:
-        messages = task.request.get("messages")
-        if (
-            not isinstance(messages, list)
-            or len(messages) != 2
-            or messages[0].get("role") != "system"
-            or messages[1].get("role") != "user"
-        ):
-            raise MisreadJudgmentValidationError(
-                "Misread judge request must carry system+user messages"
-            )
-        system_prompt = messages[0].get("content")
-        user_content = messages[1].get("content")
-        if not isinstance(system_prompt, str) or not isinstance(user_content, str):
-            raise MisreadJudgmentValidationError(
-                "Misread judge request messages must be string content"
-            )
         try:
-            model_input = json.loads(user_content)
+            response = await self.client.post(
+                self.config.api_url, headers=self.headers, json=task.request
+            )
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            raise RuntimeError(type(exc).__name__) from exc
+        if response.status_code >= 400:
+            raise RuntimeError(f"HTTP {response.status_code}")
+        try:
+            payload = response.json()
         except json.JSONDecodeError as exc:
-            raise MisreadJudgmentValidationError(
-                "Misread judge user content must be canonical JSON"
-            ) from exc
-        request = GTDescriptionProviderRequest(
-            model=self.config.judge_model,
-            system_prompt=system_prompt,
-            model_input=model_input,
-        )
-        try:
-            response = await self._provider.complete(request)
-        except TransientProviderError as exc:
-            raise RuntimeError(str(exc) or type(exc).__name__) from exc
-        except PermanentProviderError as exc:
-            raise MisreadJudgmentValidationError(str(exc)) from exc
-        return response.content
+            raise MisreadJudgmentValidationError("API response envelope is not JSON") from exc
+        if payload.get("model") != self.config.judge_model:
+            raise MisreadJudgmentValidationError("API response model does not match fixed model")
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or len(choices) != 1:
+            raise MisreadJudgmentValidationError("API response must contain exactly one choice")
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str):
+            raise MisreadJudgmentValidationError("API response has no string content")
+        return content
 
     async def close(self) -> None:
-        await self._provider.close()
+        await self.client.aclose()
 
 
-class MisreadJudgeLedger(SqliteLedgerBase):
-    # running->pending / failed->pending must only fire after the signature
-    # matches, so disable the base __init__ resets and run them in prepare().
-    running_to_pending_sql = ""
-    failed_to_pending_sql = "UPDATE tasks SET status='pending' WHERE status='failed'"
-
-    _SCHEMA_SQL = """
-        CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        CREATE TABLE IF NOT EXISTS tasks (
-          sample_id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, request_hash TEXT NOT NULL,
-          request_json TEXT NOT NULL, status TEXT NOT NULL,
-          attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, raw_response TEXT,
-          error_type TEXT, error_message TEXT, updated_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS attempts (
-          sample_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
-          finished_at TEXT, outcome TEXT NOT NULL, raw_response TEXT,
-          error_type TEXT, error_message TEXT, PRIMARY KEY(sample_id, attempt)
-        );
-    """
-
+class MisreadJudgeLedger:
     def __init__(self, path: Path) -> None:
-        super().__init__(path, schema_sql=self._SCHEMA_SQL)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.connection = sqlite3.connect(path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=FULL")
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS tasks (
+              sample_id TEXT PRIMARY KEY, input_hash TEXT NOT NULL, request_hash TEXT NOT NULL,
+              request_json TEXT NOT NULL, status TEXT NOT NULL,
+              attempts INTEGER NOT NULL DEFAULT 0, result_json TEXT, raw_response TEXT,
+              error_type TEXT, error_message TEXT, updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS attempts (
+              sample_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
+              finished_at TEXT, outcome TEXT NOT NULL, raw_response TEXT,
+              error_type TEXT, error_message TEXT, PRIMARY KEY(sample_id, attempt)
+            );
+            """
+        )
 
     def prepare(self, signature: dict[str, Any], *, retry_failed: bool = False) -> None:
+        value = _canonical_json(signature)
         with self.connection:
-            self.check_metadata_signature(
-                key="signature",
-                value=signature,
-                retry_failed=retry_failed,
-                error_message="Existing judge ledger signature does not match",
+            current = self.connection.execute(
+                "SELECT value FROM metadata WHERE key='signature'"
+            ).fetchone()
+            if current is not None and current["value"] != value:
+                raise ValueError("Existing judge ledger signature does not match")
+            self.connection.execute(
+                "INSERT OR IGNORE INTO metadata(key,value) VALUES('signature',?)", (value,)
             )
             self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
+            if retry_failed:
+                self.connection.execute("UPDATE tasks SET status='pending' WHERE status='failed'")
 
     def add_tasks(self, tasks: Sequence[MisreadJudgeTask]) -> None:
         with self.connection:
@@ -381,7 +336,8 @@ class MisreadJudgeLedger(SqliteLedgerBase):
         return list(self.connection.execute("SELECT * FROM attempts ORDER BY sample_id,attempt"))
 
     def close(self) -> None:
-        self.checkpoint_and_close()
+        self.connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        self.connection.close()
 
 
 async def run_misread_judgment(
@@ -528,14 +484,12 @@ def import_human_decisions(config: MisreadJudgeConfig, path: str | Path) -> None
         provided[sample_id] = final
     if set(provided) != queued:
         raise ValueError("Human decisions must exactly cover the review queue")
-    _atomic_bytes(
+    _atomic_jsonl(
         config.output_root / "human_decisions.jsonl",
-        _jsonl(
-            [
-                {"sample_id": sample_id, "final_decision": provided[sample_id]}
-                for sample_id in sorted(provided)
-            ]
-        ),
+        [
+            {"sample_id": sample_id, "final_decision": provided[sample_id]}
+            for sample_id in sorted(provided)
+        ],
     )
 
 
@@ -574,7 +528,7 @@ def export_final_labels(config: MisreadJudgeConfig) -> list[dict[str, Any]]:
     if {row["sample_id"] for row in output} != expected_ids:
         raise ValueError("Final Misread labels must cover every configured sample")
     labels_path = config.output_root / "misread_labels.jsonl"
-    _atomic_bytes(labels_path, _jsonl(output))
+    _atomic_jsonl(labels_path, output)
     label_counts = Counter(row["misread_label"] for row in output)
     source_artifact_names = ["judgments.jsonl", "human_review_queue.jsonl"]
     if human_path.is_file():
@@ -781,7 +735,60 @@ def _required_text(row: dict[str, Any], key: str) -> str:
     return value
 
 
+def _read_jsonl(path: str | Path) -> list[dict[str, Any]]:
+    source = Path(path)
+    if not source.is_file():
+        raise FileNotFoundError(source)
+    result = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line]
+    if not all(isinstance(row, dict) for row in result):
+        raise ValueError(f"{source} must contain JSON objects")
+    return result
+
+
+def _read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return value
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _sha256(path: str | Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def _jsonl(rows: Sequence[dict[str, Any]]) -> bytes:
     return "".join(_canonical_json(row) + "\n" for row in rows).encode()
 
 
+def _atomic_jsonl(path: Path, rows: Sequence[dict[str, Any]]) -> None:
+    _atomic_bytes(path, _jsonl(rows))
+
+
+def _atomic_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()

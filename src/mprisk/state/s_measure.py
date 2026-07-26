@@ -1,9 +1,4 @@
-"""Exact spherical State Dispersion wrappers.
-
-Deprecated: prefer mprisk.state.spherical.compute_spherical_state directly.
-These wrappers re-bootstrap the full state for each call and may be removed
-in a future release.
-"""
+"""Exact spherical State Dispersion wrappers."""
 
 from __future__ import annotations
 

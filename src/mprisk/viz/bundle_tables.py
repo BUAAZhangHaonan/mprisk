@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -10,7 +11,6 @@ from typing import Any
 
 import yaml
 
-from mprisk.utils.io import sha256_file as _sha256
 TABLE_SCHEMA = "mprisk_paper_table_map_v2"
 TABLE_INPUT_SCHEMA = "mprisk_paper_table_input_v1"
 PENDING = "Pending"
@@ -220,6 +220,14 @@ def _latex_table(title: str, columns: list[str], rows: list[dict[str, str]]) -> 
 
 def _escape(value: str) -> str:
     return value.replace("&", r"\&").replace("%", r"\%").replace("_", r"\_")
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _is_sha256(value: Any) -> bool:

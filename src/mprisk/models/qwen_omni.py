@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gc
+import hashlib
 import importlib.metadata
 import json
 import time
@@ -12,7 +13,6 @@ from typing import Any, Literal
 
 import numpy as np
 
-from mprisk.utils.io import sha256_file as _sha256
 from mprisk.models.base_wrapper import (
     BaseModelWrapper,
     GenerationRequest,
@@ -20,13 +20,7 @@ from mprisk.models.base_wrapper import (
     PrefillRequest,
     PrefillResult,
 )
-
-from mprisk.models._torch_commons import (
-    load_config_json,
-    move_inputs_to_device,
-    require_attention_mask,
-    validate_contract_dims,
-)
+from mprisk.models.video_frame_utils import request_messages_with_uniform_video
 
 JointAudioMode = Literal["embedded_video", "separate_file"]
 
@@ -119,6 +113,7 @@ class QwenOmniWrapper(BaseModelWrapper):
         attn_implementation: str = "sdpa",
         min_pixels: int | None = None,
         max_pixels: int | None = None,
+        video_num_segments: int = 8,
         model: Any | None = None,
         processor: Any | None = None,
         process_mm_info_fn: Any | None = None,
@@ -131,6 +126,9 @@ class QwenOmniWrapper(BaseModelWrapper):
         self.attn_implementation = attn_implementation
         self.min_pixels = min_pixels
         self.max_pixels = max_pixels
+        self.video_num_segments = int(video_num_segments)
+        if not 1 <= self.video_num_segments <= 64:
+            raise ValueError("Qwen2.5-Omni video_num_segments must be in [1, 64]")
         self._contract = _load_model_contract(self.model_path)
         if dtype != self._contract["torch_dtype"]:
             raise ValueError(
@@ -209,15 +207,32 @@ class QwenOmniWrapper(BaseModelWrapper):
 
         _validate_message_audio_contract(request)
         started_at = time.perf_counter()
+        messages, sampling = request_messages_with_uniform_video(
+            request, requested_frames=self.video_num_segments
+        )
         prompt = self.processor.apply_chat_template(
-            list(request.messages),
+            messages,
             tokenize=False,
             add_generation_prompt=True,
         )
-        audios, images, videos = self._process_mm_info(
-            list(request.messages),
-            use_audio_in_video=request.use_audio_in_video,
-        )
+        if request.use_audio_in_video:
+            audios, _, _ = self._process_mm_info(
+                list(request.messages), use_audio_in_video=True
+            )
+            _, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        else:
+            audios, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        requested_frames = int(sampling["requested_frames"])
+        actual_frames = _actual_video_frames(videos)
+        if actual_frames != requested_frames:
+            raise ValueError(
+                f"Qwen2.5-Omni requested {requested_frames} video frames but decoder "
+                f"returned {actual_frames}"
+            )
         model_inputs = self.processor(
             text=[prompt],
             audio=audios,
@@ -227,8 +242,8 @@ class QwenOmniWrapper(BaseModelWrapper):
             return_tensors="pt",
             use_audio_in_video=request.use_audio_in_video,
         )
-        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Qwen Omni")
-        attention_mask = require_attention_mask(model_inputs, wrapper_label="Qwen Omni")
+        model_inputs = _move_inputs_to_device(model_inputs, self.device)
+        attention_mask = _require_attention_mask(model_inputs)
         token_count = int(attention_mask.shape[-1])
         non_padding = torch.nonzero(attention_mask[0] != 0, as_tuple=False).flatten()
         if non_padding.numel() == 0:
@@ -295,6 +310,8 @@ class QwenOmniWrapper(BaseModelWrapper):
             "weight_index_sha256": _sha256(self.model_path / "model.safetensors.index.json"),
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
+            **{key: value for key, value in sampling.items() if key != "video_metadata"},
+            "actual_frames": actual_frames,
         }
         return PrefillResult(
             request=request,
@@ -318,12 +335,30 @@ class QwenOmniWrapper(BaseModelWrapper):
         import torch
 
         _validate_generation_audio_contract(request)
+        messages, sampling = request_messages_with_uniform_video(
+            request, requested_frames=self.video_num_segments
+        )
         prompt = self.processor.apply_chat_template(
-            list(request.messages), tokenize=False, add_generation_prompt=True
+            messages, tokenize=False, add_generation_prompt=True
         )
-        audios, images, videos = self._process_mm_info(
-            list(request.messages), use_audio_in_video=request.use_audio_in_video
-        )
+        if request.use_audio_in_video:
+            audios, _, _ = self._process_mm_info(
+                list(request.messages), use_audio_in_video=True
+            )
+            _, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        else:
+            audios, images, videos = self._process_mm_info(
+                messages, use_audio_in_video=False
+            )
+        requested_frames = int(sampling["requested_frames"])
+        actual_frames = _actual_video_frames(videos)
+        if actual_frames != requested_frames:
+            raise ValueError(
+                f"Qwen2.5-Omni requested {requested_frames} video frames but decoder "
+                f"returned {actual_frames}"
+            )
         model_inputs = self.processor(
             text=[prompt],
             audio=audios,
@@ -333,8 +368,8 @@ class QwenOmniWrapper(BaseModelWrapper):
             return_tensors="pt",
             use_audio_in_video=request.use_audio_in_video,
         )
-        model_inputs = move_inputs_to_device(model_inputs, self.device, wrapper_label="Qwen Omni")
-        require_attention_mask(model_inputs, wrapper_label="Qwen Omni")
+        model_inputs = _move_inputs_to_device(model_inputs, self.device)
+        _require_attention_mask(model_inputs)
         input_ids = model_inputs.get("input_ids")
         if input_ids is None or input_ids.ndim != 2 or int(input_ids.shape[0]) != 1:
             raise ValueError("Qwen Omni generation requires input_ids with batch size exactly one")
@@ -416,20 +451,23 @@ class QwenOmniWrapper(BaseModelWrapper):
 
 
 def _load_model_contract(model_path: Path) -> dict[str, Any]:
-    payload = load_config_json(
-        model_path, expected_model_type="qwen2_5_omni", wrapper_label="Qwen Omni"
-    )
+    config_path = model_path / "config.json"
+    if not config_path.is_file():
+        raise FileNotFoundError(f"Qwen Omni config is missing: {config_path}")
+    payload = json.loads(config_path.read_text(encoding="utf-8"))
+    if payload.get("model_type") != "qwen2_5_omni":
+        raise ValueError(f"Unexpected model_type in {config_path}: {payload.get('model_type')!r}")
     thinker = payload.get("thinker_config")
     text = thinker.get("text_config") if isinstance(thinker, dict) else None
     if not isinstance(text, dict):
-        config_path = model_path / "config.json"
         raise ValueError(f"Qwen Omni thinker text_config is missing from {config_path}")
     contract = {
         "num_hidden_layers": int(text["num_hidden_layers"]),
         "hidden_size": int(text["hidden_size"]),
         "torch_dtype": str(thinker["torch_dtype"]),
     }
-    validate_contract_dims(contract, wrapper_label="Qwen Omni")
+    if contract["num_hidden_layers"] <= 0 or contract["hidden_size"] <= 0:
+        raise ValueError(f"Invalid Qwen Omni thinker dimensions: {contract}")
     return contract
 
 
@@ -445,6 +483,19 @@ def _video_content(path: str | None, fps: float) -> dict[str, Any]:
     if not path:
         raise ValueError("This conditioning view requires media_paths.vision")
     return {"type": "video", "video": path, "fps": fps}
+
+
+def _actual_video_frames(videos: Any) -> int:
+    if videos is None:
+        return 0
+    rows = list(videos) if isinstance(videos, (list, tuple)) else [videos]
+    total = 0
+    for video in rows:
+        shape = getattr(video, "shape", None)
+        if shape is None or len(shape) != 4:
+            raise ValueError("Qwen2.5-Omni decoded video must be a four-dimensional tensor")
+        total += int(shape[0])
+    return total
 
 
 def _audio_content(path: str | None) -> dict[str, Any]:
@@ -500,3 +551,31 @@ def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
     raise ValueError("Qwen Omni tokenizer must define one or more integer eos_token_id values")
 
 
+def _require_attention_mask(model_inputs: Any) -> Any:
+    attention_mask = model_inputs.get("attention_mask")
+    if attention_mask is None:
+        raise ValueError("Qwen Omni processor output must include attention_mask")
+    if attention_mask.ndim != 2 or int(attention_mask.shape[0]) != 1:
+        raise ValueError("Qwen Omni prefill extraction requires batch size exactly one")
+    return attention_mask
+
+
+def _move_inputs_to_device(model_inputs: Any, device: str) -> Any:
+    if hasattr(model_inputs, "to"):
+        return model_inputs.to(device)
+    if not isinstance(model_inputs, Mapping):
+        raise TypeError("Processor output must be a BatchFeature or mapping")
+    return {
+        key: value.to(device) if hasattr(value, "to") else value
+        for key, value in model_inputs.items()
+    }
+
+
+def _sha256(path: Path) -> str:
+    if not path.is_file():
+        raise FileNotFoundError(f"Required provenance file is missing: {path}")
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()

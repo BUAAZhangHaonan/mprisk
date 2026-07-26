@@ -79,26 +79,18 @@ def _validate_three_condition_trajectories(trajectories: torch.Tensor) -> None:
 
 
 class SinglePointBinaryClassifierV1(nn.Module):
-    """A/C classifier over the final-layer hidden state of the M12 condition.
-
-    Takes the M12 trajectory (condition index 2), last layer only, and feeds
-    it directly to a Linear(hidden_dim, 2) head with no intermediate layer.
-    The penultimate dimension is the raw hidden_dim (e.g. 4096 for Qwen3-VL).
-    """
+    """Ordinary A/C classifier over the final-layer point of all conditions."""
 
     architecture_version = SINGLE_POINT_BINARY_V1
 
-    M12_CONDITION_INDEX = 2
-    LAST_LAYER_INDEX = -1
-
     def __init__(self, *, input_dim: int) -> None:
         super().__init__()
-        self.penultimate_dim = input_dim
-        self.classifier = nn.Linear(input_dim, 2)
+        self.penultimate_dim = 3 * input_dim
+        self.classifier = nn.Linear(self.penultimate_dim, 2)
 
     def forward_features(self, trajectories: torch.Tensor) -> torch.Tensor:
         _validate_three_condition_trajectories(trajectories)
-        return trajectories[:, self.M12_CONDITION_INDEX, self.LAST_LAYER_INDEX, :]
+        return trajectories[:, :, -1, :].flatten(start_dim=1)
 
     def forward(self, trajectories: torch.Tensor) -> torch.Tensor:
         return self.classifier(self.forward_features(trajectories))
@@ -309,7 +301,7 @@ class SequentialTrajectoryEncoderLSTMV1(nn.Module):
     State-dict keys live under ``condition_encoder.sequence.*`` (PyTorch
     names them ``weight_ih_l0``, ``weight_hh_l0``, ``weight_ih_l1``,
     ``weight_hh_l1``, ... plus the matching biases). The presence of the
-    ``_l1`` layer is what lets :func:`mprisk_viz.baselines._infer_tme_dims_from_state`
+    ``_l1`` layer is what lets :func:`mprisk_v2.baselines._infer_tme_dims_from_state`
     distinguish a multi-layer LSTM checkpoint from a single-layer GRU
     checkpoint (which only has ``_l0``).
     """

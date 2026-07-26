@@ -15,7 +15,6 @@ from scipy.sparse import hstack
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import normalize
 
-from mprisk.utils.io import read_jsonl as _read_jsonl
 CANONICAL_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
@@ -323,6 +322,19 @@ def _content_rejection_reason(normalized: str) -> str | None:
 def _is_one_sentence(text: str) -> bool:
     endings = _SENTENCE_END_RE.findall(text)
     return len(endings) == 1 and text[-1] in ".!?"
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if not isinstance(row, dict):
+                raise ValueError(f"{path}:{line_number} must contain a JSON object")
+            rows.append(row)
+    return rows
 
 
 def _write_outputs(

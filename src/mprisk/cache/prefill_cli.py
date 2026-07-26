@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import fcntl
 import json
-from collections.abc import Callable, Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from mprisk.utils.io import read_jsonl as _read_jsonl
 from mprisk.cache.prefill_writer import write_prefill_result
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.qwen_omni import build_condition_request
@@ -78,34 +75,28 @@ def main(
     artifacts = []
     try:
         wrapper.load()
-        manifest_path = (
-            args.cache_manifest
-            if args.cache_manifest is not None
-            else args.output_root / "manifests" / "unified_full_cache_manifest.json"
-        ).expanduser().resolve()
-        with _manifest_lock(manifest_path):
-            for request in requests:
-                result = wrapper.extract_prefill(request)
-                artifact = write_prefill_result(
-                    result,
-                    output_root=args.output_root,
-                    manifest_path=args.cache_manifest,
-                    overwrite=args.overwrite,
-                )
-                artifacts.append(
-                    {
-                        "sample_id": request.sample_id,
-                        "condition": request.condition,
-                        "shape": [result.layer_count, result.hidden_dim],
-                        "t0_token_index": result.t0_token_index,
-                        "token_count": result.token_count,
-                        "shard_path": str(artifact.shard_path),
-                        "sidecar_path": str(artifact.sidecar_path),
-                        "checksum": artifact.checksum,
-                        "elapsed_seconds": result.provenance.get("elapsed_seconds"),
-                        "peak_gpu_memory_bytes": result.provenance.get("peak_gpu_memory_bytes"),
-                    }
-                )
+        for request in requests:
+            result = wrapper.extract_prefill(request)
+            artifact = write_prefill_result(
+                result,
+                output_root=args.output_root,
+                manifest_path=args.cache_manifest,
+                overwrite=args.overwrite,
+            )
+            artifacts.append(
+                {
+                    "sample_id": request.sample_id,
+                    "condition": request.condition,
+                    "shape": [result.layer_count, result.hidden_dim],
+                    "t0_token_index": result.t0_token_index,
+                    "token_count": result.token_count,
+                    "shard_path": str(artifact.shard_path),
+                    "sidecar_path": str(artifact.sidecar_path),
+                    "checksum": artifact.checksum,
+                    "elapsed_seconds": result.provenance.get("elapsed_seconds"),
+                    "peak_gpu_memory_bytes": result.provenance.get("peak_gpu_memory_bytes"),
+                }
+            )
     finally:
         wrapper.close()
     print(json.dumps({"status": "ok", "artifacts": artifacts}, ensure_ascii=False))
@@ -156,6 +147,21 @@ def _build_requests(args: argparse.Namespace) -> list[PrefillRequest]:
     return requests
 
 
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise FileNotFoundError(f"Input manifest does not exist: {path}")
+    rows = []
+    with path.open(encoding="utf-8") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            if not line.strip():
+                continue
+            payload = json.loads(line)
+            if not isinstance(payload, dict):
+                raise ValueError(f"Manifest line {line_number} must be a JSON object")
+            rows.append(payload)
+    return rows
+
+
 def _validate_local_media(request: PrefillRequest) -> None:
     for path in request.media_paths.values():
         media = Path(path).expanduser()
@@ -179,16 +185,3 @@ def _request_payload(request: PrefillRequest) -> dict[str, Any]:
 
 def _optional_string(value: Any) -> str | None:
     return None if value is None else str(value)
-
-
-@contextmanager
-def _manifest_lock(manifest_path: Path) -> Iterator[None]:
-    """Block concurrent writers from racing on the shared cache manifest."""
-    manifest_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path = manifest_path.with_name(f".{manifest_path.name}.lock")
-    with lock_path.open("a+", encoding="utf-8") as handle:
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -105,6 +106,7 @@ class PrefillRequest:
     use_audio_in_video: bool
     prompt_set_key: str = "adhoc"
     prompt_id: str = "adhoc"
+    runtime_contracts: Mapping[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         protocol = self.protocol.lower()
@@ -130,6 +132,15 @@ class PrefillRequest:
         object.__setattr__(self, "condition", condition)
         object.__setattr__(self, "messages", tuple(dict(message) for message in self.messages))
         object.__setattr__(self, "media_paths", dict(self.media_paths))
+        try:
+            runtime_contracts = json.loads(
+                json.dumps(self.runtime_contracts, ensure_ascii=False, sort_keys=True)
+            )
+        except (TypeError, ValueError) as exc:
+            raise TypeError("runtime_contracts must be JSON serializable") from exc
+        if not isinstance(runtime_contracts, dict):
+            raise TypeError("runtime_contracts must be a mapping")
+        object.__setattr__(self, "runtime_contracts", runtime_contracts)
 
 
 @dataclass(frozen=True)

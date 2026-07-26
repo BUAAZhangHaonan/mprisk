@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from mprisk.utils.io import sha256_file as _sha256
 from mprisk.cache.cache_manifest import DEFAULT_CONDITIONS, load_full_cache_manifest
 from mprisk.cache.hidden_state_cache import HiddenStateEntry
 from mprisk.cache.prefill_extract import t0_token_index
@@ -207,6 +207,14 @@ def _resolve_split_assignment(
     if assignment["master_split"] != master_split:
         raise ValueError(f"sample {row.sample_id} master_split mismatches split assignment")
     return assignment
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _target_label(row: FinalManifestRow) -> str | None:
