@@ -4,11 +4,19 @@ import json
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import torch
 
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.qwen_omni import build_condition_request
 from mprisk.models.qwen_vl import QwenVlWrapper
+
+
+_DECORD_AVAILABLE = True
+try:  # pragma: no cover - import probe
+    import decord  # noqa: F401
+except ImportError:  # pragma: no cover - import probe
+    _DECORD_AVAILABLE = False
 
 
 def _model_dir(tmp_path):
@@ -102,6 +110,10 @@ def test_qwen3_vl_vt_conditions_do_not_leak_modalities(tmp_path) -> None:
     assert "private transcript" in m12.messages[0]["content"][-1]["text"]
 
 
+@pytest.mark.skipif(
+    not _DECORD_AVAILABLE,
+    reason="uniform video sampling requires the decord package; install decord to exercise this path",
+)
 def test_qwen3_vl_extracts_all_language_blocks_at_last_non_padding_token(tmp_path) -> None:
     processor = _FakeProcessor()
     model = _FakeQwen3VL()

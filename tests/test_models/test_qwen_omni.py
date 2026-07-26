@@ -11,6 +11,13 @@ from mprisk.models.base_wrapper import GenerationRequest
 from mprisk.models.qwen_omni import QwenOmniWrapper, build_condition_request
 
 
+_DECORD_AVAILABLE = True
+try:  # pragma: no cover - import probe
+    import decord  # noqa: F401
+except ImportError:  # pragma: no cover - import probe
+    _DECORD_AVAILABLE = False
+
+
 def _model_dir(tmp_path):
     model_dir = tmp_path / "model"
     model_dir.mkdir()
@@ -128,6 +135,10 @@ class _FakeThinker:
         return SimpleNamespace(hidden_states=states)
 
 
+@pytest.mark.skipif(
+    not _DECORD_AVAILABLE,
+    reason="uniform video sampling requires the decord package; install decord to exercise this path",
+)
 def test_wrapper_generation_decodes_only_new_tokens_and_uses_greedy_kwargs(tmp_path) -> None:
     class Processor(_FakeProcessor):
         tokenizer = SimpleNamespace(eos_token_id=99)
