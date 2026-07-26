@@ -178,6 +178,7 @@ def test_batch_resume_uses_checksums_and_records_full_identity(tmp_path, capsys)
             attn_implementation,
             min_pixels,
             max_pixels,
+            video_num_segments=None,
         ):
             self.kwargs = {
                 "model_key": model_key,
