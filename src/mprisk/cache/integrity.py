@@ -408,7 +408,7 @@ def validate_accepted_bundle(
     """Require exact bundle identity or a signed, field-exact equivalence waiver."""
     path = Path(index_path).expanduser().resolve()
     package = _read_json(path)
-    if package.get("schema") != "mprisk_prefill_cache_union_v2":
+    if package.get("schema") != "mprisk_prefill_cache_union":
         raise CacheIntegrityError("Unsupported accepted bundle schema")
     provenance = package.get("provenance")
     if not isinstance(provenance, dict):

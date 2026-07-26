@@ -43,8 +43,8 @@ from mprisk.cache.llava_v15_frame_plan import (
 from mprisk.config.loader import load_yaml
 from mprisk.prompts.template_bank import load_equiv_prompt_set
 
-SCHEMA = "mprisk_complete_cache_matrix_v2"
-SMOKE_SCHEMA = "mprisk_cache_smoke_evidence_v2"
+SCHEMA = "mprisk_complete_cache_matrix"
+SMOKE_SCHEMA = "mprisk_cache_smoke_evidence"
 CONDITIONS = ("M1", "M2", "M12")
 FRAME_PROTOCOL = "fixed_uniform_temporal_samples_v1"
 LLAVA_MODEL_KEY = "llava_v1_5_7b"

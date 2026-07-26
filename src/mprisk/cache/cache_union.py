@@ -23,7 +23,7 @@ from mprisk.models.base_wrapper import PrefillRequest
 
 EVIDENCE_SCHEMA = "mprisk_prefill_extractor_evidence_v1"
 SOURCE_SCHEMA = "mprisk_prefill_cache_source_v1"
-UNION_SCHEMA = "mprisk_prefill_cache_union_v2"
+UNION_SCHEMA = "mprisk_prefill_cache_union"
 UNION_VERSION = "v2"
 SIDECAR_SCHEMA = "mprisk_prefill_cache_sidecar_v1"
 FULL_PREFILL_STRATEGY = "full_prefill"
@@ -72,7 +72,7 @@ FRAME_PLAN_SIGNATURE_FIELDS = frozenset(
 COMPATIBILITY_SIGNATURE_SCHEMA_FIELDS = {
     # Historical ledgers predate signature versioning and frame-plan contracts.
     None: frozenset(),
-    "mprisk_prefill_batch_signature_v2": frozenset(),
+    "mprisk_prefill_batch_signature": frozenset(),
     "mprisk_prefill_batch_signature_v3": FRAME_PLAN_SIGNATURE_FIELDS,
 }
 RUNTIME_PROVENANCE_FIELDS = (

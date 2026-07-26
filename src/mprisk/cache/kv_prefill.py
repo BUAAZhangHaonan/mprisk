@@ -367,7 +367,7 @@ class QwenVlPromptKvPrefillExtractor:
                 "prefix_len": int(prefix_len),
                 "suffix_len": int(suffix_len),
                 "min_prefix_fraction": self.min_prefix_fraction,
-                "schema": "mprisk_qwen3_vl_prefill_provenance_v2",
+                "schema": "mprisk_qwen3_vl_prefill_provenance",
             }
         )
         trajectory_np = trajectory.detach().to(dtype=torch.float32, device="cpu").numpy()
