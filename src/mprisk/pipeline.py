@@ -251,6 +251,7 @@ def run_v2_for_model(
         split_assignment_path=Path(split_assignment),
         output_dir=out / "state_data" / spec.model_key / protocol,
         manifest_path=Path(unified_cache_manifest),
+        strict_shape=False,
     )
 
     print(f"[v2][{spec.model_key}] building state bundles...", flush=True)
