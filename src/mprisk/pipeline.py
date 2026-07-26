@@ -59,19 +59,6 @@ from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.data.manifests import read_jsonl
 from mprisk.utils.io import write_json, write_jsonl
 
-def _v2_relaxed_shape_check(entries, sample_id):
-    """V2 only requires layer_count and hidden_dim to match across M1/M2/M12."""
-    present = {entry.condition for entry in entries}
-    missing = [c for c in ("M1", "M2", "M12") if c not in present]
-    if missing:
-        raise ValueError(f"Missing cache entries for {sample_id}: {', '.join(missing)}")
-    shapes = {(entry.layer_count, entry.hidden_dim) for entry in entries}
-    if len(shapes) != 1:
-        raise ValueError(
-            f"Cache entry layer/hidden differs for {sample_id}: {shapes}"
-        )
-
-
 _V2_PATCHES_INSTALLED = False
 
 
@@ -106,8 +93,6 @@ def install_v2_pipeline_patches() -> None:
         warmup_epochs=10,
     )
 
-    # Relax cache entry shape check: v2 only requires layer_count + hidden_dim match.
-    _state_dataset_mod._require_consistent_entry_shape = _v2_relaxed_shape_check
 
 
 @dataclass(frozen=True)
