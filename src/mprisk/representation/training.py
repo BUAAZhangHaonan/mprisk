@@ -25,6 +25,7 @@ from mprisk.representation.relation_dataset import CONDITIONS, _reject_forbidden
 from mprisk.representation.relation_models import (
     REPRESENTATION_KEYS,
     SINGLE_POINT_BINARY_V1,
+    TME_ARCHITECTURE_BILSTM_V1,
     TME_ARCHITECTURE_LSTM_V1,
     TME_ARCHITECTURE_V1,
     TME_PROXY_ANCHOR_V1,
@@ -54,9 +55,12 @@ class TrainingConfig:
     condition_dim: int = 64
     relation_dim: int = 32
     # Encoder type for TME_PROXY_ANCHOR_V1: "gru" (SphericalTMEV1, default,
-    # backward compatible) or "lstm" (SphericalTME_LSTM, multi-layer LSTM).
-    # Ignored for non-TME repr_keys. Selected architecture_version becomes
-    # TME_ARCHITECTURE_V1 (gru) or TME_ARCHITECTURE_LSTM_V1 (lstm).
+    # backward compatible), "lstm" (SphericalTME_LSTM, multi-layer uni-LSTM),
+    # or "bilstm" (SphericalTME_BiLSTM, 2-layer bi-directional LSTM + 2-layer
+    # MLP projection — the viz pipeline encoder). Ignored for non-TME
+    # repr_keys. Selected architecture_version becomes TME_ARCHITECTURE_V1
+    # (gru), TME_ARCHITECTURE_LSTM_V1 (lstm), or TME_ARCHITECTURE_BILSTM_V1
+    # (bilstm).
     encoder_type: str = "gru"
     dropout: float = 0.1
     max_epochs: int = 100
@@ -143,21 +147,27 @@ def load_training_config(path: str | Path) -> TrainingConfig:
     if payload.get("repr_key") == TME_PROXY_ANCHOR_V1:
         # Resolve encoder_type first so an explicit YAML value wins over the
         # architecture_version default. If encoder_type is absent we infer
-        # it from architecture_version (gru for V1, lstm for LSTM_V1) so
-        # older GRU configs continue to load unchanged.
+        # it from architecture_version (gru for V1, lstm for LSTM_V1, bilstm
+        # for BILSTM_V1) so older configs continue to load unchanged.
         encoder_type = payload.get("encoder_type")
         if encoder_type is None:
             if architecture_version == TME_ARCHITECTURE_LSTM_V1:
                 encoder_type = "lstm"
+            elif architecture_version == TME_ARCHITECTURE_BILSTM_V1:
+                encoder_type = "bilstm"
             else:
                 encoder_type = "gru"
-        if encoder_type not in ("gru", "lstm"):
+        if encoder_type not in ("gru", "lstm", "bilstm"):
             raise ValueError(
-                f"encoder_type must be 'gru' or 'lstm', got {encoder_type!r}"
+                f"encoder_type must be 'gru', 'lstm', or 'bilstm', "
+                f"got {encoder_type!r}"
             )
-        expected_arch = (
-            TME_ARCHITECTURE_LSTM_V1 if encoder_type == "lstm" else TME_ARCHITECTURE_V1
-        )
+        if encoder_type == "lstm":
+            expected_arch = TME_ARCHITECTURE_LSTM_V1
+        elif encoder_type == "bilstm":
+            expected_arch = TME_ARCHITECTURE_BILSTM_V1
+        else:
+            expected_arch = TME_ARCHITECTURE_V1
         if architecture_version is not None and architecture_version != expected_arch:
             raise ValueError(
                 f"TME architecture_version {architecture_version!r} does not match "
@@ -1079,10 +1089,15 @@ def _validate_checkpoint_architecture(checkpoint: dict[str, Any]) -> None:
     repr_key = str(checkpoint.get("repr_key", ""))
     architecture_version = str(checkpoint.get("architecture_version", ""))
     if repr_key == TME_PROXY_ANCHOR_V1:
-        # TME checkpoints can be either GRU (V1) or LSTM (LSTM_V1). Both
-        # are valid for resuming as long as the architecture_version field
-        # matches one of the two known TME architectures.
-        if architecture_version not in (TME_ARCHITECTURE_V1, TME_ARCHITECTURE_LSTM_V1):
+        # TME checkpoints can be either GRU (V1), uni-LSTM (LSTM_V1), or
+        # bi-LSTM (BILSTM_V1). All three are valid for resuming as long as
+        # the architecture_version field matches one of the known TME
+        # architectures.
+        if architecture_version not in (
+            TME_ARCHITECTURE_V1,
+            TME_ARCHITECTURE_LSTM_V1,
+            TME_ARCHITECTURE_BILSTM_V1,
+        ):
             raise ValueError(
                 "checkpoint architecture_version does not match its representation"
             )
@@ -1837,7 +1852,11 @@ def _checkpoint_payload(
             (
                 TME_ARCHITECTURE_LSTM_V1
                 if getattr(config, "encoder_type", "gru") == "lstm"
-                else TME_ARCHITECTURE_V1
+                else (
+                    TME_ARCHITECTURE_BILSTM_V1
+                    if getattr(config, "encoder_type", "gru") == "bilstm"
+                    else TME_ARCHITECTURE_V1
+                )
             )
             if config.repr_key == TME_PROXY_ANCHOR_V1
             else config.repr_key
