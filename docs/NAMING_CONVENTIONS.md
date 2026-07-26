@@ -62,9 +62,9 @@ manifests, sidecars, checkpoints, prompt IDs, cache roots, or figure-map keys.
 - Legacy configs live under `configs/legacy/` and are read-only records. Active loaders reject
   their schemas; there are no import aliases, symlinks, or silent dual-schema readers.
 
-Diagnostic Affect Description v2 uses `schema_name` consistently in configs, manifests,
+Diagnostic Affect Description uses `schema_name` consistently in configs, manifests,
 signatures, and provenance. Every artifact also carries the same immutable `run_id`. Misread
-Judgment v2 names the measured model as `subject_model_key` and the external judge as
+Judgment names the measured model as `subject_model_key` and the external judge as
 `judge_model`; it reads only `GT_DESCRIPTION` and `DIAGNOSTIC_AFFECT_DESCRIPTION`.
 
 The label-schema transition follows this rule exactly:
@@ -72,10 +72,10 @@ The label-schema transition follows this rule exactly:
 - `mprisk_stage1_relation_schema_v1` and `mprisk_sample_type_schema_v1` are immutable. The current
   state-dataset and state-bundle code is an isolated legacy consumer of v1-shaped fields, not a
   strict schema-ID binding.
-- `mprisk_condition_affect_annotation_schema_v2` and `mprisk_sample_relation_schema_v2` define
+- `mprisk_condition_affect_annotation_schema` and `mprisk_sample_relation_schema` define
   the canonical M1/M2/M12 and reference-dominance terminology for new annotation artifacts.
-- No active loader selects v2 by filename discovery. A new pipeline needs a separate strict
-  consumer that binds both v2 schema IDs and writes a new artifact identity.
+- No active loader selects the schema by filename discovery. A new pipeline needs a separate strict
+  consumer that binds both schema IDs and writes a new artifact identity.
 
 ## Deferred naming migrations
 

@@ -4,7 +4,7 @@
 `DIAGNOSTIC_AFFECT_DESCRIPTION`. The fixed prompt asks the judge for one strict JSON decision:
 `MISREAD`, `NON_MISREAD`, or `UNCERTAIN`, with confidence and one short rationale sentence.
 
-The v2 identity contract uses `mprisk_misread_judgment_config_v2`. It binds `run_id`,
+The identity contract uses `mprisk_misread_judgment_config`. It binds `run_id`,
 `judge_model`, `subject_model_key`, `protocol`, `split`, both manifest checksums, the prompt,
 temperature, confidence threshold, `mprisk_gt_description_v1` with
 `gt_annotation_input_v1`, and the exact Diagnostic Affect Description schema and run ID. Every

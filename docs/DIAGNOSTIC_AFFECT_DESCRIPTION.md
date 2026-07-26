@@ -10,14 +10,14 @@ The canonical prompt is fixed by
 > Based on the complete input, describe the person's overall emotional state in one concise
 > sentence. Do not address the person, give advice, or explain your reasoning.
 
-The active v2 implementation accepts `condition: M12`. For `protocol: VT`, it sends video plus
+The active implementation accepts `condition: M12`. For `protocol: VT`, it sends video plus
 the manifest's `text_content`. For `protocol: VA`, it sends the configured vision and audio media
 without adding transcript text. Sample type, annotations, archetype, trigger, and GT fields never
 enter the subject-model request.
 
 ## Identity contract
 
-The strict config schema is `mprisk_diagnostic_affect_description_config_v2`. It requires:
+The strict config schema is `mprisk_diagnostic_affect_description_config`. It requires:
 
 - a non-empty `run_id`, `subject_model_key`, and an exact `model_path` matching `asset_config`;
 - `protocol`, `condition`, `dataset`, and `split`;

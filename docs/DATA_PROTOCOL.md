@@ -8,10 +8,10 @@
 
 Main experiments focus on `Conflict` and `Aligned`. `Ambiguous` is reserved for appendix or supplemental analysis.
 
-The v2 data layer uses relation labels instead of a shared affective coordinate. M1, M2, and M12
+The data layer uses relation labels instead of a shared affective coordinate. M1, M2, and M12
 are conditions, not modality names. New annotation artifacts explicitly bind
-`mprisk_condition_affect_annotation_schema_v2` and `mprisk_sample_relation_schema_v2`. Each
-curated v2 sample must carry:
+`mprisk_condition_affect_annotation_schema` and `mprisk_sample_relation_schema`. Each
+curated sample must carry:
 
 ```text
 m1_label
@@ -45,8 +45,8 @@ For each protocol, the pipeline builds three conditions:
 Lean (`R`) after the TME representation is frozen; it is never copied from annotation labels.
 
 The current state-dataset and state-bundle implementation is an isolated legacy consumer of
-v1-shaped fields; it does not validate the v1 schema IDs. The v2 files are not selected
-implicitly. A later v2 pipeline must use a separate strict consumer, bind both schema IDs, and
+v1-shaped fields; it does not validate the v1 schema IDs. The new schema files are not selected
+implicitly. A later migration must use a separate strict consumer, bind both schema IDs, and
 produce new versioned artifacts.
 
 ## Main Datasets

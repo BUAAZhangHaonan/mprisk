@@ -1,8 +1,8 @@
 # Annotation Guide
 
 This document records the versioned annotation surfaces. New annotation artifacts use
-`mprisk_condition_affect_annotation_schema_v2` together with
-`mprisk_sample_relation_schema_v2`; a producer must select both schemas explicitly.
+`mprisk_condition_affect_annotation_schema` together with
+`mprisk_sample_relation_schema`; a producer must select both schemas explicitly.
 
 ## Screening
 
@@ -54,9 +54,9 @@ The current state-dataset and state-bundle implementation is a frozen legacy con
 v1-shaped fields. It does not validate the two v1 schema IDs and still accepts a compatibility
 label alias, so this is isolated technical debt rather than a strict schema binding. The
 `mprisk_stage1_relation_schema_v1` and `mprisk_sample_type_schema_v1` files retain their original
-field names and meanings byte-for-byte. The v2 schemas do not replace them, and no loader
-automatically upgrades between versions. A future v2 pipeline must use a new strict consumer,
-select both v2 schemas, and write a new versioned artifact identity.
+field names and meanings byte-for-byte. The new schemas do not replace them, and no loader
+automatically upgrades between versions. A future migration must use a new strict consumer,
+select both new schemas, and write a new versioned artifact identity.
 
 <!-- naming-contract: legacy-v1-start -->
 The legacy v1 fields are:
