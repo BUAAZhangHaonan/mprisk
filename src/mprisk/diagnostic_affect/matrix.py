@@ -20,10 +20,10 @@ MATRIX_SCHEMA = "mprisk_cross_domain_misread_matrix_v1"
 PLAN_SCHEMA = "mprisk_cross_domain_misread_plan_v1"
 GT_SCHEMA = "mprisk_gt_description_v1"
 GT_INPUT_SCHEMA = "gt_annotation_input_v1"
-DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
+DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config"
 ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
 REQUEST_PLAN_SCHEMA = "mprisk_misread_request_plan_v1"
-SOURCE_LABEL_SCHEMA = "mprisk_v2_misread_label_v1"
+SOURCE_LABEL_SCHEMA = "mprisk_misread_label"
 GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
 
 
@@ -577,8 +577,8 @@ def _validate_formal_cache_contract(
     frame_validation_path: Path,
 ) -> dict[str, Any]:
     cache = _load_yaml(cache_matrix_path)
-    if cache.get("schema") != "mprisk_complete_cache_matrix_v2":
-        raise ValueError("Misread matrix requires the canonical cache-matrix v2 config")
+    if cache.get("schema") != "mprisk_complete_cache_matrix":
+        raise ValueError("Misread matrix requires the canonical cache-matrix config")
     repo_root = cache_matrix_path.parents[2]
     cache_asset = _resolve_path(cache.get("asset_config"), repo_root)
     if cache_asset != asset_config_path:
@@ -762,7 +762,7 @@ def _diagnostic_manifest_ready(
         raise ValueError(f"Diagnostic manifest coverage mismatch: {model_key}")
     for row in rows:
         if (
-            row.get("schema_name") != "mprisk_diagnostic_affect_description_v2"
+            row.get("schema_name") != "mprisk_diagnostic_affect_description"
             or row.get("run_id") != run_id
             or row.get("subject_model_key") != model_key
             or row.get("protocol") != protocol

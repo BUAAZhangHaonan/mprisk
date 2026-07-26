@@ -16,7 +16,7 @@ UNIT_TOLERANCE = 1e-5
 BOOTSTRAP_REPLICATES = 2000
 BOOTSTRAP_BATCH_SIZE = 256
 DELTA_METHOD = "synchronous_prompt_bootstrap_1.96se_v1"
-SDR_SCHEMA = "mprisk_spherical_sdr_v2"
+SDR_SCHEMA = "mprisk_spherical_sdr"
 DISTANCE_METRIC = "geodesic_acos_v1"
 EPSILON = 1e-12
 
@@ -43,7 +43,7 @@ def require_exact_sdr_rows(rows: Sequence[Mapping[str, Any]]) -> None:
         row.get("sdr_schema") != SDR_SCHEMA or row.get("distance_metric") != DISTANCE_METRIC
         for row in rows
     ):
-        raise ValueError("state rows must use exact spherical SDR v2 with geodesic acos distance")
+        raise ValueError("state rows must use exact spherical SDR with geodesic acos distance")
 
 
 def compute_spherical_state(

@@ -43,7 +43,7 @@ def calibrate_aligned_thresholds(
         json.dumps(sorted(sample_ids), separators=(",", ":")).encode("utf-8")
     ).hexdigest()
     return {
-        "schema": "mprisk_spherical_calibration_v2",
+        "schema": "mprisk_spherical_calibration",
         "sdr_schema": SDR_SCHEMA,
         "distance_metric": DISTANCE_METRIC,
         "sample_type": "Aligned",

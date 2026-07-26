@@ -9,7 +9,7 @@ from typing import Any
 
 from mprisk.config.loader import load_yaml
 
-MODEL_ASSET_SCHEMA = "mprisk_model_assets_v2"
+MODEL_ASSET_SCHEMA = "mprisk_model_assets"
 PANEL_GROUPS = frozenset({"vt", "va_vta"})
 PROTOCOLS = frozenset({"vt", "va", "it"})
 INPUT_MODALITIES = frozenset({"text", "image", "video", "audio"})

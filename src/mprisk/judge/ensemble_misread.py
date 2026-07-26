@@ -150,7 +150,7 @@ def build_sample_tasks(config: EnsembleMisreadConfig) -> list[SampleTask]:
     for sample_id in sorted(references):
         diag_row = diagnostics[sample_id]
         expected = {
-            "schema_name": "mprisk_diagnostic_affect_description_v2",
+            "schema_name": "mprisk_diagnostic_affect_description",
             "run_id": config.diagnostic_run_id,
             "subject_model_key": config.subject_model_key,
             "protocol": config.protocol,

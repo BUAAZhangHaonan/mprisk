@@ -33,7 +33,7 @@ class StateThresholds:
             names = ", ".join(sorted(missing))
             raise ValueError(f"Threshold config is missing required key(s): {names}")
         identity = None
-        if config.get("schema") == "mprisk_spherical_calibration_v2" or any(
+        if config.get("schema") == "mprisk_spherical_calibration" or any(
             field in config for field in CALIBRATION_IDENTITY_FIELDS
         ):
             identity = homogeneous_identity([config])

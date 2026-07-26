@@ -491,11 +491,11 @@ def _validate_state_rows(
 
 def _validate_calibration(thresholds: dict[str, Any]) -> None:
     if (
-        thresholds.get("schema") != "mprisk_spherical_calibration_v2"
+        thresholds.get("schema") != "mprisk_spherical_calibration"
         or thresholds.get("sdr_schema") != SDR_SCHEMA
         or thresholds.get("distance_metric") != DISTANCE_METRIC
     ):
-        raise ValueError("figure thresholds must use exact spherical SDR v2 calibration")
+        raise ValueError("figure thresholds must use exact spherical SDR calibration")
     if (
         thresholds.get("sample_type") != "Aligned"
         or thresholds.get("calibration_split") != "aligned_calibration"

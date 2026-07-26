@@ -415,7 +415,7 @@ def _validate_description(
 ) -> None:
     sample_id = str(manifest["sample_id"])
     required = {
-        "schema": "mprisk_v2_diagnostic_description_v1",
+        "schema": "mprisk_diagnostic_description",
         "subject_model_key": spec.model_key,
         "protocol": spec.protocol,
         "sample_type": manifest["sample_type"],
@@ -442,7 +442,7 @@ def _labeled_row(
 ) -> dict[str, Any]:
     sample_id = str(manifest["sample_id"])
     required = {
-        "schema": "mprisk_v2_misread_label_v1",
+        "schema": "mprisk_misread_label",
         "sample_id": sample_id,
         "subject_model_key": spec.model_key,
         "protocol": spec.protocol,

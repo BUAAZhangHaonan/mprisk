@@ -30,9 +30,9 @@ MISREAD_JUDGMENT_PROMPT = (
     "simplification. Return UNCERTAIN only when the comparison cannot decide. Return exact JSON "
     "with decision, confidence, and one short rationale sentence."
 )
-CONFIG_SCHEMA = "mprisk_misread_judgment_config_v2"
-PROVENANCE_SCHEMA = "mprisk_misread_judgment_provenance_v2"
-SIGNATURE_SCHEMA = "mprisk_misread_judgment_signature_v2"
+CONFIG_SCHEMA = "mprisk_misread_judgment_config"
+PROVENANCE_SCHEMA = "mprisk_misread_judgment_provenance"
+SIGNATURE_SCHEMA = "mprisk_misread_judgment_signature"
 FINAL_LABEL_SCHEMA = "mprisk_misread_label_v1"
 FINAL_LABEL_PROVENANCE_SCHEMA = "mprisk_misread_label_provenance_v1"
 DECISIONS = frozenset({"MISREAD", "NON_MISREAD", "UNCERTAIN"})
@@ -51,7 +51,7 @@ class MisreadJudgmentValidationError(ValueError):
 class MisreadJudgeConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_name: Literal["mprisk_misread_judgment_config_v2"]
+    schema_name: Literal["mprisk_misread_judgment_config"]
     run_id: str
     status: Literal["pending", "ready"]
     judge_model: Literal["deepseek-v4-flash"]
@@ -64,7 +64,7 @@ class MisreadJudgeConfig(BaseModel):
     gt_description_schema_name: Literal["mprisk_gt_description_v1"]
     gt_input_schema_version: Literal["gt_annotation_input_v1"]
     diagnostic_affect_description_schema_name: Literal[
-        "mprisk_diagnostic_affect_description_v2"
+        "mprisk_diagnostic_affect_description"
     ]
     diagnostic_run_id: str
     gt_description_manifest_path: Path

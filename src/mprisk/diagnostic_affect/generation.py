@@ -27,10 +27,10 @@ CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
-CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
-OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v2"
-PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v2"
-SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v2"
+CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config"
+OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description"
+PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance"
+SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 _SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
 _SUPPORTED_CONDITIONS = frozenset({"M12"})

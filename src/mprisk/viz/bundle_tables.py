@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-TABLE_SCHEMA = "mprisk_paper_table_map_v2"
+TABLE_SCHEMA = "mprisk_paper_table_map"
 TABLE_INPUT_SCHEMA = "mprisk_paper_table_input_v1"
 PENDING = "Pending"
 READY = "Ready"

@@ -1,4 +1,4 @@
-"""V2 Misread judgment: 3× DeepSeek-V4-flash + V4-pro arbitration.
+"""Misread judgment: 3× DeepSeek-V4-flash + V4-pro arbitration.
 
 Pipeline (per sample):
   1. Subject model generates a description from the M12 input (full video + text/audio).
@@ -263,7 +263,7 @@ class DeepSeekJudgeClient:
 
 def label_to_dict(label: FinalMisreadLabel) -> dict[str, Any]:
     return {
-        "schema": "mprisk_v2_misread_label_v1",
+        "schema": "mprisk_misread_label",
         "sample_id": label.sample_id,
         "subject_model_key": label.subject_model_key,
         "protocol": label.protocol,
@@ -332,7 +332,7 @@ async def judge_many(
                 return label_to_dict(lbl)
             except Exception as exc:
                 return {
-                    "schema": "mprisk_v2_misread_label_v1",
+                    "schema": "mprisk_misread_label",
                     "sample_id": t["sample_id"],
                     "subject_model_key": t["subject_model_key"],
                     "protocol": t["protocol"],
@@ -351,7 +351,7 @@ async def judge_many(
                     out_f.flush()
                 done += 1
                 if done % 50 == 0 or done == n:
-                    print(f"[v2-misread] judged {done}/{n}", flush=True)
+                    print(f"[misread] judged {done}/{n}", flush=True)
     finally:
         await client.close()
     return output_path
