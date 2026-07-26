@@ -36,7 +36,7 @@ SRC = HERE.parent.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from mprisk_viz.misread import judge_many  # noqa: E402
+from mprisk.misread import judge_many  # noqa: E402
 
 
 def load_descriptions(path: str | Path) -> list[dict]:
