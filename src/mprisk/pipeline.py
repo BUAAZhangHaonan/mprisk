@@ -140,8 +140,23 @@ def run_for_model(
     ``prompt_cache_manifest`` / ``prompt_conditioned_cache_manifest`` /
     ``unified_cache_manifest`` is missing, all three are auto-built from
     ``cache_root`` via :func:`mprisk.setup_helper.setup_cache_manifests`.
+
+    ``device`` defaults to ``"cpu"`` for parity with the historical smoke-test
+    behaviour and to keep the mainline import path side-effect free. The viz
+    end-to-end run trains a biLSTM trajectory encoder over ~1900 samples and
+    exports frozen representations for the same set; on CPU that combination
+    takes hours, on a single GPU it takes minutes. Pass ``device="cuda"`` for
+    any real run. If CUDA is requested but unavailable, the pipeline falls
+    back to CPU and prints a warning rather than crashing.
     """
     protocol = normalize_protocol(spec.protocol)
+    if device == "cuda" and not torch.cuda.is_available():
+        print(
+            "[run_for_model] device='cuda' requested but CUDA is not available; "
+            "falling back to CPU. Real pipeline runs require a GPU.",
+            file=sys.stderr,
+        )
+        device = "cpu"
     out = Path(output_root)
     train_dir = out / "checkpoints" / spec.model_key
     train_dir.mkdir(parents=True, exist_ok=True)
