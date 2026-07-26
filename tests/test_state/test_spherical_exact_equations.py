@@ -75,11 +75,17 @@ def test_synchronous_bootstrap_recomputes_exact_r_from_shared_prompt_draws(
 
     class FixedRng:
         def __init__(self) -> None:
-            self._draws = iter(([0, 0], [1, 1], [0, 1]))
+            # _synchronous_prompt_bootstrap_se draws a full
+            # (replicates, n_prompts) index grid in a single call.
+            self._grid = [
+                [0, 0],
+                [1, 1],
+                [0, 1],
+            ]
 
-        def integers(self, low: int, high: int, size: int) -> list[int]:
-            assert (low, high, size) == (0, 2, 2)
-            return list(next(self._draws))
+        def integers(self, low: int, high: int, size: tuple[int, int]) -> list[list[int]]:
+            assert (low, high, size) == (0, 2, (3, 2))
+            return [list(row) for row in self._grid]
 
     monkeypatch.setattr(spherical, "BOOTSTRAP_REPLICATES", 3)
     monkeypatch.setattr(spherical.np.random, "default_rng", lambda seed: FixedRng())
