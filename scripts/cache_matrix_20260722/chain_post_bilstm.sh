@@ -6,8 +6,9 @@
 #   2. Launch LSTM TME wave, wait.
 #   3. Launch GRU TME wave, wait.
 #   4. Launch SP-MLP (GPU 0) and T-LSTM (GPU 1) in parallel, wait.
-#   5. Launch SDR pipeline for 16 models (parallel 2-GPU), wait.
-#   6. Aggregate + audit.
+#   5. Launch threshold calibration for 16 models (parallel 2-GPU), wait.
+#   6. Launch SDR pipeline for 16 models (parallel 2-GPU), wait.
+#   7. Aggregate + audit.
 #
 # Each step writes to outputs/cache_matrix_20260722/_logs/.
 set -euo pipefail
@@ -78,10 +79,13 @@ log "SP-MLP pid=$SP_PID, T-LSTM pid=$TL_PID"
 wait_for_pid "driver_sp_mlp" "$SP_PID"
 wait_for_pid "driver_t_lstm" "$TL_PID"
 
-# Step 5: SDR pipeline (parallel 2-GPU)
+# Step 5: threshold calibration (parallel 2-GPU)
+launch_and_wait "driver_calibrate" "scripts/cache_matrix_20260722/driver_calibrate.sh" ""
+
+# Step 6: SDR pipeline (parallel 2-GPU)
 launch_and_wait "driver_sdr" "scripts/cache_matrix_20260722/driver_sdr.sh" ""
 
-# Step 6: aggregate + audit
+# Step 7: aggregate + audit
 log "Running aggregate_results.py"
 PYTHONPATH=src python scripts/cache_matrix_20260722/aggregate_results.py 2>&1 | tee -a "$CHAIN_LOG"
 log "Running audit.py"

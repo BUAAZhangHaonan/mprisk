@@ -10,7 +10,7 @@
 #
 # Thresholds: the SDR pipeline requires per-model calibrated Aligned
 # thresholds. These come from a separate calibration step (not in this
-# script). If outputs/cache_matrix_20260722/thresholds/<MODEL>.json is
+# script). If outputs/cache_matrix_20260722/thresholds/<MODEL>/thresholds.json is
 # present we use it; otherwise we write a MISSING_THRESHOLDS marker and
 # exit 0 (the driver/audit will flag missing pipelines).
 #
@@ -94,10 +94,14 @@ setup_cache_manifests(
 EOF
 fi
 
-# Thresholds.
+# Thresholds. Prefer new per-model directory emitted by driver_calibrate;
+# fall back to legacy flat layout; then fall back to historical state_analysis.
+THRESHOLDS_DIR=outputs/cache_matrix_20260722/thresholds/${MODEL}/thresholds.json
 THRESHOLDS_FILE=outputs/cache_matrix_20260722/thresholds/${MODEL}.json
 LEGACY_THRESHOLDS=outputs/state_analysis/${MODEL}/thresholds.json
-if [ -f "$THRESHOLDS_FILE" ]; then
+if [ -f "$THRESHOLDS_DIR" ]; then
+  THRESHOLDS_ARG=$THRESHOLDS_DIR
+elif [ -f "$THRESHOLDS_FILE" ]; then
   THRESHOLDS_ARG=$THRESHOLDS_FILE
 elif [ -f "$LEGACY_THRESHOLDS" ]; then
   THRESHOLDS_ARG=$LEGACY_THRESHOLDS
