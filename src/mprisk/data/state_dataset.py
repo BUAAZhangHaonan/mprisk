@@ -36,6 +36,7 @@ def build_state_dataset(
     output_dir: str | Path | None = None,
     manifest_path: str | Path | None = None,
     ledger_path: str | Path | None = None,
+    strict_shape: bool = True,
 ) -> StateDatasetBuildResult:
     normalized_protocol = normalize_protocol(protocol)
     output_root = Path(output_dir or Path("outputs/state_data") / model_key / normalized_protocol)
@@ -76,6 +77,7 @@ def build_state_dataset(
                 resolution.entries,
                 assignment=assignment,
                 split_assignment_sha256=split_assignment_sha256,
+                strict_shape=strict_shape,
             )
         )
 
@@ -133,11 +135,16 @@ def _state_row(
     *,
     assignment: dict[str, Any],
     split_assignment_sha256: str,
+    strict_shape: bool = True,
 ) -> dict[str, Any]:
     m1_entry = entries["M1"]
     m2_entry = entries["M2"]
     m12_entry = entries["M12"]
-    _require_consistent_entry_shape((m1_entry, m2_entry, m12_entry), row.sample_id)
+    _require_consistent_entry_shape(
+        (m1_entry, m2_entry, m12_entry),
+        row.sample_id,
+        strict=strict_shape,
+    )
     extras = row.model_dump()
     return {
         "sample_id": row.sample_id,
@@ -236,12 +243,20 @@ def _view_label(view: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _require_consistent_entry_shape(entries: tuple[HiddenStateEntry, ...], sample_id: str) -> None:
+def _require_consistent_entry_shape(
+    entries: tuple[HiddenStateEntry, ...],
+    sample_id: str,
+    *,
+    strict: bool = True,
+) -> None:
     present = {entry.condition for entry in entries}
     missing = [condition for condition in DEFAULT_CONDITIONS if condition not in present]
     if missing:
         raise ValueError(f"Missing cache entries for {sample_id}: {', '.join(missing)}")
-    shapes = {(entry.layer_count, entry.hidden_dim, t0_token_index(entry)) for entry in entries}
+    if strict:
+        shapes = {(entry.layer_count, entry.hidden_dim, t0_token_index(entry)) for entry in entries}
+    else:
+        shapes = {(entry.layer_count, entry.hidden_dim) for entry in entries}
     if len(shapes) != 1:
         raise ValueError(
             f"Cache entry shape metadata differs for {sample_id}; expected shared trajectory_meta"
