@@ -1164,7 +1164,20 @@ def _validate_accepted_bundle(
             raise ValueError(
                 f"Accepted bundle mismatch for {job.job_id} {key}: {node.get(key)} != {value}"
             )
-    index_path = config.bundle_root / _required_str(accepted, "index_path")
+    index_base_name = _required_str(accepted, "index_base")
+    index_bases = {
+        "bundle": config.bundle_root,
+        "repo": config.repo_root,
+    }
+    if index_base_name not in index_bases:
+        raise ValueError(f"Unsupported accepted-bundle index_base: {index_base_name}")
+    relative_index_path = Path(_required_str(accepted, "index_path"))
+    if relative_index_path.is_absolute():
+        raise ValueError("Accepted-bundle index_path must be relative to index_base")
+    index_base = index_bases[index_base_name].resolve()
+    index_path = (index_base / relative_index_path).resolve()
+    if not index_path.is_relative_to(index_base):
+        raise ValueError("Accepted-bundle index_path escapes index_base")
     if not index_path.is_file():
         raise FileNotFoundError(index_path)
     prompt_ids = _prompt_ids(config.prompt_sets[job.model.protocol])

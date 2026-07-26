@@ -123,7 +123,8 @@ models:
     accepted_bundle_domains:
       source:
         inventory_pointer: caches.generated_set.internvl3_5_8b
-        index_path: caches/generated_set/internvl3_5_8b/index/manifest.package.json
+        index_base: repo
+        index_path: outputs/cache_matrix_20260722/accepted_bundles/internvl3_5_8b_current_manifest_v1/manifest.package.json
   - model_key: llava_v1_5_7b
     family: llava_v15
     protocol: vt

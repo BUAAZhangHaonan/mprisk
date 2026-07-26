@@ -838,7 +838,7 @@ def test_accepted_bundle_does_not_compare_unrelated_extractor_digest_schemas(
     prompt_set.write_text("prompts\n", encoding="utf-8")
     config = SimpleNamespace(
         bundle_inventory=inventory,
-        bundle_root=tmp_path,
+        bundle_root=tmp_path / "bundle",
         prompt_sets={"vt": prompt_set},
         repo_root=tmp_path,
     )
@@ -870,6 +870,7 @@ def test_accepted_bundle_does_not_compare_unrelated_extractor_digest_schemas(
         job,
         {
             "inventory_pointer": "caches.generated.model",
+            "index_base": "repo",
             "index_path": "manifest.package.json",
         },
         asset_signature={
@@ -880,6 +881,7 @@ def test_accepted_bundle_does_not_compare_unrelated_extractor_digest_schemas(
     )
 
     expected_identity = captured["expected_identity"]
+    assert captured["index_path"] == index.resolve()
     assert "extractor_semantic_fingerprint" not in expected_identity
     assert expected_identity["manifest_sha256"] == hashlib.sha256(
         manifest.read_bytes()
