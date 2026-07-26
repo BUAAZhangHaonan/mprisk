@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-DEFAULT_V2_ROOT = Path("/home/team/zhanghaonan/TAFFC/mprisk-v2")
+DEFAULT_ROOT = Path("/home/team/zhanghaonan/TAFFC/mprisk-v2")
 DEFAULT_DELIVERY_MANIFEST = Path(
     "outputs/datasets/delivery_20260716/manifests/unified_sample_manifest.jsonl"
 )
@@ -98,7 +98,7 @@ class MisreadImportResult:
 
 def import_single_flash_labels(
     *,
-    v2_root: str | Path = DEFAULT_V2_ROOT,
+    source_root: str | Path = DEFAULT_ROOT,
     delivery_manifest: str | Path = DEFAULT_DELIVERY_MANIFEST,
     split_assignment: str | Path = DEFAULT_SPLIT_ASSIGNMENT,
     invalid_assets: str | Path = DEFAULT_INVALID_ASSETS,
@@ -112,7 +112,7 @@ def import_single_flash_labels(
     """Import pinned single-Flash labels into a new immutable output directory."""
     if not 0.0 <= confidence_threshold <= 1.0:
         raise ValueError("confidence_threshold must be in [0, 1]")
-    source_root = Path(v2_root).expanduser().resolve()
+    source_root = Path(source_root).expanduser().resolve()
     manifest_path = Path(delivery_manifest).expanduser().resolve()
     split_path = Path(split_assignment).expanduser().resolve()
     invalid_path = Path(invalid_assets).expanduser().resolve()
@@ -123,7 +123,7 @@ def import_single_flash_labels(
         if not path.is_file():
             raise FileNotFoundError(path)
     if output == source_root or source_root in output.parents:
-        raise ValueError("Output root must not be inside the read-only V2 source tree")
+        raise ValueError("Output root must not be inside the read-only source tree")
 
     input_paths: dict[str, Path] = {
         "delivery_manifest": manifest_path,
@@ -131,7 +131,7 @@ def import_single_flash_labels(
         "invalid_assets": invalid_path,
     }
     for spec in model_specs:
-        model_dir = source_root / "outputs/v2/misread" / spec.model_key
+        model_dir = source_root / "outputs/misread" / spec.model_key
         input_paths[f"{spec.model_key}.descriptions"] = model_dir / "descriptions.jsonl"
         input_paths[f"{spec.model_key}.judgments"] = model_dir / "judgments_single_flash.jsonl"
     missing = [str(path) for path in input_paths.values() if not path.is_file()]
