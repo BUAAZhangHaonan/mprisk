@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+import mprisk.models.gemma4 as gemma4
 from mprisk.models.base_wrapper import PrefillRequest
 from mprisk.models.gemma4 import (
     Gemma4Wrapper,
@@ -210,9 +211,19 @@ def test_gemma4_rejects_duplicate_audio_processor_inputs():
 
 def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     processor = _Processor()
+    model_dir = _model_dir(tmp_path)
+    original_sha256 = gemma4._sha256
+    weight_hashes = []
+
+    def counted_sha256(path):
+        if path.name == "model.safetensors":
+            weight_hashes.append(path)
+        return original_sha256(path)
+
+    monkeypatch.setattr(gemma4, "_sha256", counted_sha256)
     wrapper = Gemma4Wrapper(
         model_key="gemma4_12b",
-        model_path=_model_dir(tmp_path),
+        model_path=model_dir,
         device="cpu",
         model=_Model(),
         processor=processor,
@@ -275,3 +286,20 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     assert result.provenance["weight_file_sha256"] == hashlib.sha256(
         b"gemma4 weights"
     ).hexdigest()
+    wrapper.extract_prefill(request)
+    assert weight_hashes == [model_dir / "model.safetensors"]
+
+    (model_dir / "model.safetensors").write_bytes(b"changed weights")
+    Gemma4Wrapper(
+        model_key="gemma4_12b",
+        model_path=model_dir,
+        device="cpu",
+        model=_Model(),
+        processor=_Processor(),
+        video_num_segments=4,
+        runtime_versions={"transformers": "test"},
+    )
+    assert weight_hashes == [
+        model_dir / "model.safetensors",
+        model_dir / "model.safetensors",
+    ]

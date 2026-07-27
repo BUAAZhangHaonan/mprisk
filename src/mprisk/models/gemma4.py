@@ -63,6 +63,8 @@ class Gemma4Wrapper(BaseModelWrapper):
         self.video_num_segments = int(video_num_segments)
         if not 1 <= self.video_num_segments <= 64:
             raise ValueError("Gemma-4 video_num_segments must be in [1, 64]")
+        self._weight_file = _single_weight_file(self.model_path)
+        self._weight_file_sha256 = _sha256(self._weight_file)
         self._contract = _load_model_contract(self.model_path)
         if dtype != self._contract["torch_dtype"]:
             raise ValueError(
@@ -237,7 +239,6 @@ class Gemma4Wrapper(BaseModelWrapper):
             import transformers
 
             transformers_version = transformers.__version__
-        weight_file = _single_weight_file(self.model_path)
         provenance = {
             "schema": "mprisk_gemma_4_prefill_provenance_v1",
             "model_path": str(self.model_path),
@@ -253,8 +254,8 @@ class Gemma4Wrapper(BaseModelWrapper):
             "hidden_size": self.expected_hidden_dim,
             "hidden_state_index_offset": 1,
             "model_config_sha256": _sha256(self.model_path / "config.json"),
-            "weight_file_path": weight_file.name,
-            "weight_file_sha256": _sha256(weight_file),
+            "weight_file_path": self._weight_file.name,
+            "weight_file_sha256": self._weight_file_sha256,
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
             "media_keys": _media_keys(media),
