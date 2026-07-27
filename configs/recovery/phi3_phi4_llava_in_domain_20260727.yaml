@@ -1,0 +1,167 @@
+schema_name: mprisk_in_domain_recovery_queue_v1
+repository_root: /home/team/zhanghaonan/TAFFC/mprisk
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727
+gate:
+  controller_status_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/run_records/cache_stage_controller_20260723/status.json
+  target_tmux_sessions:
+    - mprisk-cache-target-gpu0
+    - mprisk-cache-target-gpu1
+  forbidden_cuda_worker_patterns:
+    - run_cache_matrix_queue.py
+    - extract_prefill_cache.py
+    - extract_prefill_batch.py
+steps:
+  - id: prepare_phi3_manifest_1876
+    requires: []
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/prepare_diagnostic_recovery_manifest.py
+      - --input
+      - /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/vt_merged_primary_assigned_only.jsonl
+      - --output
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/manifests/phi3_5_vision_1876.jsonl
+      - --expected-rows
+      - "1876"
+      - --dataset
+      - in_domain_recovery_20260727
+      - --split
+      - recovery_all
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/manifests/phi3_5_vision_1876.jsonl, expected_rows: 1876}
+  - id: prepare_phi4_manifest_1939
+    requires: [prepare_phi3_manifest_1876]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/prepare_diagnostic_recovery_manifest.py
+      - --input
+      - /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/va_merged_primary_assigned_only.jsonl
+      - --output
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/manifests/phi4_multimodal_1939.jsonl
+      - --expected-rows
+      - "1939"
+      - --dataset
+      - in_domain_recovery_20260727
+      - --split
+      - recovery_all
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/manifests/phi4_multimodal_1939.jsonl, expected_rows: 1939}
+  - id: llava_train_missing_tme_checkpoint
+    requires: [prepare_phi4_manifest_1939]
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        PYTHONPATH=src CUDA_VISIBLE_DEVICES=0
+        /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+        scripts/train_trajectory_encoder.py
+        --dataset /home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/cache_matrix_20260722/relation_data/llava_v1_5_7b/VT/vt_main_p8_seed20260717/relation_dataset.jsonl
+        --config /home/team/zhanghaonan/TAFFC/mprisk-v2/configs/experiments/cache_matrix_20260722/llava_v1_5_7b_tme_sdr.yaml
+        --output-dir /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/training
+        --device cuda:0
+    completion:
+      - {kind: file, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/training/best_checkpoint.pt}
+  - id: llava_export_with_receipt
+    requires: [llava_train_missing_tme_checkpoint]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/export_trained_embeddings.py
+      - --dataset
+      - /home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/cache_matrix_20260722/relation_data/llava_v1_5_7b/VT/vt_main_p8_seed20260717/relation_dataset.jsonl
+      - --checkpoint
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/training/best_checkpoint.pt
+      - --output-dir
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/frozen_export
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/frozen_export/spherical_embedding_manifest.jsonl, expected_rows: 1876}
+      - {kind: file, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/frozen_export/spherical_embedding_manifest.receipt.json}
+  - id: llava_sdr
+    requires: [llava_export_with_receipt]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/compute_sdr_scores.py
+      - --embedding-manifest
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/frozen_export/spherical_embedding_manifest.jsonl
+      - --output-dir
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/sdr
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b/sdr/sdr_scores.jsonl, expected_rows: 1876}
+  - id: phi3_descriptions_1876
+    requires: [llava_sdr]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/watch_diagnostic_affect_descriptions.py
+      - --config
+      - configs/recovery/phi3_5_vision_descriptions_20260727.yaml
+      - --stall-timeout-seconds
+      - "1800"
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/descriptions/manifest.jsonl, expected_rows: 1876}
+  - id: phi3_judgments_relation_training_calibrate_sdr
+    requires: [phi3_descriptions_1876]
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        test -x
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi3_judgments_relation_training_calibrate_sdr.sh
+        &&
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi3_judgments_relation_training_calibrate_sdr.sh
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/sdr/sdr_scores.jsonl, expected_rows: 1876}
+  - id: phi4_descriptions_1939
+    requires: [phi3_judgments_relation_training_calibrate_sdr]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/watch_diagnostic_affect_descriptions.py
+      - --config
+      - configs/recovery/phi4_multimodal_descriptions_20260727.yaml
+      - --stall-timeout-seconds
+      - "1800"
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/descriptions/manifest.jsonl, expected_rows: 1939}
+  - id: phi4_formal_1934_and_5_unmatched
+    requires: [phi4_descriptions_1939]
+    command:
+      - /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+      - scripts/build_formal_sample_intersection.py
+      - --input
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/descriptions/manifest.jsonl
+      - --formal-manifest
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_va.jsonl
+      - --output
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/formal_1934/descriptions.jsonl
+      - --report
+      - /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/formal_1934/unmatched_report.json
+      - --expected-input
+      - "1939"
+      - --expected-formal
+      - "1934"
+      - --expected-unmatched
+      - "5"
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/formal_1934/descriptions.jsonl, expected_rows: 1934}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/formal_1934/unmatched_report.json, field: unmatched_count, equals: 5}
+  - id: phi4_judgments_1939
+    requires: [phi4_formal_1934_and_5_unmatched]
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        test -x
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi4_judgments_1939.sh
+        &&
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi4_judgments_1939.sh
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/judgments/judgments.jsonl, expected_rows: 1939}
+  - id: phi4_formal_relation_training_calibrate_sdr
+    requires: [phi4_judgments_1939]
+    command:
+      - /bin/bash
+      - -lc
+      - >-
+        test -x
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi4_formal_1934_relation_training_calibrate_sdr.sh
+        &&
+        /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/commands/phi4_formal_1934_relation_training_calibrate_sdr.sh
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal/formal_1934/sdr/sdr_scores.jsonl, expected_rows: 1934}
