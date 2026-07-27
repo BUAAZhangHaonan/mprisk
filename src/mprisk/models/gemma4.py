@@ -237,6 +237,7 @@ class Gemma4Wrapper(BaseModelWrapper):
             import transformers
 
             transformers_version = transformers.__version__
+        weight_file = _single_weight_file(self.model_path)
         provenance = {
             "schema": "mprisk_gemma_4_prefill_provenance_v1",
             "model_path": str(self.model_path),
@@ -252,6 +253,8 @@ class Gemma4Wrapper(BaseModelWrapper):
             "hidden_size": self.expected_hidden_dim,
             "hidden_state_index_offset": 1,
             "model_config_sha256": _sha256(self.model_path / "config.json"),
+            "weight_file_path": weight_file.name,
+            "weight_file_sha256": _sha256(weight_file),
             "elapsed_seconds": elapsed_seconds,
             "peak_gpu_memory_bytes": peak_gpu_bytes,
             "media_keys": _media_keys(media),
@@ -693,3 +696,21 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _single_weight_file(model_path: Path) -> Path:
+    indexes = [
+        model_path / name
+        for name in ("model.safetensors.index.json", "pytorch_model.bin.index.json")
+        if (model_path / name).is_file()
+    ]
+    candidates = [
+        model_path / name
+        for name in ("model.safetensors", "pytorch_model.bin")
+        if (model_path / name).is_file()
+    ]
+    if indexes or len(candidates) != 1:
+        raise ValueError(
+            f"Gemma-4 requires one unambiguous single-file checkpoint: {model_path}"
+        )
+    return candidates[0]

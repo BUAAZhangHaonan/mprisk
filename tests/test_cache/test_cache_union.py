@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import mprisk.cache.cache_union as cache_union
 from mprisk.cache.cache_union import (
     CacheSource,
     CacheUnionError,
@@ -83,6 +84,16 @@ def _make_model(tmp_path: Path) -> tuple[Path, str, str]:
     return model, _sha256(config), _sha256(weight_index)
 
 
+def _make_single_model(tmp_path: Path) -> tuple[Path, str, str]:
+    model = tmp_path / "model"
+    model.mkdir()
+    config = model / "config.json"
+    weight_file = model / "model.safetensors"
+    config.write_text('{"model":"fake"}\n', encoding="utf-8")
+    weight_file.write_bytes(b"single-file weights")
+    return model, _sha256(config), _sha256(weight_file)
+
+
 def _make_code_repo(tmp_path: Path, *, marker: str = "same") -> Path:
     repository = tmp_path / f"code-{marker}"
     paths = (
@@ -144,6 +155,7 @@ def _source(
     code_repo: Path,
     config_sha256: str,
     weight_sha256: str,
+    weight_file_path: str | None = None,
     status: str = "completed",
 ) -> CacheSource:
     return _source_many(
@@ -154,6 +166,7 @@ def _source(
         code_repo=code_repo,
         config_sha256=config_sha256,
         weight_sha256=weight_sha256,
+        weight_file_path=weight_file_path,
         statuses={_task_id(request): status},
     )
 
@@ -167,6 +180,7 @@ def _source_many(
     code_repo: Path,
     config_sha256: str,
     weight_sha256: str,
+    weight_file_path: str | None = None,
     statuses: dict[str, str] | None = None,
 ) -> CacheSource:
     source_root = tmp_path / source_id
@@ -205,7 +219,14 @@ def _source_many(
                 "hidden_size": 3,
                 "hidden_state_index_offset": 1,
                 "model_config_sha256": config_sha256,
-                "weight_index_sha256": weight_sha256,
+                **(
+                    {
+                        "weight_file_path": weight_file_path,
+                        "weight_file_sha256": weight_sha256,
+                    }
+                    if weight_file_path is not None
+                    else {"weight_index_sha256": weight_sha256}
+                ),
                 "video_fps": None if request.condition == "M2" else 1.0,
             },
         )
@@ -277,6 +298,63 @@ def _set_evidence_strategy(source: CacheSource, *, strategy: str, version: str) 
         _canonical(fingerprint_input).encode()
     ).hexdigest()
     source.evidence_path.write_text(json.dumps(payload), encoding="utf-8")
+
+
+def test_model_asset_inventory_supports_single_file_checkpoint(
+    tmp_path: Path,
+) -> None:
+    model, _, weight_sha = _make_single_model(tmp_path)
+    inventory = cache_union._model_asset_inventory(str(model))
+    assert inventory["checkpoint_layout"] == "single_file"
+    assert inventory["weight_file_path"] == "model.safetensors"
+    assert "weight_index_path" not in inventory
+    weight = next(
+        item for item in inventory["files"] if item["path"] == "model.safetensors"
+    )
+    assert weight["role"] == "weight_file"
+    assert weight["sha256"] == weight_sha
+
+
+def test_union_accepts_single_file_evidence_and_rejects_hash_mismatch(
+    tmp_path: Path,
+) -> None:
+    model, config_sha, weight_sha = _make_single_model(tmp_path)
+    code_repo = _make_code_repo(tmp_path)
+    request = _request("single", split="train")
+    signature = _signature(model, manifest="single")
+    source = _source(
+        tmp_path,
+        source_id="single-source",
+        request=request,
+        signature=signature,
+        code_repo=code_repo,
+        config_sha256=config_sha,
+        weight_sha256=weight_sha,
+        weight_file_path="model.safetensors",
+    )
+    build_cache_union(
+        expected_tasks=[_expected(request)],
+        expected_signature=signature,
+        sources=[source],
+        output_path=tmp_path / "single-union.json",
+        expected_resolved_tasks=1,
+        expected_raw_tasks=1,
+        checksum_workers=1,
+    )
+
+    _set_runtime_provenance_field(
+        source, request, "weight_file_sha256", "0" * 64
+    )
+    with pytest.raises(CacheUnionError, match="weight file is not in evidence"):
+        build_cache_union(
+            expected_tasks=[_expected(request)],
+            expected_signature=signature,
+            sources=[source],
+            output_path=tmp_path / "single-union-mismatch.json",
+            expected_resolved_tasks=1,
+            expected_raw_tasks=1,
+            checksum_workers=1,
+        )
 
 
 def test_union_resolves_disjoint_sources_and_attaches_only_new_split(tmp_path: Path) -> None:

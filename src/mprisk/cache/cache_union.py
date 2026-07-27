@@ -92,12 +92,15 @@ RUNTIME_PROVENANCE_FIELDS = (
     "hidden_state_index_offset",
     "model_config_sha256",
     "weight_index_sha256",
+    "weight_file_path",
+    "weight_file_sha256",
     "video_fps",
     "video_num_segments",
     "internvl_max_num",
 )
 MODEL_RUNTIME_ASSET_SUFFIXES = frozenset({".json", ".model", ".py", ".tiktoken", ".txt"})
 WEIGHT_INDEX_FILENAMES = ("model.safetensors.index.json", "pytorch_model.bin.index.json")
+SINGLE_WEIGHT_FILENAMES = ("model.safetensors", "pytorch_model.bin")
 TASK_IDENTITY_SCHEMA = "mprisk_cache_task_identity_v1"
 
 
@@ -703,8 +706,7 @@ def _validate_and_materialize_entry(
     if provenance.get("stored_dtype") != "float32":
         raise CacheUnionError(f"Unexpected stored dtype: {expected.task_id}")
     model_config_sha256 = provenance.get("model_config_sha256")
-    weight_index_sha256 = provenance.get("weight_index_sha256")
-    if not isinstance(model_config_sha256, str) or not isinstance(weight_index_sha256, str):
+    if not isinstance(model_config_sha256, str):
         raise CacheUnionError(f"Model artifact hashes are missing: {expected.task_id}")
     asset_files = {
         str(item["path"]): item
@@ -712,12 +714,42 @@ def _validate_and_materialize_entry(
         if isinstance(item, dict) and "path" in item
     }
     config_asset = asset_files.get("config.json")
-    weight_index_path = source_task.model_asset_inventory.get("weight_index_path")
-    weight_index_asset = asset_files.get(str(weight_index_path))
     if config_asset is None or config_asset.get("sha256") != model_config_sha256:
         raise CacheUnionError(f"Provenance model config is not in evidence: {expected.task_id}")
-    if weight_index_asset is None or weight_index_asset.get("sha256") != weight_index_sha256:
-        raise CacheUnionError(f"Provenance weight index is not in evidence: {expected.task_id}")
+    weight_index_path = source_task.model_asset_inventory.get("weight_index_path")
+    weight_file_path = source_task.model_asset_inventory.get("weight_file_path")
+    if isinstance(weight_index_path, str) and weight_file_path is None:
+        weight_index_sha256 = provenance.get("weight_index_sha256")
+        weight_index_asset = asset_files.get(weight_index_path)
+        if (
+            not isinstance(weight_index_sha256, str)
+            or weight_index_asset is None
+            or weight_index_asset.get("sha256") != weight_index_sha256
+        ):
+            raise CacheUnionError(
+                f"Provenance weight index is not in evidence: {expected.task_id}"
+            )
+    elif (
+        source_task.model_asset_inventory.get("checkpoint_layout") == "single_file"
+        and isinstance(weight_file_path, str)
+        and weight_index_path is None
+    ):
+        weight_file_sha256 = provenance.get("weight_file_sha256")
+        provenance_weight_file_path = provenance.get("weight_file_path")
+        weight_file_asset = asset_files.get(weight_file_path)
+        if (
+            provenance_weight_file_path != weight_file_path
+            or not isinstance(weight_file_sha256, str)
+            or weight_file_asset is None
+            or weight_file_asset.get("sha256") != weight_file_sha256
+        ):
+            raise CacheUnionError(
+                f"Provenance weight file is not in evidence: {expected.task_id}"
+            )
+    else:
+        raise CacheUnionError(
+            f"Model checkpoint layout is invalid: {expected.task_id}"
+        )
     runtime_payload = {
         field: provenance.get(field)
         for field in RUNTIME_PROVENANCE_FIELDS
@@ -1015,19 +1047,39 @@ def _model_asset_inventory(model_path: str) -> dict[str, Any]:
     root = Path(model_path).expanduser().resolve()
     if not root.is_dir():
         raise CacheUnionError(f"Model asset directory does not exist: {root}")
-    weight_index = next(
-        (root / name for name in WEIGHT_INDEX_FILENAMES if (root / name).is_file()),
-        None,
-    )
-    if weight_index is None:
-        raise CacheUnionError(f"Model weight index does not exist: {root}")
-    index_payload = _read_json(weight_index)
-    weight_map = index_payload.get("weight_map")
-    if not isinstance(weight_map, dict) or not weight_map:
-        raise CacheUnionError(f"Model weight index has no weight_map: {weight_index}")
-    shard_names = sorted({str(value) for value in weight_map.values()})
-    if any(Path(name).is_absolute() or ".." in Path(name).parts for name in shard_names):
-        raise CacheUnionError(f"Model weight index contains unsafe shard paths: {weight_index}")
+    weight_indexes = [
+        root / name for name in WEIGHT_INDEX_FILENAMES if (root / name).is_file()
+    ]
+    single_weights = [
+        root / name for name in SINGLE_WEIGHT_FILENAMES if (root / name).is_file()
+    ]
+    if len(weight_indexes) > 1:
+        raise CacheUnionError(f"Model has multiple weight indexes: {root}")
+    if len(single_weights) > 1:
+        raise CacheUnionError(f"Model has multiple single-file weights: {root}")
+    if weight_indexes and single_weights:
+        raise CacheUnionError(f"Model has ambiguous checkpoint layouts: {root}")
+    if weight_indexes:
+        weight_index = weight_indexes[0]
+        index_payload = _read_json(weight_index)
+        weight_map = index_payload.get("weight_map")
+        if not isinstance(weight_map, dict) or not weight_map:
+            raise CacheUnionError(f"Model weight index has no weight_map: {weight_index}")
+        weight_names = sorted({str(value) for value in weight_map.values()})
+        if any(
+            Path(name).is_absolute() or ".." in Path(name).parts
+            for name in weight_names
+        ):
+            raise CacheUnionError(
+                f"Model weight index contains unsafe shard paths: {weight_index}"
+            )
+        layout = "indexed_sharded"
+    elif single_weights:
+        weight_index = None
+        weight_names = [single_weights[0].name]
+        layout = "single_file"
+    else:
+        raise CacheUnionError(f"Model checkpoint weights do not exist: {root}")
     runtime_assets = {
         path
         for path in root.rglob("*")
@@ -1035,27 +1087,43 @@ def _model_asset_inventory(model_path: str) -> dict[str, Any]:
         and path.suffix.lower() in MODEL_RUNTIME_ASSET_SUFFIXES
         and ".git" not in path.relative_to(root).parts
     }
-    referenced_shards = {root / name for name in shard_names}
-    missing_shards = sorted(str(path) for path in referenced_shards if not path.is_file())
-    if missing_shards:
-        raise CacheUnionError(f"Model weight shards are missing: {missing_shards[:3]}")
+    referenced_weights = {root / name for name in weight_names}
+    missing_weights = sorted(
+        str(path) for path in referenced_weights if not path.is_file()
+    )
+    if missing_weights:
+        raise CacheUnionError(f"Model weight files are missing: {missing_weights[:3]}")
     files = []
-    for path in sorted(runtime_assets | referenced_shards):
+    for path in sorted(runtime_assets | referenced_weights):
         relative = path.relative_to(root).as_posix()
         files.append(
             {
                 "path": relative,
                 "bytes": path.stat().st_size,
                 "sha256": _sha256_file(path),
-                "role": "weight_shard" if path in referenced_shards else "runtime_asset",
+                "role": (
+                    "weight_file"
+                    if layout == "single_file" and path in referenced_weights
+                    else "weight_shard"
+                    if path in referenced_weights
+                    else "runtime_asset"
+                ),
             }
         )
     if "config.json" not in {item["path"] for item in files}:
         raise CacheUnionError(f"Model config.json is missing: {root}")
+    if layout == "indexed_sharded":
+        assert weight_index is not None
+        return {
+            "model_path": str(root),
+            "weight_index_path": weight_index.relative_to(root).as_posix(),
+            "referenced_weight_shards": weight_names,
+            "files": files,
+        }
     return {
         "model_path": str(root),
-        "weight_index_path": weight_index.relative_to(root).as_posix(),
-        "referenced_weight_shards": shard_names,
+        "checkpoint_layout": "single_file",
+        "weight_file_path": weight_names[0],
         "files": files,
     }
 

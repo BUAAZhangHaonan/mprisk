@@ -38,6 +38,12 @@ def _checkpoint(root: Path) -> None:
     )
 
 
+def _single_checkpoint(root: Path, filename: str = "model.safetensors") -> None:
+    root.mkdir()
+    (root / filename).write_bytes(b"single-checkpoint")
+    (root / "config.json").write_text("{}\n", encoding="utf-8")
+
+
 def test_checkpoint_digest_is_deterministic_resumable_and_covers_shards(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -46,6 +52,10 @@ def test_checkpoint_digest_is_deterministic_resumable_and_covers_shards(
     receipt = tmp_path / "receipt.json"
     first = build_checkpoint_digest(
         model, receipt_path=receipt, write_receipt=True
+    )
+    assert (
+        first["checkpoint_sha256"]
+        == "0f678cc77ba26b5d415fc3e34cad6165ba5264cc1773c7ff2a4a74904ab6d518"
     )
     calls = []
     original = integrity._sha256_file
@@ -72,6 +82,91 @@ def test_checkpoint_digest_is_deterministic_resumable_and_covers_shards(
         "weight_shard",
         "weight_shard",
     ]
+
+
+@pytest.mark.parametrize("filename", ["model.safetensors", "pytorch_model.bin"])
+def test_checkpoint_digest_supports_single_file_deterministically_and_resumes(
+    tmp_path: Path, monkeypatch, filename: str
+) -> None:
+    model = tmp_path / "model"
+    _single_checkpoint(model, filename)
+    receipt = tmp_path / "receipt.json"
+    first = build_checkpoint_digest(
+        model, receipt_path=receipt, write_receipt=True
+    )
+    assert first["complete"] is True
+    assert first["files"][0]["path"] == filename
+    assert first["files"][0]["role"] == "weight_file"
+
+    calls = []
+    original = integrity._sha256_file
+
+    def counted(path: Path) -> str:
+        calls.append(path.name)
+        return original(path)
+
+    monkeypatch.setattr(integrity, "_sha256_file", counted)
+    second = build_checkpoint_digest(
+        model, receipt_path=receipt, write_receipt=True
+    )
+    assert calls == []
+    assert second["checkpoint_sha256"] == first["checkpoint_sha256"]
+
+    (model / filename).write_bytes(b"changed")
+    third = build_checkpoint_digest(
+        model, receipt_path=receipt, write_receipt=True
+    )
+    assert calls == [filename]
+    assert third["checkpoint_sha256"] != first["checkpoint_sha256"]
+
+
+@pytest.mark.parametrize(
+    "filenames,error",
+    [
+        (
+            ("model.safetensors", "pytorch_model.bin"),
+            "multiple single-file weights",
+        ),
+        (
+            ("model.safetensors", "model.safetensors.index.json"),
+            "ambiguous checkpoint layouts",
+        ),
+        ((), "checkpoint weights do not exist"),
+    ],
+)
+def test_checkpoint_digest_rejects_ambiguous_or_missing_layouts(
+    tmp_path: Path, filenames: tuple[str, ...], error: str
+) -> None:
+    model = tmp_path / "model"
+    model.mkdir()
+    (model / "config.json").write_text("{}\n", encoding="utf-8")
+    for filename in filenames:
+        if filename.endswith(".index.json"):
+            (model / filename).write_text(
+                json.dumps({"weight_map": {"layer": "shard.safetensors"}}),
+                encoding="utf-8",
+            )
+            (model / "shard.safetensors").write_bytes(b"shard")
+        else:
+            (model / filename).write_bytes(b"weight")
+    with pytest.raises(CacheIntegrityError, match=error):
+        build_checkpoint_digest(model)
+
+
+def test_model_asset_inventory_uses_single_file_contract(tmp_path: Path) -> None:
+    model = tmp_path / "model"
+    _single_checkpoint(model)
+    checkpoint = build_checkpoint_digest(model)
+    asset = integrity.build_model_asset_inventory(
+        model, checkpoint_receipt=checkpoint
+    )
+    inventory = asset["inventory"]
+    assert inventory["checkpoint_layout"] == "single_file"
+    assert inventory["weight_file_path"] == "model.safetensors"
+    assert "weight_index_path" not in inventory
+    assert next(
+        item for item in inventory["files"] if item["path"] == "model.safetensors"
+    )["role"] == "weight_file"
 
 
 def test_checkpoint_digest_keeps_partial_receipt_after_fault(

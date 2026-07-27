@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from types import SimpleNamespace
 
@@ -32,6 +33,7 @@ def _model_dir(tmp_path):
         ),
         encoding="utf-8",
     )
+    (model_dir / "model.safetensors").write_bytes(b"gemma4 weights")
     return model_dir
 
 
@@ -269,3 +271,7 @@ def test_gemma4_extracts_joint_video_and_audio(monkeypatch, tmp_path):
     }
     assert result.provenance["requested_frames"] == 4
     assert result.provenance["actual_frames"] == 4
+    assert result.provenance["weight_file_path"] == "model.safetensors"
+    assert result.provenance["weight_file_sha256"] == hashlib.sha256(
+        b"gemma4 weights"
+    ).hexdigest()

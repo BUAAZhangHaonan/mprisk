@@ -21,6 +21,10 @@ WEIGHT_INDEX_FILENAMES = (
     "model.safetensors.index.json",
     "pytorch_model.bin.index.json",
 )
+SINGLE_WEIGHT_FILENAMES = (
+    "model.safetensors",
+    "pytorch_model.bin",
+)
 MODEL_RUNTIME_ASSET_SUFFIXES = frozenset(
     {".json", ".model", ".py", ".tiktoken", ".txt"}
 )
@@ -74,8 +78,11 @@ def build_checkpoint_digest(
     each file so an interrupted audit resumes without rereading finished shards.
     """
     root = Path(model_path).expanduser().resolve()
-    index_path, shard_names = _checkpoint_files(root)
-    paths = [index_path, *(root / name for name in shard_names)]
+    layout, index_path, weight_names = _checkpoint_files(root)
+    paths = [
+        *((index_path,) if index_path is not None else ()),
+        *(root / name for name in weight_names),
+    ]
     receipt = None if receipt_path is None else Path(receipt_path).expanduser().resolve()
     previous = _load_optional_json(receipt)
     reusable = {
@@ -100,7 +107,13 @@ def build_checkpoint_digest(
                 "path": relative,
                 "bytes": int(stat["size"]),
                 "sha256": sha256,
-                "role": "weight_index" if path == index_path else "weight_shard",
+                "role": (
+                    "weight_index"
+                    if index_path is not None and path == index_path
+                    else "weight_file"
+                    if layout == "single_file"
+                    else "weight_shard"
+                ),
                 "stat": stat,
             }
         )
@@ -110,15 +123,17 @@ def build_checkpoint_digest(
             _write_checkpoint_receipt(
                 receipt,
                 root=root,
+                layout=layout,
                 index_path=index_path,
-                shard_names=shard_names,
+                weight_names=weight_names,
                 records=records,
                 complete=False,
             )
     payload = _checkpoint_payload(
         root=root,
+        layout=layout,
         index_path=index_path,
-        shard_names=shard_names,
+        weight_names=weight_names,
         records=records,
         complete=True,
     )
@@ -180,13 +195,13 @@ def build_model_asset_inventory(
 ) -> dict[str, Any]:
     """Build the cache-union-compatible model asset inventory."""
     root = Path(model_path).expanduser().resolve()
-    index_path, shard_names = _checkpoint_files(root)
+    layout, index_path, weight_names = _checkpoint_files(root)
     checkpoint_hashes = {
         str(item["path"]): str(item["sha256"])
         for item in checkpoint_receipt.get("files", [])
         if isinstance(item, dict)
     }
-    referenced = {root / name for name in shard_names}
+    referenced = {root / name for name in weight_names}
     runtime_assets = {
         path
         for path in root.rglob("*")
@@ -202,17 +217,32 @@ def build_model_asset_inventory(
                 "path": relative,
                 "bytes": path.stat().st_size,
                 "sha256": checkpoint_hashes.get(relative) or _sha256_file(path),
-                "role": "weight_shard" if path in referenced else "runtime_asset",
+                "role": (
+                    "weight_file"
+                    if layout == "single_file" and path in referenced
+                    else "weight_shard"
+                    if path in referenced
+                    else "runtime_asset"
+                ),
             }
         )
     if "config.json" not in {item["path"] for item in files}:
         raise CacheIntegrityError(f"Model config.json is missing: {root}")
-    inventory = {
-        "model_path": str(root),
-        "weight_index_path": index_path.relative_to(root).as_posix(),
-        "referenced_weight_shards": shard_names,
-        "files": files,
-    }
+    if layout == "indexed_sharded":
+        assert index_path is not None
+        inventory = {
+            "model_path": str(root),
+            "weight_index_path": index_path.relative_to(root).as_posix(),
+            "referenced_weight_shards": weight_names,
+            "files": files,
+        }
+    else:
+        inventory = {
+            "model_path": str(root),
+            "checkpoint_layout": "single_file",
+            "weight_file_path": weight_names[0],
+            "files": files,
+        }
     return {
         "inventory": inventory,
         "sha256": _fingerprint(inventory),
@@ -508,15 +538,26 @@ def _validate_equivalence_waiver(
         raise CacheIntegrityError("Equivalence waiver approved_by is required")
 
 
-def _checkpoint_files(root: Path) -> tuple[Path, list[str]]:
+def _checkpoint_files(root: Path) -> tuple[str, Path | None, list[str]]:
     if not root.is_dir():
         raise CacheIntegrityError(f"Model directory does not exist: {root}")
-    index_path = next(
-        (root / name for name in WEIGHT_INDEX_FILENAMES if (root / name).is_file()),
-        None,
-    )
-    if index_path is None:
-        raise CacheIntegrityError(f"Model weight index does not exist: {root}")
+    index_paths = [
+        root / name for name in WEIGHT_INDEX_FILENAMES if (root / name).is_file()
+    ]
+    single_paths = [
+        root / name for name in SINGLE_WEIGHT_FILENAMES if (root / name).is_file()
+    ]
+    if len(index_paths) > 1:
+        raise CacheIntegrityError(f"Model has multiple weight indexes: {root}")
+    if len(single_paths) > 1:
+        raise CacheIntegrityError(f"Model has multiple single-file weights: {root}")
+    if index_paths and single_paths:
+        raise CacheIntegrityError(f"Model has ambiguous checkpoint layouts: {root}")
+    if not index_paths:
+        if not single_paths:
+            raise CacheIntegrityError(f"Model checkpoint weights do not exist: {root}")
+        return "single_file", None, [single_paths[0].name]
+    index_path = index_paths[0]
     payload = _read_json(index_path)
     weight_map = payload.get("weight_map")
     if not isinstance(weight_map, dict) or not weight_map:
@@ -528,14 +569,15 @@ def _checkpoint_files(root: Path) -> tuple[Path, list[str]]:
             raise CacheIntegrityError(f"Unsafe checkpoint shard path: {name}")
         if not (root / candidate).is_file():
             raise CacheIntegrityError(f"Checkpoint shard is missing: {name}")
-    return index_path, shard_names
+    return "indexed_sharded", index_path, shard_names
 
 
 def _checkpoint_payload(
     *,
     root: Path,
-    index_path: Path,
-    shard_names: list[str],
+    layout: str,
+    index_path: Path | None,
+    weight_names: list[str],
     records: list[dict[str, Any]],
     complete: bool,
 ) -> dict[str, Any]:
@@ -543,15 +585,24 @@ def _checkpoint_payload(
         {key: item[key] for key in ("path", "bytes", "sha256", "role")}
         for item in records
     ]
-    core = {
-        "weight_index_path": index_path.relative_to(root).as_posix(),
-        "referenced_weight_shards": shard_names,
-        "files": deterministic_files,
-    }
+    if layout == "indexed_sharded":
+        assert index_path is not None
+        core = {
+            "weight_index_path": index_path.relative_to(root).as_posix(),
+            "referenced_weight_shards": weight_names,
+            "files": deterministic_files,
+        }
+    else:
+        core = {
+            "checkpoint_layout": "single_file",
+            "weight_file_path": weight_names[0],
+            "files": deterministic_files,
+        }
     return {
         "schema": CHECKPOINT_RECEIPT_SCHEMA,
         "model_path": str(root),
-        "complete": complete and len(records) == len(shard_names) + 1,
+        "complete": complete
+        and len(records) == len(weight_names) + (1 if index_path is not None else 0),
         "checkpoint_sha256": _fingerprint(core),
         "files": records,
     }
@@ -561,8 +612,9 @@ def _write_checkpoint_receipt(
     path: Path,
     *,
     root: Path,
-    index_path: Path,
-    shard_names: list[str],
+    layout: str,
+    index_path: Path | None,
+    weight_names: list[str],
     records: list[dict[str, Any]],
     complete: bool,
 ) -> None:
@@ -570,8 +622,9 @@ def _write_checkpoint_receipt(
         path,
         _checkpoint_payload(
             root=root,
+            layout=layout,
             index_path=index_path,
-            shard_names=shard_names,
+            weight_names=weight_names,
             records=records,
             complete=complete,
         ),
