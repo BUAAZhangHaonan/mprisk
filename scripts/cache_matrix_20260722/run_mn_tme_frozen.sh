@@ -3,7 +3,7 @@
 # train only the M/N head (CE loss). Falls back to nothing if checkpoint missing.
 #
 # Usage: run_mn_tme_frozen.sh MODEL SEED GPU
-# Deps:  outputs/cache_matrix_20260722/runs/ca_tme/<model>_seed<seed>/best_checkpoint.pt
+# Deps:  outputs/cache_matrix_20260722/runs/ca_tme_gru/<model>_seed<seed>/best_checkpoint.pt
 #        (arch layer_l2_gru_linear_relation_v1, written by C/A TME driver)
 # Output: outputs/cache_matrix_20260722/runs/mn_tme_frozen/<model>_seed<seed>/
 set -euo pipefail
@@ -38,7 +38,7 @@ else
 fi
 
 # C/A TME-GRU best_checkpoint (GRU arch, condition_encoder.* keys).
-PA_CKPT=outputs/cache_matrix_20260722/runs/ca_tme/${MODEL}_seed${SEED}/best_checkpoint.pt
+PA_CKPT=outputs/cache_matrix_20260722/runs/ca_tme_gru/${MODEL}_seed${SEED}/best_checkpoint.pt
 
 OUT=outputs/cache_matrix_20260722/runs/mn_tme_frozen/${MODEL}_seed${SEED}
 if [ -f "$OUT/metrics.json" ]; then
