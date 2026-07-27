@@ -8,7 +8,9 @@ cd "$(dirname "$0")/../../"
 source /home/team/zhanghaonan/miniconda3/etc/profile.d/conda.sh
 conda activate mprisk
 
-MODELS=(gemma3_12b gemma3_4b glm4_6v_flash llava_onevision_qwen2_7b minicpm_v_2_6 minicpm_v_4_5 internvl3_5_8b qwen2_5_vl_7b qwen3_5_4b qwen3_5_9b qwen3_vl_8b gemma4_12b qwen2_5_omni_7b)
+MODELS=(gemma3_12b gemma3_4b gemma4_12b glm4_6v_flash llava_onevision_qwen2_7b \
+        llava_v1_5_7b minicpm_v_2_6 minicpm_v_4_5 internvl3_5_8b phi3_5_vision \
+        phi4_multimodal qwen2_5_omni_7b qwen2_5_vl_7b qwen3_5_4b qwen3_5_9b qwen3_vl_8b)
 IFS=',' read -ra GPUS <<< "${GPUS:-0,1}"
 
 mkdir -p outputs/cache_matrix_20260722/_logs

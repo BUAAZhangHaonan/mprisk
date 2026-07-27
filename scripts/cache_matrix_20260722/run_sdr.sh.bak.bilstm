@@ -49,8 +49,8 @@ PROMPT_CACHE_MANIFEST=$SETUP_ROOT/prompt_cache_manifest.jsonl
 PROMPT_CONDITIONED_MANIFEST=$SETUP_ROOT/prompt_conditioned_cache/$MODEL/${PROTO,,}/$PROMPT_SET_KEY/manifest.jsonl
 
 # Frozen TME BiLSTM encoder checkpoint (use seed 20260717 as canonical).
-TME_RUN=outputs/cache_matrix_20260722/runs/ca_tme_gru/${MODEL}_seed20260717
-ENCODER_CKPT=$TME_RUN/best_checkpoint.pt
+TME_RUN=outputs/cache_matrix_20260722/runs/tme_bilstm/${MODEL}_seed20260717
+ENCODER_CKPT=$TME_RUN/best_encoder.pt
 
 # layer_count is model-specific; read it from the source cache manifest's
 # first row. Falls back to 36 if the manifest is missing or unreadable.
@@ -75,7 +75,7 @@ FILTERED_MANIFEST=$FILTERED_CACHE_ROOT/unified_full_cache_manifest.json
 
 # Enriched checkpoint: train_tme_e2e.py's best_encoder.pt remapped to the
 # SphericalTME_BiLSTM state_dict layout + the SDR-pipeline-required fields.
-ENRICHED_CKPT=$TME_RUN/best_checkpoint.pt  # C/A GRU ckpt is already SDR-ready (no enrich needed)
+ENRICHED_CKPT=$TME_RUN/best_encoder.enriched.pt
 
 OUT_ROOT=outputs/cache_matrix_20260722/sdr/$MODEL
 STATE_PATTERN_FILE=$OUT_ROOT/outputs/states/$MODEL/${PROTO^^}/$PROMPT_SET_KEY/tme_proxy_anchor_v1/state_patterns.jsonl
@@ -145,10 +145,17 @@ if [ ! -f "$FILTERED_MANIFEST" ]; then
     --canonical-prompt pregen_risk_v1_p001 2>&1 | tee "$LOG"
 fi
 
-# C/A GRU best_checkpoint.pt is already SDR-compatible; no enrich step.
-# (Idempotency: ENRICHED_CKPT == ENCODER_CKPT; both point at best_checkpoint.pt)
-if [ ! -f "$ENRICHED_CKPT" ]; then
-  echo "[FATAL] ENRICHED_CKPT missing: $ENRICHED_CKPT" >&2; exit 2
+# Enrich the train_tme_e2e.py checkpoint for the SDR pipeline (idempotent).
+if [ ! -f "$ENRICHED_CKPT" ] || [ "$ENCODER_CKPT" -nt "$ENRICHED_CKPT" ]; then
+  echo "[SDR] Enriching checkpoint for $MODEL -> $ENRICHED_CKPT"
+  PYTHONPATH=src python scripts/cache_matrix_20260722/enrich_checkpoint.py \
+    --in-ckpt "$ENCODER_CKPT" \
+    --out-ckpt "$ENRICHED_CKPT" \
+    --encoder-type bilstm \
+    --model-key "$MODEL" \
+    --protocol "${PROTO,,}" \
+    --prompt-set "$PROMPT_SET" \
+    --layer-count "$LAYER_COUNT" 2>&1 | tee "$LOG"
 fi
 
 # Reuse calibration's frozen embeddings so the SDR scoring identity matches
