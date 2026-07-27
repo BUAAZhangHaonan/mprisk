@@ -1,0 +1,25 @@
+schema_name: mprisk_diagnostic_generation_policies_v1
+default:
+  policy_id: diagnostic_greedy_v1
+  prompt_suffix: ""
+  generation_kwargs:
+    do_sample: false
+    num_beams: 1
+    max_new_tokens: 64
+models:
+  phi3_5_vision:
+    policy_id: phi3_5_vision_plain_affect_v1
+    prompt_suffix: "Use plain English to describe only the person's affect, and do not output code, instructions, headings, or markup."
+    generation_kwargs:
+      do_sample: false
+      num_beams: 1
+      max_new_tokens: 256
+  phi4_multimodal:
+    policy_id: phi4_multimodal_antirepetition_v1
+    prompt_suffix: ""
+    generation_kwargs:
+      do_sample: false
+      num_beams: 1
+      max_new_tokens: 512
+      repetition_penalty: 1.1
+      no_repeat_ngram_size: 3

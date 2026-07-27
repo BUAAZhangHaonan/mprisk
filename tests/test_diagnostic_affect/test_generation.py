@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from mprisk.diagnostic_affect.generation import (
     CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
@@ -76,7 +77,7 @@ def _model_path(tmp_path: Path) -> Path:
 
 def _plan(tmp_path: Path, *, protocol: str = "VT"):
     return build_diagnostic_affect_description_plan(
-        schema_name="mprisk_diagnostic_affect_description_config_v2",
+        schema_name="mprisk_diagnostic_affect_description_config_v3",
         run_id="diagnostic-affect-test-v2",
         manifest_path=_write_manifest(tmp_path),
         subject_model_key="subject_model",
@@ -96,7 +97,7 @@ def test_plan_uses_explicit_identity_and_does_not_leak_annotations(tmp_path: Pat
     assert plan.counts == {"VT": 2}
     assert plan.signature["subject_model_key"] == "subject_model"
     assert plan.signature["schema_name"] == (
-        "mprisk_diagnostic_affect_description_signature_v2"
+        "mprisk_diagnostic_affect_description_signature_v3"
     )
     assert plan.signature["run_id"] == "diagnostic-affect-test-v2"
     assert plan.signature["model_family"] == "subject_family"
@@ -126,6 +127,54 @@ def test_va_plan_uses_joint_vision_audio_condition(tmp_path: Path) -> None:
         assert set(task.request.media_paths) == {"vision", "audio"}
         assert task.request.messages[0]["content"][-1]["text"] == (
             CANONICAL_DIAGNOSTIC_AFFECT_PROMPT
+        )
+
+
+def test_phi3_policy_is_bound_to_prompt_and_request_signature(tmp_path: Path) -> None:
+    suffix = (
+        "Use plain English to describe only the person's affect, and do not output code, "
+        "instructions, headings, or markup."
+    )
+    plan = build_diagnostic_affect_description_plan(
+        schema_name="mprisk_diagnostic_affect_description_config_v3",
+        run_id="phi3-policy-v1",
+        manifest_path=_write_manifest(tmp_path),
+        subject_model_key="phi3_5_vision",
+        model_family="phi3_vision",
+        model_path=_model_path(tmp_path),
+        protocol="VT",
+        condition="M12",
+        dataset="demo",
+        split="test",
+        max_new_tokens=256,
+        prompt_suffix=suffix,
+        generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 256},
+        generation_policy_id="phi3_5_vision_plain_affect_v1",
+        generation_policy_sha256="b" * 64,
+    )
+
+    assert plan.signature["generation_policy_id"] == "phi3_5_vision_plain_affect_v1"
+    assert plan.signature["generation_policy_sha256"] == "b" * 64
+    assert plan.signature["generation_policy"]["max_new_tokens"] == 256
+    assert plan.tasks[0].request.messages[0]["content"][-1]["text"].endswith(suffix)
+
+
+def test_generation_request_rejects_unknown_generate_kwargs() -> None:
+    with pytest.raises(ValueError, match="Unsupported generation kwargs"):
+        GenerationRequest(
+            sample_id="sample",
+            model_key="subject_model",
+            protocol="vt",
+            condition="M12",
+            messages=({"role": "user", "content": ({"type": "text", "text": "x"},)},),
+            media_paths={},
+            use_audio_in_video=False,
+            generation_kwargs={
+                "do_sample": False,
+                "num_beams": 1,
+                "max_new_tokens": 32,
+                "typo_penalty": 1.1,
+            },
         )
 
 
@@ -202,7 +251,7 @@ def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> Non
     manifest = _write_manifest(tmp_path)
     model_path = _model_path(tmp_path)
     plan = build_diagnostic_affect_description_plan(
-        schema_name="mprisk_diagnostic_affect_description_config_v2",
+        schema_name="mprisk_diagnostic_affect_description_config_v3",
         run_id="diagnostic-affect-test-v2",
         manifest_path=manifest,
         subject_model_key="subject_model",
@@ -266,7 +315,7 @@ def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> Non
 
 def test_config_is_strict_and_rejects_legacy_schema(tmp_path: Path) -> None:
     config = {
-        "schema_name": "mprisk_diagnostic_affect_description_config_v2",
+        "schema_name": "mprisk_diagnostic_affect_description_config_v3",
         "run_id": "test-v2",
         "asset_config": "assets.yaml",
         "manifest_path": "manifest.jsonl",
@@ -279,12 +328,19 @@ def test_config_is_strict_and_rejects_legacy_schema(tmp_path: Path) -> None:
         "split": "test",
         "device": "cpu",
         "dtype": "bfloat16",
-        "max_new_tokens": 32,
+        "generation_policy_id": "test-policy-v1",
+        "generation_policy_sha256": "a" * 64,
+        "prompt_suffix": "",
+        "generation_kwargs": {
+            "do_sample": False,
+            "num_beams": 1,
+            "max_new_tokens": 32,
+        },
         "video_fps": 1.0,
         "attn_implementation": "sdpa",
     }
     path = tmp_path / "config.yaml"
-    path.write_text("\n".join(f"{key}: {value}" for key, value in config.items()), encoding="utf-8")
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
     assert _read_config(path) == config
     path.write_text(
         "schema_name: mprisk_diagnostic_description_legacy_config_v0\n",

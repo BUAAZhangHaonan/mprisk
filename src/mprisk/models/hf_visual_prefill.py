@@ -11,7 +11,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
+from mprisk.models.base_wrapper import (
+    BaseModelWrapper,
+    GenerationRequest,
+    GenerationResult,
+    PrefillRequest,
+    PrefillResult,
+    generate_with_standard_kwargs,
+)
 
 
 class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
@@ -144,6 +151,64 @@ class HfVisualPrefillWrapper(BaseModelWrapper, ABC):
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_bytes,
                 "thinking_enabled": False,
+                **dict(media_provenance),
+            },
+        )
+
+    def generate_conditioned(self, request: GenerationRequest) -> GenerationResult:
+        """Generate through the same validated processor/media path as prefill."""
+        self._validate_request(request)
+        self.load()
+        if self.model is None or self.processor is None:
+            raise RuntimeError(f"{self.family} wrapper is not fully loaded")
+
+        import torch
+
+        started_at = time.perf_counter()
+        model_inputs, media_provenance = self._prepare_inputs(request)
+        model_inputs = _move_inputs_to_device(model_inputs, self.device)
+        _require_attention_mask(model_inputs, self.family)
+        input_ids = model_inputs.get("input_ids")
+        if input_ids is None or input_ids.ndim != 2 or int(input_ids.shape[0]) != 1:
+            raise ValueError(f"{self.family} generation requires batch-one input_ids")
+        input_token_count = int(input_ids.shape[-1])
+        eos_token_ids = _tokenizer_eos_token_ids(self.processor)
+        eos_token_id: int | list[int] = (
+            eos_token_ids[0] if len(eos_token_ids) == 1 else list(eos_token_ids)
+        )
+        with torch.inference_mode():
+            generated = generate_with_standard_kwargs(
+                self.model,
+                model_inputs,
+                request,
+                eos_token_id=eos_token_id,
+            )
+        token_ids, new_tokens = _new_generation_tokens(
+            generated,
+            input_token_count=input_token_count,
+            family=self.family,
+        )
+        text = self.processor.batch_decode(
+            new_tokens,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+        return GenerationResult(
+            request=request,
+            text=text,
+            token_ids=token_ids,
+            eos_token_ids=eos_token_ids,
+            finish_reason="eos" if token_ids[-1] in eos_token_ids else "max_new_tokens",
+            input_token_count=input_token_count,
+            provenance={
+                "schema": f"mprisk_{self.family}_generation_provenance_v1",
+                "model_path": str(self.model_path),
+                "model_class": self.model.__class__.__name__,
+                "processor_class": self.processor.__class__.__name__,
+                "device": self.device,
+                "attn_implementation": self.attn_implementation,
+                "generation_kwargs": dict(request.generation_kwargs),
+                "elapsed_seconds": time.perf_counter() - started_at,
                 **dict(media_provenance),
             },
         )
@@ -293,6 +358,33 @@ def _token_position(attention_mask: Any) -> tuple[int, int]:
     if non_padding.numel() == 0:
         raise ValueError("attention_mask has no conditioning token")
     return int(attention_mask.shape[-1]), int(non_padding[-1].item())
+
+
+def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
+    tokenizer = getattr(processor, "tokenizer", processor)
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if eos is None:
+        raise ValueError("Processor tokenizer has no eos_token_id")
+    values = eos if isinstance(eos, (list, tuple)) else (eos,)
+    result = tuple(int(value) for value in values)
+    if not result:
+        raise ValueError("Processor tokenizer eos_token_id is empty")
+    return result
+
+
+def _new_generation_tokens(
+    generated: Any,
+    *,
+    input_token_count: int,
+    family: str,
+) -> tuple[tuple[int, ...], Any]:
+    if generated.ndim != 2 or int(generated.shape[0]) != 1:
+        raise ValueError(f"{family} generation requires one generated sequence")
+    new_tokens = generated[:, input_token_count:]
+    if int(new_tokens.shape[-1]) == 0:
+        raise ValueError(f"{family} generated no new tokens")
+    token_ids = tuple(int(value) for value in new_tokens[0].detach().cpu().tolist())
+    return token_ids, new_tokens
 
 
 def _trajectory_from_outputs(

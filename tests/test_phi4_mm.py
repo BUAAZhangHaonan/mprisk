@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from mprisk.models.base_wrapper import PrefillRequest
+from mprisk.models.base_wrapper import GenerationRequest, PrefillRequest
 from mprisk.models.phi4_mm import Phi4MmWrapper
 from mprisk.models.wrapper_registry import get_wrapper
 
@@ -19,6 +19,7 @@ def test_phi4_is_registered() -> None:
 class _FakeProcessor:
     def __init__(self) -> None:
         self.calls = []
+        self.tokenizer = types.SimpleNamespace(eos_token_id=99)
 
     def __call__(self, *, text, images, audios, return_tensors):
         assert return_tensors == "pt"
@@ -32,10 +33,18 @@ class _FakeProcessor:
             "input_audio_embeds": torch.ones((1, 1)) if audios else torch.tensor([]),
         }
 
+    def batch_decode(self, token_ids, **kwargs):
+        assert kwargs == {
+            "skip_special_tokens": True,
+            "clean_up_tokenization_spaces": False,
+        }
+        return ["The person appears emotionally unsettled."]
+
 
 class _FakeModel:
     def __init__(self) -> None:
         self.config = types.SimpleNamespace(num_hidden_layers=2, hidden_size=3)
+        self.generate_kwargs = None
 
     def __call__(self, **kwargs):
         assert kwargs["use_cache"] is False
@@ -44,6 +53,10 @@ class _FakeModel:
             torch.full((1, 5, 3), float(index)) for index in range(3)
         )
         return types.SimpleNamespace(hidden_states=hidden_states)
+
+    def generate(self, **kwargs):
+        self.generate_kwargs = kwargs
+        return torch.tensor([[1, 2, 3, 4, 5, 20, 99]])
 
 
 def _request(tmp_path, condition: str) -> PrefillRequest:
@@ -178,3 +191,64 @@ def test_phi4_rejects_non_va_protocol(tmp_path):
     )
     with pytest.raises(ValueError, match="supports VA only"):
         wrapper.extract_prefill(request)
+
+
+def test_phi4_generation_forwards_registered_policy_through_prefill_processor(
+    tmp_path,
+    monkeypatch,
+):
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    (model_path / "config.json").write_text(
+        json.dumps(
+            {
+                "architectures": ["Phi4MMForCausalLM"],
+                "num_hidden_layers": 2,
+                "hidden_size": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        "mprisk.models.phi4_mm._uniform_video_sample_ffmpeg",
+        lambda path, count: ([object(), object()], {"frames_indices": [0, 1], "total_num_frames": 2}),
+    )
+    monkeypatch.setattr(
+        "mprisk.models.phi4_mm._decode_audio",
+        lambda path: (np.ones(160, dtype=np.float32), 16000),
+    )
+    model = _FakeModel()
+    wrapper = Phi4MmWrapper(
+        model_key="phi4_multimodal",
+        model_path=model_path,
+        device="cpu",
+        video_num_segments=2,
+        model=model,
+        processor=_FakeProcessor(),
+        runtime_versions={"transformers": "4.48.2", "peft": "0.13.2", "torch": torch.__version__},
+    )
+    prefill = _request(tmp_path, "M12")
+    request = GenerationRequest(
+        sample_id=prefill.sample_id,
+        model_key=prefill.model_key,
+        protocol=prefill.protocol,
+        condition=prefill.condition,
+        messages=prefill.messages,
+        media_paths=prefill.media_paths,
+        use_audio_in_video=prefill.use_audio_in_video,
+        generation_kwargs={
+            "do_sample": False,
+            "num_beams": 1,
+            "max_new_tokens": 512,
+            "repetition_penalty": 1.1,
+            "no_repeat_ngram_size": 3,
+        },
+    )
+
+    result = wrapper.generate_conditioned(request)
+
+    assert result.token_ids == (20, 99)
+    assert result.finish_reason == "eos"
+    assert model.generate_kwargs["max_new_tokens"] == 512
+    assert model.generate_kwargs["repetition_penalty"] == 1.1
+    assert model.generate_kwargs["no_repeat_ngram_size"] == 3

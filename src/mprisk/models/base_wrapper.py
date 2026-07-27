@@ -11,6 +11,62 @@ import numpy as np
 
 SUPPORTED_PREFILL_PROTOCOLS = frozenset({"vt", "va", "vta"})
 SUPPORTED_PREFILL_CONDITIONS = frozenset({"M1", "M2", "M12"})
+REQUIRED_GENERATION_KWARGS = frozenset({"do_sample", "num_beams", "max_new_tokens"})
+OPTIONAL_GENERATION_KWARGS = frozenset(
+    {"repetition_penalty", "no_repeat_ngram_size"}
+)
+SUPPORTED_GENERATION_KWARGS = REQUIRED_GENERATION_KWARGS | OPTIONAL_GENERATION_KWARGS
+
+
+def validate_generation_kwargs(value: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the exact standard kwargs that wrappers may pass to ``generate``."""
+    unknown = set(value) - SUPPORTED_GENERATION_KWARGS
+    missing = REQUIRED_GENERATION_KWARGS - set(value)
+    if unknown:
+        raise ValueError(f"Unsupported generation kwargs: {sorted(unknown)}")
+    if missing:
+        raise ValueError(f"Missing required generation kwargs: {sorted(missing)}")
+    if value["do_sample"] is not False or value["num_beams"] != 1:
+        raise ValueError("Generation must be greedy with do_sample=False and num_beams=1")
+    if (
+        isinstance(value["max_new_tokens"], bool)
+        or not isinstance(value["max_new_tokens"], int)
+        or value["max_new_tokens"] <= 0
+    ):
+        raise ValueError("max_new_tokens must be a positive integer")
+    if "repetition_penalty" in value and (
+        isinstance(value["repetition_penalty"], bool)
+        or not isinstance(value["repetition_penalty"], int | float)
+        or not float(value["repetition_penalty"]) > 0.0
+    ):
+        raise ValueError("repetition_penalty must be a positive number")
+    if "no_repeat_ngram_size" in value and (
+        isinstance(value["no_repeat_ngram_size"], bool)
+        or not isinstance(value["no_repeat_ngram_size"], int)
+        or value["no_repeat_ngram_size"] < 0
+    ):
+        raise ValueError("no_repeat_ngram_size must be a non-negative integer")
+    return dict(value)
+
+
+def generate_with_standard_kwargs(
+    model: Any,
+    model_inputs: Mapping[str, Any],
+    request: "GenerationRequest",
+    **model_specific_kwargs: Any,
+) -> Any:
+    """Call the model's official ``generate`` after strict kwarg validation."""
+    generation_kwargs = validate_generation_kwargs(request.generation_kwargs)
+    collisions = set(model_inputs) & set(generation_kwargs)
+    if collisions:
+        raise ValueError(
+            f"Processor output collides with generation kwargs: {sorted(collisions)}"
+        )
+    return model.generate(
+        **dict(model_inputs),
+        **generation_kwargs,
+        **model_specific_kwargs,
+    )
 
 
 @dataclass(frozen=True)
@@ -41,26 +97,12 @@ class GenerationRequest:
             raise ValueError(f"Unsupported generation condition: {self.condition!r}")
         if not self.messages:
             raise ValueError("Generation request messages must not be empty")
-        required = {"do_sample", "num_beams", "max_new_tokens"}
-        if set(self.generation_kwargs) != required:
-            raise ValueError(
-                "Generation kwargs must contain only do_sample, num_beams, max_new_tokens"
-            )
-        if (
-            self.generation_kwargs["do_sample"] is not False
-            or self.generation_kwargs["num_beams"] != 1
-        ):
-            raise ValueError("Generation must be greedy with do_sample=False and num_beams=1")
-        if (
-            not isinstance(self.generation_kwargs["max_new_tokens"], int)
-            or self.generation_kwargs["max_new_tokens"] <= 0
-        ):
-            raise ValueError("max_new_tokens must be a positive integer")
+        generation_kwargs = validate_generation_kwargs(self.generation_kwargs)
         object.__setattr__(self, "protocol", self.protocol.lower())
         object.__setattr__(self, "condition", self.condition.upper())
         object.__setattr__(self, "messages", tuple(dict(message) for message in self.messages))
         object.__setattr__(self, "media_paths", dict(self.media_paths))
-        object.__setattr__(self, "generation_kwargs", dict(self.generation_kwargs))
+        object.__setattr__(self, "generation_kwargs", generation_kwargs)
 
 
 @dataclass(frozen=True)

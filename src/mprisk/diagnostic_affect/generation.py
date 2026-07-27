@@ -11,7 +11,7 @@ import sqlite3
 import tempfile
 import time
 import traceback
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,17 +20,21 @@ from typing import Any
 import yaml
 
 from mprisk.assets.registry import index_assets, load_model_assets
-from mprisk.models.base_wrapper import GenerationRequest, GenerationResult
+from mprisk.models.base_wrapper import (
+    GenerationRequest,
+    GenerationResult,
+    validate_generation_kwargs,
+)
 from mprisk.models.wrapper_registry import get_wrapper
 
 CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "Based on the complete input, describe the person's overall emotional state in one concise "
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
-CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
+CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
 OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v2"
 PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v2"
-SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v2"
+SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v3"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 _SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
 _SUPPORTED_CONDITIONS = frozenset({"M12"})
@@ -65,14 +69,34 @@ def build_diagnostic_affect_description_plan(
     dataset: str,
     split: str,
     max_new_tokens: int,
+    prompt_suffix: str = "",
+    generation_kwargs: Mapping[str, Any] | None = None,
+    generation_policy_id: str = "diagnostic_greedy_v1",
+    generation_policy_sha256: str = "test-generation-policy",
     video_fps: float = 1.0,
     asset_config_sha256: str = "test-asset-config",
     config_sha256: str = "test-config",
     selected_sample_ids: Iterable[str] | None = None,
 ) -> DiagnosticAffectDescriptionPlan:
     """Build a strict sample-level plan from one explicit dataset/protocol/split."""
-    if max_new_tokens <= 0:
-        raise ValueError("max_new_tokens must be positive")
+    if generation_kwargs is None:
+        generation_kwargs = {
+            "do_sample": False,
+            "num_beams": 1,
+            "max_new_tokens": max_new_tokens,
+        }
+    validated_generation_kwargs = validate_generation_kwargs(generation_kwargs)
+    if validated_generation_kwargs["max_new_tokens"] != max_new_tokens:
+        raise ValueError("max_new_tokens disagrees with generation_kwargs")
+    if not isinstance(prompt_suffix, str):
+        raise TypeError("prompt_suffix must be text")
+    if not isinstance(generation_policy_id, str) or not generation_policy_id:
+        raise ValueError("generation_policy_id must be non-empty")
+    if not isinstance(generation_policy_sha256, str) or not generation_policy_sha256:
+        raise ValueError("generation_policy_sha256 must be non-empty")
+    diagnostic_prompt = CANONICAL_DIAGNOSTIC_AFFECT_PROMPT
+    if prompt_suffix:
+        diagnostic_prompt = f"{diagnostic_prompt} {prompt_suffix}"
     if video_fps <= 0:
         raise ValueError("video_fps must be positive")
     protocol = protocol.upper()
@@ -122,12 +146,12 @@ def build_diagnostic_affect_description_plan(
             content.append(
                 {
                     "type": "text",
-                    "text": f"{dialogue}\n\n{CANONICAL_DIAGNOSTIC_AFFECT_PROMPT}",
+                    "text": f"{dialogue}\n\n{diagnostic_prompt}",
                 }
             )
             use_audio_in_video = False
         else:
-            content.append({"type": "text", "text": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT})
+            content.append({"type": "text", "text": diagnostic_prompt})
             use_audio_in_video = True
         request = GenerationRequest(
             sample_id=sample_id,
@@ -137,11 +161,7 @@ def build_diagnostic_affect_description_plan(
             messages=({"role": "user", "content": content},),
             media_paths={name: str(path) for name, path in media_paths.items()},
             use_audio_in_video=use_audio_in_video,
-            generation_kwargs={
-                "do_sample": False,
-                "num_beams": 1,
-                "max_new_tokens": max_new_tokens,
-            },
+            generation_kwargs=validated_generation_kwargs,
         )
         input_payload = {
             "sample_id": sample_id,
@@ -152,6 +172,9 @@ def build_diagnostic_affect_description_plan(
             "split": split,
             "messages": list(request.messages),
             "media_sha256": media_hashes,
+            "generation_policy_id": generation_policy_id,
+            "generation_policy_sha256": generation_policy_sha256,
+            "generation_kwargs": dict(request.generation_kwargs),
         }
         input_sha256 = _hash_text(_canonical_json(input_payload))
         task_id = _hash_text(
@@ -163,7 +186,7 @@ def build_diagnostic_affect_description_plan(
                 request=request,
                 input_sha256=input_sha256,
                 media_sha256=_hash_text(_canonical_json(media_hashes)),
-                prompt_sha256=_hash_text(CANONICAL_DIAGNOSTIC_AFFECT_PROMPT),
+                prompt_sha256=_hash_text(diagnostic_prompt),
             )
         )
     if selected is not None and {task.request.sample_id for task in tasks} != selected:
@@ -174,6 +197,16 @@ def build_diagnostic_affect_description_plan(
         raise ValueError("Selected manifest rows contain duplicate sample_id values")
     counts = {protocol: len(tasks)}
     model_path = model_path.expanduser().resolve()
+    request_protocol_identity = {
+        "subject_model_key": subject_model_key,
+        "model_family": model_family,
+        "protocol": protocol,
+        "condition": condition,
+        "prompt_sha256": _hash_text(diagnostic_prompt),
+        "generation_policy_id": generation_policy_id,
+        "generation_policy_sha256": generation_policy_sha256,
+        "generation_kwargs": validated_generation_kwargs,
+    }
     signature = {
         "schema_name": SIGNATURE_SCHEMA,
         "run_id": run_id,
@@ -188,11 +221,17 @@ def build_diagnostic_affect_description_plan(
         "condition": condition,
         "dataset": dataset,
         "split": split,
-        "prompt_sha256": _hash_text(CANONICAL_DIAGNOSTIC_AFFECT_PROMPT),
+        "diagnostic_prompt": diagnostic_prompt,
+        "prompt_sha256": _hash_text(diagnostic_prompt),
+        "generation_policy_id": generation_policy_id,
+        "generation_policy_sha256": generation_policy_sha256,
         "config_sha256": config_sha256,
         "max_new_tokens": max_new_tokens,
         "video_fps": video_fps,
-        "generation_policy": {"do_sample": False, "num_beams": 1},
+        "generation_policy": validated_generation_kwargs,
+        "request_protocol_signature_sha256": _hash_text(
+            _canonical_json(request_protocol_identity)
+        ),
         "task_count": len(tasks),
         "counts": counts,
     }
@@ -643,9 +682,14 @@ def verify_diagnostic_affect_descriptions(
         or provenance.get("run_id") != run_id
     ):
         raise ValueError("Description provenance schema mismatch")
-    if provenance.get("canonical_prompt") != CANONICAL_DIAGNOSTIC_AFFECT_PROMPT:
-        raise ValueError("Description provenance prompt mismatch")
     signature = provenance.get("signature")
+    if (
+        not isinstance(signature, dict)
+        or provenance.get("diagnostic_prompt") != signature.get("diagnostic_prompt")
+        or _hash_text(str(provenance.get("diagnostic_prompt", "")))
+        != signature.get("prompt_sha256")
+    ):
+        raise ValueError("Description provenance prompt mismatch")
     expected_identity = {
         "schema_name": SIGNATURE_SCHEMA,
         "run_id": run_id,
@@ -655,7 +699,7 @@ def verify_diagnostic_affect_descriptions(
         "dataset": dataset,
         "split": split,
     }
-    if not isinstance(signature, dict) or any(
+    if any(
         signature.get(key) != value for key, value in expected_identity.items()
     ):
         raise ValueError("Description provenance identity mismatch")
@@ -714,7 +758,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     split = str(config["split"])
     if protocol.lower() not in asset.protocols:
         raise ValueError(f"Subject model {subject_model_key!r} does not support {protocol!r}")
-    max_new_tokens = int(config["max_new_tokens"])
+    generation_kwargs = validate_generation_kwargs(config["generation_kwargs"])
+    max_new_tokens = int(generation_kwargs["max_new_tokens"])
     video_fps = float(config["video_fps"])
     device = args.device or str(config["device"])
     attn_implementation = str(config["attn_implementation"])
@@ -740,6 +785,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         dataset=dataset,
         split=split,
         max_new_tokens=max_new_tokens,
+        prompt_suffix=str(config["prompt_suffix"]),
+        generation_kwargs=generation_kwargs,
+        generation_policy_id=str(config["generation_policy_id"]),
+        generation_policy_sha256=str(config["generation_policy_sha256"]),
         video_fps=video_fps,
         asset_config_sha256=_sha256(asset_config),
         config_sha256=_sha256(args.config),
@@ -802,7 +851,7 @@ def _materialize(
         {
             "schema_name": PROVENANCE_SCHEMA,
             "run_id": signature["run_id"],
-            "canonical_prompt": CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
+            "diagnostic_prompt": signature["diagnostic_prompt"],
             "signature": signature,
             "artifacts": {
                 name: {"path": filename, "sha256": _sha256(output_root / filename)}
@@ -835,7 +884,10 @@ def _read_config(path: Path) -> dict[str, Any]:
         "split",
         "device",
         "dtype",
-        "max_new_tokens",
+        "generation_policy_id",
+        "generation_policy_sha256",
+        "prompt_suffix",
+        "generation_kwargs",
         "video_fps",
         "attn_implementation",
     }

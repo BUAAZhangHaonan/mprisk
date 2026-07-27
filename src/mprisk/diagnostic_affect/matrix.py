@@ -15,12 +15,14 @@ from typing import Any
 import yaml
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.models.base_wrapper import validate_generation_kwargs
 
 MATRIX_SCHEMA = "mprisk_cross_domain_misread_matrix_v1"
 PLAN_SCHEMA = "mprisk_cross_domain_misread_plan_v1"
 GT_SCHEMA = "mprisk_gt_description_v1"
 GT_INPUT_SCHEMA = "gt_annotation_input_v1"
-DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v2"
+DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
+GENERATION_POLICIES_SCHEMA = "mprisk_diagnostic_generation_policies_v1"
 ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
 REQUEST_PLAN_SCHEMA = "mprisk_misread_request_plan_v1"
 SOURCE_LABEL_SCHEMA = "mprisk_v2_misread_label_v1"
@@ -41,6 +43,7 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
         "run_id",
         "asset_config",
         "cache_matrix_config",
+        "diagnostic_generation_policies",
         "frame_plan_validation",
         "bundle_root",
         "existing_source_judgment_root",
@@ -66,6 +69,10 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
     asset_config_path = Path(config["asset_config"]).expanduser().resolve()
     cache_matrix_path = Path(config["cache_matrix_config"]).expanduser().resolve()
     frame_validation_path = Path(config["frame_plan_validation"]).expanduser().resolve()
+    generation_policies_path = (
+        Path(config["diagnostic_generation_policies"]).expanduser().resolve()
+    )
+    generation_policies = _load_generation_policies(generation_policies_path)
     bundle_root = Path(config["bundle_root"]).expanduser().resolve()
     source_judgment_root = Path(config["existing_source_judgment_root"]).expanduser().resolve()
     output_root = Path(config["output_root"]).expanduser().resolve()
@@ -172,6 +179,10 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
         judgment_root = output_root / "misread_judgment" / job["job_id"]
         diagnostic_config = job_root / "diagnostic.yaml"
         ensemble_config = job_root / "ensemble_judge.yaml"
+        diagnostic_policy = _diagnostic_generation_policy(
+            generation_policies,
+            model_key=model_key,
+        )
         diagnostic_payload = {
             "schema_name": DIAGNOSTIC_SCHEMA,
             "run_id": f"{config['run_id']}__{job['job_id']}__diagnostic",
@@ -186,7 +197,10 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "split": job["split"],
             "device": "cuda:0",
             "dtype": canonical_model["dtype"],
-            "max_new_tokens": 64,
+            "generation_policy_id": diagnostic_policy["policy_id"],
+            "generation_policy_sha256": _hash_json(diagnostic_policy),
+            "prompt_suffix": diagnostic_policy["prompt_suffix"],
+            "generation_kwargs": diagnostic_policy["generation_kwargs"],
             "video_fps": 1.0,
             "attn_implementation": "sdpa",
         }
@@ -325,6 +339,8 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
         "config_sha256": _sha256(config_path),
         "asset_config_path": str(asset_config_path),
         "asset_config_sha256": _sha256(asset_config_path),
+        "diagnostic_generation_policies_path": str(generation_policies_path),
+        "diagnostic_generation_policies_sha256": _sha256(generation_policies_path),
         "formal_cache_contract": formal_contract,
         "existing_source_labels": source_labels,
         "api_requests_issued": 0,
@@ -344,6 +360,51 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
     _atomic_json(destination / "plan.json", plan)
     _atomic_jsonl(destination / "jobs.jsonl", plan_jobs)
     return plan
+
+
+def _load_generation_policies(path: Path) -> dict[str, Any]:
+    payload = _load_yaml(path)
+    if set(payload) != {"schema_name", "default", "models"}:
+        raise ValueError("Diagnostic generation policy fields are not strict")
+    if payload.get("schema_name") != GENERATION_POLICIES_SCHEMA:
+        raise ValueError("Unsupported diagnostic generation policy schema")
+    if not isinstance(payload.get("models"), dict):
+        raise ValueError("Diagnostic generation policies models must be a mapping")
+    _validate_generation_policy(payload.get("default"), context="default")
+    for model_key, policy in payload["models"].items():
+        if not isinstance(model_key, str) or not model_key:
+            raise ValueError("Diagnostic generation policy model keys must be non-empty")
+        _validate_generation_policy(policy, context=model_key)
+    return payload
+
+
+def _diagnostic_generation_policy(
+    policies: dict[str, Any],
+    *,
+    model_key: str,
+) -> dict[str, Any]:
+    raw = policies["models"].get(model_key, policies["default"])
+    return {
+        "schema_name": GENERATION_POLICIES_SCHEMA,
+        "policy_id": raw["policy_id"],
+        "model_key": model_key,
+        "prompt_suffix": raw["prompt_suffix"],
+        "generation_kwargs": validate_generation_kwargs(raw["generation_kwargs"]),
+    }
+
+
+def _validate_generation_policy(value: Any, *, context: str) -> None:
+    if not isinstance(value, dict) or set(value) != {
+        "policy_id",
+        "prompt_suffix",
+        "generation_kwargs",
+    }:
+        raise ValueError(f"Invalid diagnostic generation policy: {context}")
+    if not isinstance(value["policy_id"], str) or not value["policy_id"]:
+        raise ValueError(f"Diagnostic generation policy_id is invalid: {context}")
+    if not isinstance(value["prompt_suffix"], str):
+        raise ValueError(f"Diagnostic prompt_suffix is invalid: {context}")
+    validate_generation_kwargs(value["generation_kwargs"])
 
 
 def _validate_job(value: Any) -> dict[str, Any]:

@@ -8,7 +8,9 @@ import pytest
 
 from mprisk.diagnostic_affect.matrix import (
     _audit_target_gt_coverage,
+    _diagnostic_generation_policy,
     _gt_row,
+    _load_generation_policies,
     _planned_request_records,
     _write_blocked_gt_plan,
 )
@@ -24,7 +26,6 @@ def test_matrix_request_plan_has_unique_global_call_ids() -> None:
         flash_model="deepseek-v4-flash",
         pro_model="deepseek-v4-pro",
     )
-
     assert len(records) == 8
     assert len({row["call_id"] for row in records}) == 8
     assert Counter(row["role"] for row in records) == {"flash": 6, "pro": 2}
@@ -36,6 +37,39 @@ def test_matrix_request_plan_has_unique_global_call_ids() -> None:
         for row in records
     )
 
+
+def test_versioned_generation_policies_select_phi_overrides(tmp_path: Path) -> None:
+    path = tmp_path / "policies.yaml"
+    path.write_text(
+        """
+schema_name: mprisk_diagnostic_generation_policies_v1
+default:
+  policy_id: default-v1
+  prompt_suffix: ""
+  generation_kwargs: {do_sample: false, num_beams: 1, max_new_tokens: 64}
+models:
+  phi4_multimodal:
+    policy_id: phi4-v1
+    prompt_suffix: ""
+    generation_kwargs:
+      do_sample: false
+      num_beams: 1
+      max_new_tokens: 512
+      repetition_penalty: 1.1
+      no_repeat_ngram_size: 3
+""",
+        encoding="utf-8",
+    )
+    policies = _load_generation_policies(path)
+    selected = _diagnostic_generation_policy(policies, model_key="phi4_multimodal")
+    assert selected["policy_id"] == "phi4-v1"
+    assert selected["generation_kwargs"] == {
+        "do_sample": False,
+        "num_beams": 1,
+        "max_new_tokens": 512,
+        "repetition_penalty": 1.1,
+        "no_repeat_ngram_size": 3,
+    }
 
 def test_target_gt_audit_blocks_manifests_without_gt_description(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"

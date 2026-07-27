@@ -21,7 +21,14 @@ from typing import Any
 
 import numpy as np
 
-from mprisk.models.base_wrapper import BaseModelWrapper, PrefillRequest, PrefillResult
+from mprisk.models.base_wrapper import (
+    BaseModelWrapper,
+    GenerationRequest,
+    GenerationResult,
+    PrefillRequest,
+    PrefillResult,
+    generate_with_standard_kwargs,
+)
 
 
 class Phi4MmWrapper(BaseModelWrapper):
@@ -232,6 +239,73 @@ class Phi4MmWrapper(BaseModelWrapper):
                 "peft_compatibility_patch": bool(getattr(self, "_compatibility_patch", False)),
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_bytes,
+            },
+        )
+
+    def generate_conditioned(self, request: GenerationRequest) -> GenerationResult:
+        """Generate through the same official processor/media path used by prefill."""
+        self._validate_request(request)
+        if self.model is None:
+            self.load()
+        if self.model is None or self.processor is None:
+            raise RuntimeError("Phi-4 wrapper is not fully loaded")
+
+        import torch
+
+        started_at = time.perf_counter()
+        prompt, images, audios, media_provenance = self._prepare_modal_inputs(request)
+        model_inputs = self.processor(
+            text=prompt,
+            images=images or None,
+            audios=audios or None,
+            return_tensors="pt",
+        )
+        _validate_processor_modes(request, model_inputs, images=images, audios=audios)
+        model_inputs = _move_inputs_to_device(model_inputs, self.device)
+        _require_attention_mask(model_inputs)
+        input_ids = model_inputs.get("input_ids")
+        if input_ids is None or input_ids.ndim != 2 or int(input_ids.shape[0]) != 1:
+            raise ValueError("Phi-4 generation requires batch-one input_ids")
+        input_token_count = int(input_ids.shape[-1])
+        eos_token_ids = _tokenizer_eos_token_ids(self.processor)
+        eos_token_id: int | list[int] = (
+            eos_token_ids[0] if len(eos_token_ids) == 1 else list(eos_token_ids)
+        )
+        with torch.inference_mode():
+            generated = generate_with_standard_kwargs(
+                self.model,
+                model_inputs,
+                request,
+                eos_token_id=eos_token_id,
+            )
+        if generated.ndim != 2 or int(generated.shape[0]) != 1:
+            raise ValueError("Phi-4 generation requires one generated sequence")
+        new_tokens = generated[:, input_token_count:]
+        if int(new_tokens.shape[-1]) == 0:
+            raise ValueError("Phi-4 generated no new tokens")
+        token_ids = tuple(int(value) for value in new_tokens[0].detach().cpu().tolist())
+        text = self.processor.batch_decode(
+            new_tokens,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False,
+        )[0]
+        return GenerationResult(
+            request=request,
+            text=text,
+            token_ids=token_ids,
+            eos_token_ids=eos_token_ids,
+            finish_reason="eos" if token_ids[-1] in eos_token_ids else "max_new_tokens",
+            input_token_count=input_token_count,
+            provenance={
+                "schema": "mprisk_phi4_multimodal_generation_provenance_v1",
+                "model_path": str(self.model_path),
+                "model_class": self.model.__class__.__name__,
+                "processor_class": self.processor.__class__.__name__,
+                "device": self.device,
+                "attn_implementation": self.attn_implementation,
+                "generation_kwargs": dict(request.generation_kwargs),
+                "elapsed_seconds": time.perf_counter() - started_at,
+                "video_sampling": media_provenance,
             },
         )
 
@@ -514,6 +588,18 @@ def _token_position(attention_mask: Any) -> tuple[int, int]:
     if int(indices.numel()) == 0:
         raise ValueError("Phi-4 attention mask has no valid token")
     return int(attention_mask.shape[1]), int(indices[-1].item())
+
+
+def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
+    tokenizer = getattr(processor, "tokenizer", processor)
+    eos = getattr(tokenizer, "eos_token_id", None)
+    if eos is None:
+        raise ValueError("Phi-4 processor tokenizer has no eos_token_id")
+    values = eos if isinstance(eos, (list, tuple)) else (eos,)
+    result = tuple(int(value) for value in values)
+    if not result:
+        raise ValueError("Phi-4 eos_token_id is empty")
+    return result
 
 
 def _trajectory_from_outputs(

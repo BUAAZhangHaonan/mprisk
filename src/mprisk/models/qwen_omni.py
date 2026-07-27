@@ -19,6 +19,7 @@ from mprisk.models.base_wrapper import (
     GenerationResult,
     PrefillRequest,
     PrefillResult,
+    generate_with_standard_kwargs,
 )
 from mprisk.models.video_frame_utils import request_messages_with_uniform_video
 
@@ -381,9 +382,10 @@ class QwenOmniWrapper(BaseModelWrapper):
             torch.cuda.reset_peak_memory_stats(torch.device(self.device))
         started_at = time.perf_counter()
         with torch.inference_mode():
-            generated = self.model.generate(
-                **model_inputs,
-                **dict(request.generation_kwargs),
+            generated = generate_with_standard_kwargs(
+                self.model,
+                model_inputs,
+                request,
                 eos_token_id=eos_token_id,
                 use_audio_in_video=request.use_audio_in_video,
             )
@@ -418,9 +420,7 @@ class QwenOmniWrapper(BaseModelWrapper):
                 "source_dtype": self.dtype_name,
                 "device": self.device,
                 "attn_implementation": self.attn_implementation,
-                "do_sample": False,
-                "num_beams": 1,
-                "max_new_tokens": request.generation_kwargs["max_new_tokens"],
+                "generation_kwargs": dict(request.generation_kwargs),
                 "elapsed_seconds": time.perf_counter() - started_at,
                 "peak_gpu_memory_bytes": peak_gpu_memory_bytes,
             },
