@@ -11,6 +11,11 @@ from mprisk.state.thresholds import (
     calibrate_registered_aligned_thresholds,
 )
 from mprisk.utils.io import write_jsonl
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    publish_jsonl_receipt,
+)
 from scripts.compute_sdr_scores import compute_sdr_scores
 
 
@@ -133,8 +138,18 @@ def test_sdr_score_export_preserves_registered_split_for_calibration(tmp_path) -
         split_assignment_sha256="b" * 64,
         prompt_set_artifact_sha256="c" * 64,
         encoder_checkpoint_sha256="d" * 64,
+        relations={"p1": [1.0, 0.0], "p2": [1.0, 0.0]},
+        sample_relation_feature=[1.0, 0.0],
+        prompt_count=2,
     )
     source = write_jsonl(tmp_path / "embeddings.jsonl", [bundle])
+    publish_jsonl_receipt(
+        source,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+        expected_rows=1,
+        bindings={"encoder_checkpoint_sha256": bundle["encoder_checkpoint_sha256"]},
+    )
 
     result = compute_sdr_scores(embedding_manifest_path=source, output_dir=tmp_path / "scores")
     row = json.loads(result.scores_path.read_text().strip())

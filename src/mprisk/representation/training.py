@@ -32,6 +32,11 @@ from mprisk.representation.relation_models import (
     strict_l2_normalize,
 )
 from mprisk.utils.io import write_json
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    publish_jsonl_receipt,
+)
 
 TRAINING_CONFIG_SCHEMA = "mprisk_representation_training_v4"
 REGISTERED_SPLITS = frozenset(
@@ -539,6 +544,21 @@ def export_frozen_representations(
         bundle_manifest_path=bundle_manifest_path,
         encoder_checkpoint_sha256=_sha256(checkpoint_file),
     )
+    bundle_receipt_path = publish_jsonl_receipt(
+        bundle_manifest_path,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+        expected_rows=sample_count,
+        bindings={
+            "dataset_sha256": _sha256(Path(dataset_path)),
+            "encoder_checkpoint_sha256": _sha256(checkpoint_file),
+            "model_key": config.model_key,
+            "protocol": config.protocol,
+            "prompt_set_key": config.prompt_set_key,
+            "prompt_set_artifact_sha256": config.prompt_set_artifact_sha256,
+            "repr_key": config.repr_key,
+        },
+    )
     summary_path = write_json(
         output_root / "frozen_representation_summary.json",
         {
@@ -548,6 +568,9 @@ def export_frozen_representations(
             "count": len(samples),
             "sample_count": sample_count,
             "bundle_manifest": str(bundle_manifest_path),
+            "bundle_manifest_sha256": _sha256(bundle_manifest_path),
+            "bundle_receipt": str(bundle_receipt_path),
+            "bundle_receipt_sha256": _sha256(bundle_receipt_path),
             "repr_key": config.repr_key,
             "model_key": config.model_key,
             "prompt_set_key": config.prompt_set_key,
@@ -905,17 +928,23 @@ def _stream_frozen_exports(
                     encoder_checkpoint_sha256=encoder_checkpoint_sha256,
                     prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
                 )
-                manifest_handle.write(json.dumps(row, sort_keys=True) + "\n")
+                manifest_handle.write(
+                    json.dumps(row, ensure_ascii=True, sort_keys=True) + "\n"
+                )
                 if current_bundle is None or current_bundle["sample_id"] != sample.sample_id:
                     if current_bundle is not None:
                         _finalize_frozen_bundle(current_bundle)
-                        bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
+                        bundle_handle.write(
+                            json.dumps(current_bundle, ensure_ascii=True, sort_keys=True) + "\n"
+                        )
                     current_bundle = _empty_frozen_bundle(row)
                     sample_count += 1
                 _append_frozen_row(current_bundle, row)
         if current_bundle is not None:
             _finalize_frozen_bundle(current_bundle)
-            bundle_handle.write(json.dumps(current_bundle, sort_keys=True) + "\n")
+            bundle_handle.write(
+                json.dumps(current_bundle, ensure_ascii=True, sort_keys=True) + "\n"
+            )
         for handle in (manifest_handle, bundle_handle):
             handle.flush()
             os.fsync(handle.fileno())

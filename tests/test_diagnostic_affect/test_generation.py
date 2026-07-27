@@ -239,7 +239,7 @@ def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Pat
     export_diagnostic_affect_descriptions(ledger.completed_records(), destination)
     row = json.loads(destination.read_text(encoding="utf-8"))
     assert row["subject_model_key"] == "subject_model"
-    assert row["schema_name"] == "mprisk_diagnostic_affect_description_v2"
+    assert row["schema_name"] == "mprisk_diagnostic_affect_description_v3"
     assert row["run_id"] == "diagnostic-affect-test-v2"
     assert row["condition"] == "M12"
     assert row["DIAGNOSTIC_AFFECT_DESCRIPTION"] == result.text
@@ -330,6 +330,7 @@ def test_config_is_strict_and_rejects_legacy_schema(tmp_path: Path) -> None:
         "dtype": "bfloat16",
         "generation_policy_id": "test-policy-v1",
         "generation_policy_sha256": "a" * 64,
+        "request_protocol_signature_sha256": "b" * 64,
         "prompt_suffix": "",
         "generation_kwargs": {
             "do_sample": False,

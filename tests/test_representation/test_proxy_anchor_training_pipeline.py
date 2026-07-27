@@ -24,6 +24,12 @@ from mprisk.representation.training import (
     export_frozen_representations,
     train_trajectory_encoder,
 )
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    read_validated_jsonl,
+    receipt_path_for,
+)
 
 
 def _state(
@@ -196,6 +202,12 @@ def test_proxy_anchor_training_selects_on_val_ac_and_exports_unit_z_r(tmp_path) 
     )
     rows = [json.loads(line) for line in exported.manifest_path.read_text().splitlines()]
     bundles = [json.loads(line) for line in exported.bundle_manifest_path.read_text().splitlines()]
+    assert receipt_path_for(exported.bundle_manifest_path).is_file()
+    assert read_validated_jsonl(
+        exported.bundle_manifest_path,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    ) == bundles
     assert len(rows) == 16
     assert len(bundles) == 8
     assert all(set(row["condition_z"]) == {"M1", "M2", "M12"} for row in rows)

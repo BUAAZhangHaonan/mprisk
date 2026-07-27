@@ -15,6 +15,10 @@ from typing import Any
 import yaml
 
 from mprisk.assets.registry import index_assets, load_model_assets
+from mprisk.diagnostic_affect.generation import (
+    CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
+    diagnostic_request_protocol_signature_sha256,
+)
 from mprisk.models.base_wrapper import validate_generation_kwargs
 
 MATRIX_SCHEMA = "mprisk_cross_domain_misread_matrix_v1"
@@ -23,7 +27,7 @@ GT_SCHEMA = "mprisk_gt_description_v1"
 GT_INPUT_SCHEMA = "gt_annotation_input_v1"
 DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
 GENERATION_POLICIES_SCHEMA = "mprisk_diagnostic_generation_policies_v1"
-ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
+ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v2"
 REQUEST_PLAN_SCHEMA = "mprisk_misread_request_plan_v1"
 SOURCE_LABEL_SCHEMA = "mprisk_v2_misread_label_v1"
 GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
@@ -183,6 +187,27 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             generation_policies,
             model_key=model_key,
         )
+        generation_policy_sha256 = _hash_json(diagnostic_policy)
+        diagnostic_prompt = CANONICAL_DIAGNOSTIC_AFFECT_PROMPT
+        if diagnostic_policy["prompt_suffix"]:
+            diagnostic_prompt = (
+                f"{diagnostic_prompt} {diagnostic_policy['prompt_suffix']}"
+            )
+        diagnostic_prompt_sha256 = hashlib.sha256(
+            diagnostic_prompt.encode("utf-8")
+        ).hexdigest()
+        request_protocol_signature_sha256 = (
+            diagnostic_request_protocol_signature_sha256(
+                subject_model_key=model_key,
+                model_family=asset.family,
+                protocol=protocol,
+                condition="M12",
+                prompt_sha256=diagnostic_prompt_sha256,
+                generation_policy_id=diagnostic_policy["policy_id"],
+                generation_policy_sha256=generation_policy_sha256,
+                generation_kwargs=diagnostic_policy["generation_kwargs"],
+            )
+        )
         diagnostic_payload = {
             "schema_name": DIAGNOSTIC_SCHEMA,
             "run_id": f"{config['run_id']}__{job['job_id']}__diagnostic",
@@ -198,7 +223,8 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "device": "cuda:0",
             "dtype": canonical_model["dtype"],
             "generation_policy_id": diagnostic_policy["policy_id"],
-            "generation_policy_sha256": _hash_json(diagnostic_policy),
+            "generation_policy_sha256": generation_policy_sha256,
+            "request_protocol_signature_sha256": request_protocol_signature_sha256,
             "prompt_suffix": diagnostic_policy["prompt_suffix"],
             "generation_kwargs": diagnostic_policy["generation_kwargs"],
             "video_fps": 1.0,
@@ -212,6 +238,9 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             protocol=protocol,
             split=job["split"],
             run_id=diagnostic_payload["run_id"],
+            prompt_sha256=diagnostic_prompt_sha256,
+            generation_policy_sha256=generation_policy_sha256,
+            request_protocol_signature_sha256=request_protocol_signature_sha256,
         )
         ensemble_payload = {
             "schema_name": ENSEMBLE_SCHEMA,
@@ -230,6 +259,14 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "gt_description_manifest_path": str(gt_manifest),
             "diagnostic_affect_description_manifest_path": str(diagnostic_manifest),
             "diagnostic_run_id": diagnostic_payload["run_id"],
+            "diagnostic_manifest_sha256": (
+                _sha256(diagnostic_manifest) if diagnostic_ready else None
+            ),
+            "diagnostic_prompt_sha256": diagnostic_prompt_sha256,
+            "diagnostic_generation_policy_sha256": generation_policy_sha256,
+            "diagnostic_request_protocol_signature_sha256": (
+                request_protocol_signature_sha256
+            ),
             "output_root": str(judgment_root),
             "request_timeout_seconds": config["request_timeout_seconds"],
             "max_concurrency": config["max_concurrency"],
@@ -814,6 +851,9 @@ def _diagnostic_manifest_ready(
     protocol: str,
     split: str,
     run_id: str,
+    prompt_sha256: str,
+    generation_policy_sha256: str,
+    request_protocol_signature_sha256: str,
 ) -> bool:
     if not path.exists():
         return False
@@ -823,12 +863,16 @@ def _diagnostic_manifest_ready(
         raise ValueError(f"Diagnostic manifest coverage mismatch: {model_key}")
     for row in rows:
         if (
-            row.get("schema_name") != "mprisk_diagnostic_affect_description_v2"
+            row.get("schema_name") != "mprisk_diagnostic_affect_description_v3"
             or row.get("run_id") != run_id
             or row.get("subject_model_key") != model_key
             or row.get("protocol") != protocol
             or row.get("condition") != "M12"
             or row.get("split") != split
+            or row.get("prompt_sha256") != prompt_sha256
+            or row.get("generation_policy_sha256") != generation_policy_sha256
+            or row.get("request_protocol_signature_sha256")
+            != request_protocol_signature_sha256
         ):
             raise ValueError(f"Diagnostic manifest identity mismatch: {model_key}")
         _required_text(row, "DIAGNOSTIC_AFFECT_DESCRIPTION")

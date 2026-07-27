@@ -38,6 +38,12 @@ from mprisk.representation.training import (
 from mprisk.state.pipeline import assign_state_patterns, compute_sdr_scores
 from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.utils.io import write_json, write_jsonl
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    read_validated_jsonl,
+    receipt_path_for,
+)
 
 PLAN_SCHEMA = "mprisk_downstream_queue_v1"
 CONDITIONS = ("M1", "M2", "M12")
@@ -486,6 +492,7 @@ def _run_model_seed(plan: DownstreamPlan, job: CacheJob, relation_path: Path) ->
         repr_root = run_root / repr_key
         done = repr_root / "RUN_COMPLETE.json"
         if done.is_file():
+            _require_completed_run_artifacts(done, repr_key=repr_key)
             continue
         config_path = _training_config_path(plan, job, repr_key)
         config = load_training_config(config_path)
@@ -527,6 +534,16 @@ def _run_model_seed(plan: DownstreamPlan, job: CacheJob, relation_path: Path) ->
                 device=plan.device,
             )
         retention_complete = repr_root / "conflict_retention/RETENTION_COMPLETE.json"
+        spherical_manifest = (
+            repr_root
+            / "frozen_all_registered_splits"
+            / "spherical_embedding_manifest.jsonl"
+            if repr_key == TME_PROXY_ANCHOR_V1
+            else None
+        )
+        spherical_receipt = (
+            receipt_path_for(spherical_manifest) if spherical_manifest is not None else None
+        )
         write_json(
             done,
             {
@@ -540,6 +557,18 @@ def _run_model_seed(plan: DownstreamPlan, job: CacheJob, relation_path: Path) ->
                 "training_metrics_sha256": _sha256(result.metrics_path),
                 "official_manifest": str(official_manifest),
                 "official_manifest_sha256": _sha256(official_manifest),
+                "spherical_embedding_manifest": (
+                    str(spherical_manifest) if spherical_manifest is not None else None
+                ),
+                "spherical_embedding_manifest_sha256": (
+                    _sha256(spherical_manifest) if spherical_manifest is not None else None
+                ),
+                "spherical_embedding_receipt": (
+                    str(spherical_receipt) if spherical_receipt is not None else None
+                ),
+                "spherical_embedding_receipt_sha256": (
+                    _sha256(spherical_receipt) if spherical_receipt is not None else None
+                ),
                 "official_ac_metrics": evaluation["metrics_path"],
                 "official_ac_metrics_sha256": _sha256(Path(evaluation["metrics_path"])),
                 "retention_complete": (
@@ -552,6 +581,36 @@ def _run_model_seed(plan: DownstreamPlan, job: CacheJob, relation_path: Path) ->
         )
         return True
     return False
+
+
+def _require_completed_run_artifacts(done_path: Path, *, repr_key: str) -> None:
+    payload = json.loads(done_path.read_text(encoding="utf-8"))
+    if payload.get("schema") != "mprisk_downstream_run_complete_v1":
+        raise ValueError(f"Unsupported downstream completion marker: {done_path}")
+    official_manifest = Path(str(payload.get("official_manifest", "")))
+    if (
+        not official_manifest.is_file()
+        or payload.get("official_manifest_sha256") != _sha256(official_manifest)
+    ):
+        raise ValueError(f"Downstream completion official manifest is invalid: {done_path}")
+    if repr_key != TME_PROXY_ANCHOR_V1:
+        return
+    spherical_manifest = Path(str(payload.get("spherical_embedding_manifest", "")))
+    spherical_receipt = Path(str(payload.get("spherical_embedding_receipt", "")))
+    if (
+        not spherical_manifest.is_file()
+        or not spherical_receipt.is_file()
+        or spherical_receipt != receipt_path_for(spherical_manifest)
+        or payload.get("spherical_embedding_manifest_sha256") != _sha256(spherical_manifest)
+        or payload.get("spherical_embedding_receipt_sha256") != _sha256(spherical_receipt)
+    ):
+        raise ValueError(f"Downstream spherical completion receipt is invalid: {done_path}")
+    read_validated_jsonl(
+        spherical_manifest,
+        receipt_path=spherical_receipt,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    )
 
 
 def _run_retention_sensitivity(

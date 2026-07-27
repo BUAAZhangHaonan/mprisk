@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import sqlite3
 from pathlib import Path
@@ -13,10 +14,66 @@ from mprisk.experiments import downstream
 from mprisk.experiments.downstream import (
     AllowedExternalGpuContext,
     CacheJob,
+    _require_completed_run_artifacts,
     _retained_conflict_rows,
     official_test_rows,
     validate_completed_cache,
 )
+from mprisk.representation.relation_models import TME_PROXY_ANCHOR_V1
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    publish_jsonl_receipt,
+    write_atomic_jsonl,
+)
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_completed_tme_run_requires_current_spherical_receipt(tmp_path: Path) -> None:
+    root = tmp_path / "run"
+    spherical = root / "frozen_all_registered_splits/spherical_embedding_manifest.jsonl"
+    row = {field: "value" for field in SPHERICAL_EMBEDDING_REQUIRED_FIELDS}
+    row.update(
+        {
+            "sample_id": "sample",
+            "embeddings": {"M1": {}, "M2": {}, "M12": {}},
+            "relations": {},
+            "sample_relation_feature": [1.0],
+            "prompt_count": 1,
+        }
+    )
+    write_atomic_jsonl(spherical, [row])
+    receipt = publish_jsonl_receipt(
+        spherical,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=("sample_id",),
+        expected_rows=1,
+        bindings={"encoder_checkpoint_sha256": "a" * 64},
+    )
+    official = root / "official_test/frozen_tme_representations.jsonl"
+    write_atomic_jsonl(official, [row])
+    done = root / "RUN_COMPLETE.json"
+    done.write_text(
+        json.dumps(
+            {
+                "schema": "mprisk_downstream_run_complete_v1",
+                "official_manifest": str(official),
+                "official_manifest_sha256": _sha256(official),
+                "spherical_embedding_manifest": str(spherical),
+                "spherical_embedding_manifest_sha256": _sha256(spherical),
+                "spherical_embedding_receipt": str(receipt),
+                "spherical_embedding_receipt_sha256": _sha256(receipt),
+            }
+        ),
+        encoding="utf-8",
+    )
+    _require_completed_run_artifacts(done, repr_key=TME_PROXY_ANCHOR_V1)
+
+    spherical.write_text(spherical.read_text(encoding="utf-8") + "{}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="spherical completion receipt"):
+        _require_completed_run_artifacts(done, repr_key=TME_PROXY_ANCHOR_V1)
 from mprisk.representation.training import _read_relation_rows
 
 

@@ -32,8 +32,8 @@ CANONICAL_DIAGNOSTIC_AFFECT_PROMPT = (
     "sentence. Do not address the person, give advice, or explain your reasoning."
 )
 CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
-OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v2"
-PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v2"
+OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v3"
+PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v3"
 SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v3"
 _SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 _SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
@@ -197,16 +197,16 @@ def build_diagnostic_affect_description_plan(
         raise ValueError("Selected manifest rows contain duplicate sample_id values")
     counts = {protocol: len(tasks)}
     model_path = model_path.expanduser().resolve()
-    request_protocol_identity = {
-        "subject_model_key": subject_model_key,
-        "model_family": model_family,
-        "protocol": protocol,
-        "condition": condition,
-        "prompt_sha256": _hash_text(diagnostic_prompt),
-        "generation_policy_id": generation_policy_id,
-        "generation_policy_sha256": generation_policy_sha256,
-        "generation_kwargs": validated_generation_kwargs,
-    }
+    request_protocol_signature = diagnostic_request_protocol_signature_sha256(
+        subject_model_key=subject_model_key,
+        model_family=model_family,
+        protocol=protocol,
+        condition=condition,
+        prompt_sha256=_hash_text(diagnostic_prompt),
+        generation_policy_id=generation_policy_id,
+        generation_policy_sha256=generation_policy_sha256,
+        generation_kwargs=validated_generation_kwargs,
+    )
     signature = {
         "schema_name": SIGNATURE_SCHEMA,
         "run_id": run_id,
@@ -229,13 +229,35 @@ def build_diagnostic_affect_description_plan(
         "max_new_tokens": max_new_tokens,
         "video_fps": video_fps,
         "generation_policy": validated_generation_kwargs,
-        "request_protocol_signature_sha256": _hash_text(
-            _canonical_json(request_protocol_identity)
-        ),
+        "request_protocol_signature_sha256": request_protocol_signature,
         "task_count": len(tasks),
         "counts": counts,
     }
     return DiagnosticAffectDescriptionPlan(tasks=tasks, signature=signature, counts=counts)
+
+
+def diagnostic_request_protocol_signature_sha256(
+    *,
+    subject_model_key: str,
+    model_family: str,
+    protocol: str,
+    condition: str,
+    prompt_sha256: str,
+    generation_policy_id: str,
+    generation_policy_sha256: str,
+    generation_kwargs: Mapping[str, Any],
+) -> str:
+    identity = {
+        "subject_model_key": subject_model_key,
+        "model_family": model_family,
+        "protocol": protocol.upper(),
+        "condition": condition.upper(),
+        "prompt_sha256": prompt_sha256,
+        "generation_policy_id": generation_policy_id,
+        "generation_policy_sha256": generation_policy_sha256,
+        "generation_kwargs": validate_generation_kwargs(generation_kwargs),
+    }
+    return _hash_text(_canonical_json(identity))
 
 
 def validate_diagnostic_affect_description(result: GenerationResult) -> None:
@@ -457,6 +479,10 @@ class DiagnosticAffectDescriptionLedger:
                     "input_sha256": row["input_sha256"],
                     "media_sha256": row["media_sha256"],
                     "prompt_sha256": row["prompt_sha256"],
+                    "generation_policy_sha256": signature["generation_policy_sha256"],
+                    "request_protocol_signature_sha256": signature[
+                        "request_protocol_signature_sha256"
+                    ],
                     "provenance": json.loads(row["provenance_json"]),
                 }
             )
@@ -624,6 +650,7 @@ def verify_diagnostic_affect_descriptions(
         "dataset", "split",
         "DIAGNOSTIC_AFFECT_DESCRIPTION", "token_ids", "eos_token_ids", "finish_reason",
         "input_token_count", "input_sha256", "media_sha256", "prompt_sha256", "provenance",
+        "generation_policy_sha256", "request_protocol_signature_sha256",
     }
     for record in records:
         if set(record) != expected_fields:
@@ -703,6 +730,15 @@ def verify_diagnostic_affect_descriptions(
         signature.get(key) != value for key, value in expected_identity.items()
     ):
         raise ValueError("Description provenance identity mismatch")
+    for record in records:
+        if (
+            record["prompt_sha256"] != signature.get("prompt_sha256")
+            or record["generation_policy_sha256"]
+            != signature.get("generation_policy_sha256")
+            or record["request_protocol_signature_sha256"]
+            != signature.get("request_protocol_signature_sha256")
+        ):
+            raise ValueError("Description generation-policy binding mismatch")
     artifacts = provenance.get("artifacts")
     if not isinstance(artifacts, dict):
         raise ValueError("Description provenance artifacts are missing")
@@ -794,6 +830,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         config_sha256=_sha256(args.config),
         selected_sample_ids=selected_sample_ids,
     )
+    if (
+        plan.signature["request_protocol_signature_sha256"]
+        != config["request_protocol_signature_sha256"]
+    ):
+        raise ValueError("Configured request protocol signature does not match the plan")
     summary = generate_diagnostic_affect_descriptions(
         plan,
         output_root=output_root,
@@ -886,6 +927,7 @@ def _read_config(path: Path) -> dict[str, Any]:
         "dtype",
         "generation_policy_id",
         "generation_policy_sha256",
+        "request_protocol_signature_sha256",
         "prompt_suffix",
         "generation_kwargs",
         "video_fps",

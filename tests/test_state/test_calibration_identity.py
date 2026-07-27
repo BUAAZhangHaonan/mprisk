@@ -8,6 +8,11 @@ import pytest
 from mprisk.state.spherical import compute_spherical_state
 from mprisk.state.thresholds import calibrate_registered_aligned_thresholds
 from mprisk.utils.io import write_jsonl
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    publish_jsonl_receipt,
+)
 from scripts.assign_state_patterns import assign_state_patterns
 
 
@@ -88,9 +93,22 @@ def test_sdr_export_hash_is_part_of_score_identity(tmp_path: Path) -> None:
             "M2": {key: [0.0, 1.0] for key in prompt_vectors},
             "M12": {key: [2**-0.5, 2**-0.5] for key in prompt_vectors},
         },
+        "relations": {key: [1.0, 0.0] for key in prompt_vectors},
+        "sample_relation_feature": [1.0, 0.0],
+        "prompt_count": 8,
         **{key: value for key, value in _identity().items() if key != "embedding_manifest_sha256"},
     }
     source = write_jsonl(tmp_path / "embeddings.jsonl", [bundle])
+    publish_jsonl_receipt(
+        source,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+        expected_rows=1,
+        bindings={
+            "prompt_set_artifact_sha256": bundle["prompt_set_artifact_sha256"],
+            "encoder_checkpoint_sha256": bundle["encoder_checkpoint_sha256"],
+        },
+    )
     result = compute_sdr_scores(
         embedding_manifest_path=source,
         output_dir=tmp_path / "sdr",

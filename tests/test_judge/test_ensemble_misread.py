@@ -23,6 +23,9 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
     gt = tmp_path / "gt.jsonl"
     diagnostic = tmp_path / "diagnostic.jsonl"
     coverage = tmp_path / "gt_coverage.json"
+    prompt_sha256 = "a" * 64
+    generation_policy_sha256 = "b" * 64
+    request_protocol_signature_sha256 = "c" * 64
     _jsonl(
         gt,
         [
@@ -34,7 +37,7 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         diagnostic,
         [
             {
-                "schema_name": "mprisk_diagnostic_affect_description_v2",
+                "schema_name": "mprisk_diagnostic_affect_description_v3",
                 "run_id": "diag",
                 "sample_id": sample_id,
                 "subject_model_key": "model",
@@ -42,6 +45,9 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
                 "condition": "M12",
                 "split": "train",
                 "DIAGNOSTIC_AFFECT_DESCRIPTION": description,
+                "prompt_sha256": prompt_sha256,
+                "generation_policy_sha256": generation_policy_sha256,
+                "request_protocol_signature_sha256": request_protocol_signature_sha256,
             }
             for sample_id, description in (
                 ("a", "The person appears happy."),
@@ -83,7 +89,7 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         encoding="utf-8",
     )
     return EnsembleMisreadConfig(
-        schema_name="mprisk_ensemble_misread_judgment_config_v1",
+        schema_name="mprisk_ensemble_misread_judgment_config_v2",
         run_id="run",
         status="ready",
         subject_model_key="model",
@@ -99,6 +105,10 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         gt_description_manifest_path=gt,
         diagnostic_affect_description_manifest_path=diagnostic,
         diagnostic_run_id="diag",
+        diagnostic_manifest_sha256=hashlib.sha256(diagnostic.read_bytes()).hexdigest(),
+        diagnostic_prompt_sha256=prompt_sha256,
+        diagnostic_generation_policy_sha256=generation_policy_sha256,
+        diagnostic_request_protocol_signature_sha256=request_protocol_signature_sha256,
         output_root=tmp_path / "out",
         request_timeout_seconds=1.0,
         max_concurrency=2,
@@ -164,6 +174,17 @@ def test_dry_run_never_requires_api_key(tmp_path: Path, monkeypatch) -> None:
     assert result["api_key_accessed"] is False
 
 
+def test_judgment_rejects_changed_or_old_diagnostic_binding(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    config.diagnostic_affect_description_manifest_path.write_text(
+        config.diagnostic_affect_description_manifest_path.read_text(encoding="utf-8")
+        + "\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="Diagnostic manifest SHA-256"):
+        dry_run(config)
+
+
 def test_dry_run_and_execute_block_non_pass_gt_coverage(tmp_path: Path) -> None:
     config = _config(tmp_path)
     receipt = json.loads(config.gt_coverage_receipt_path.read_text(encoding="utf-8"))
@@ -207,6 +228,15 @@ def test_ensemble_is_resumable_and_fail_closed(tmp_path: Path) -> None:
     assert len(requests) == 7
     assert all(row["request_id"] and row["response_sha256"] for row in requests)
     assert all(row["estimated_cost_usd"] is None for row in requests)
+    judgments = [
+        json.loads(line)
+        for line in (config.output_root / "judgments.jsonl").read_text().splitlines()
+    ]
+    assert all(
+        row["diagnostic_generation_policy_sha256"]
+        == config.diagnostic_generation_policy_sha256
+        for row in judgments
+    )
 
     second = FakeClient()
     repeated = asyncio.run(run_ensemble(config, client=second))

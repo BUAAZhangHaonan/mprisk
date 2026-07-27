@@ -17,6 +17,11 @@ from mprisk.state.identity import (
 from mprisk.state.patterns import assign_state, load_thresholds_config
 from mprisk.state.spherical import compute_spherical_state, require_exact_sdr_rows
 from mprisk.utils.io import write_json, write_jsonl
+from mprisk.utils.jsonl_receipt import (
+    SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+    read_validated_jsonl,
+)
 
 
 @dataclass(frozen=True)
@@ -37,7 +42,11 @@ def compute_sdr_scores(
     *, embedding_manifest_path: str | Path, output_dir: str | Path
 ) -> SdrScoreResult:
     embedding_path = Path(embedding_manifest_path)
-    embedding_rows = read_jsonl(embedding_path)
+    embedding_rows = read_validated_jsonl(
+        embedding_path,
+        required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
+        identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
+    )
     source_identity = homogeneous_identity(embedding_rows, fields=SOURCE_IDENTITY_FIELDS)
     embedding_sha256 = hashlib.sha256(embedding_path.read_bytes()).hexdigest()
     score_rows = []

@@ -25,9 +25,9 @@ from mprisk.judge.misread_judgment import (
     validate_misread_judgment_response,
 )
 
-CONFIG_SCHEMA = "mprisk_ensemble_misread_judgment_config_v1"
-SIGNATURE_SCHEMA = "mprisk_ensemble_misread_signature_v1"
-OUTPUT_SCHEMA = "mprisk_ensemble_misread_label_v1"
+CONFIG_SCHEMA = "mprisk_ensemble_misread_judgment_config_v2"
+SIGNATURE_SCHEMA = "mprisk_ensemble_misread_signature_v2"
+OUTPUT_SCHEMA = "mprisk_ensemble_misread_label_v2"
 PROVENANCE_SCHEMA = "mprisk_ensemble_misread_provenance_v1"
 GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
 ARBITRATION_PROMPT = (
@@ -41,7 +41,7 @@ ARBITRATION_PROMPT = (
 class EnsembleMisreadConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_name: Literal["mprisk_ensemble_misread_judgment_config_v1"]
+    schema_name: Literal["mprisk_ensemble_misread_judgment_config_v2"]
     run_id: str
     status: Literal["pending", "ready"]
     subject_model_key: str
@@ -57,6 +57,10 @@ class EnsembleMisreadConfig(BaseModel):
     gt_description_manifest_path: Path
     diagnostic_affect_description_manifest_path: Path
     diagnostic_run_id: str
+    diagnostic_manifest_sha256: str | None
+    diagnostic_prompt_sha256: str
+    diagnostic_generation_policy_sha256: str
+    diagnostic_request_protocol_signature_sha256: str
     output_root: Path
     request_timeout_seconds: float
     max_concurrency: int
@@ -95,6 +99,18 @@ class EnsembleMisreadConfig(BaseModel):
             for rate in rates.values():
                 if rate is not None and rate < 0:
                     raise ValueError("pricing rates must be nonnegative or null")
+        digests = (
+            self.diagnostic_prompt_sha256,
+            self.diagnostic_generation_policy_sha256,
+            self.diagnostic_request_protocol_signature_sha256,
+        )
+        if any(len(value) != 64 for value in digests):
+            raise ValueError("Diagnostic binding fields must be SHA-256 digests")
+        if self.status == "ready" and (
+            self.diagnostic_manifest_sha256 is None
+            or len(self.diagnostic_manifest_sha256) != 64
+        ):
+            raise ValueError("Ready judgment config requires diagnostic_manifest_sha256")
         return self
 
 
@@ -138,6 +154,13 @@ def load_api_key() -> str:
 
 
 def build_sample_tasks(config: EnsembleMisreadConfig) -> list[SampleTask]:
+    if config.status != "ready":
+        raise ValueError("Misread judgment is blocked until diagnostic status is ready")
+    if (
+        config.diagnostic_manifest_sha256
+        != _sha256(config.diagnostic_affect_description_manifest_path)
+    ):
+        raise ValueError("Diagnostic manifest SHA-256 does not match the judgment config")
     references = _index(_read_jsonl(config.gt_description_manifest_path), "GT_DESCRIPTION")
     _validate_gt_coverage_receipt(config, set(references))
     diagnostics = _index(
@@ -150,12 +173,17 @@ def build_sample_tasks(config: EnsembleMisreadConfig) -> list[SampleTask]:
     for sample_id in sorted(references):
         diag_row = diagnostics[sample_id]
         expected = {
-            "schema_name": "mprisk_diagnostic_affect_description_v2",
+            "schema_name": "mprisk_diagnostic_affect_description_v3",
             "run_id": config.diagnostic_run_id,
             "subject_model_key": config.subject_model_key,
             "protocol": config.protocol,
             "condition": "M12",
             "split": config.split,
+            "prompt_sha256": config.diagnostic_prompt_sha256,
+            "generation_policy_sha256": config.diagnostic_generation_policy_sha256,
+            "request_protocol_signature_sha256": (
+                config.diagnostic_request_protocol_signature_sha256
+            ),
         }
         if any(diag_row.get(key) != value for key, value in expected.items()):
             raise ValueError(f"Diagnostic identity mismatch: {sample_id}")
@@ -647,6 +675,14 @@ def _materialize(
             "arbitrator_used": bool(row["arbitrator_used"]),
             "flash": flashes,
             "pro_arbitration": pro[0] if pro else None,
+            "diagnostic_manifest_sha256": config.diagnostic_manifest_sha256,
+            "diagnostic_prompt_sha256": config.diagnostic_prompt_sha256,
+            "diagnostic_generation_policy_sha256": (
+                config.diagnostic_generation_policy_sha256
+            ),
+            "diagnostic_request_protocol_signature_sha256": (
+                config.diagnostic_request_protocol_signature_sha256
+            ),
         }
         judgments.append(record)
         if row["status"] == "human_review":
@@ -757,6 +793,13 @@ def _signature(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]) -> di
         "gt_coverage_receipt_sha256": _sha256(config.gt_coverage_receipt_path),
         "gt_manifest_sha256": _sha256(config.gt_description_manifest_path),
         "diagnostic_manifest_sha256": _sha256(config.diagnostic_affect_description_manifest_path),
+        "diagnostic_prompt_sha256": config.diagnostic_prompt_sha256,
+        "diagnostic_generation_policy_sha256": (
+            config.diagnostic_generation_policy_sha256
+        ),
+        "diagnostic_request_protocol_signature_sha256": (
+            config.diagnostic_request_protocol_signature_sha256
+        ),
         "sample_count": len(tasks),
     }
 

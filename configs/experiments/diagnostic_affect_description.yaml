@@ -13,6 +13,7 @@ device: cuda:0
 dtype: bfloat16
 generation_policy_id: diagnostic_greedy_v1
 generation_policy_sha256: 77899f1ec9316783877135dc6b28dfd2599517991021d6ee7d36ed1213e4ad63
+request_protocol_signature_sha256: 168b1baa3d448b10707870b2df2b94ec071718a39a58a4ad61365d4a0dd1db7d
 prompt_suffix: ""
 generation_kwargs:
   do_sample: false
