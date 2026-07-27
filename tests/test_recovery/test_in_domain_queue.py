@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mprisk.recovery.in_domain_queue import load_queue
+from mprisk.recovery.in_domain_queue import _contracts_pass, load_queue
 
 
 def test_load_queue_rejects_dependency_that_does_not_precede_step(tmp_path: Path) -> None:
@@ -23,6 +23,7 @@ def test_load_queue_rejects_dependency_that_does_not_precede_step(tmp_path: Path
                 "id": "a",
                 "requires": ["future"],
                 "command": ["true"],
+                "dry_run_command": ["true"],
                 "completion": [
                     {"kind": "file", "path": str(tmp_path / "out" / "done")}
                 ],
@@ -51,6 +52,7 @@ def test_load_queue_accepts_ordered_fail_closed_contract(tmp_path: Path) -> None
                 "id": "a",
                 "requires": [],
                 "command": ["true"],
+                "dry_run_command": ["true"],
                 "completion": [
                     {
                         "kind": "jsonl_count",
@@ -64,3 +66,22 @@ def test_load_queue_accepts_ordered_fail_closed_contract(tmp_path: Path) -> None
     path = tmp_path / "queue.yaml"
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
     assert load_queue(path)["steps"][0]["id"] == "a"
+
+
+def test_jsonl_contract_can_use_relation_row_identity(tmp_path: Path) -> None:
+    path = tmp_path / "relation.jsonl"
+    path.write_text(
+        '{"row_id":"sample-a:p1","sample_id":"sample-a"}\n'
+        '{"row_id":"sample-a:p2","sample_id":"sample-a"}\n',
+        encoding="utf-8",
+    )
+    assert _contracts_pass(
+        [
+            {
+                "kind": "jsonl_count",
+                "path": str(path),
+                "expected_rows": 2,
+                "identity_fields": ["row_id"],
+            }
+        ]
+    )

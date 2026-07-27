@@ -1,0 +1,30 @@
+schema_name: mprisk_in_domain_recovery_model_v1
+model_key: llava_v1_5_7b
+protocol: vt
+repository_root: /home/team/zhanghaonan/TAFFC/mprisk
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/llava_v1_5_7b
+python_executable: /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+legacy_assigned_manifest: /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/vt_merged_primary_assigned_only.jsonl
+formal_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_vt.jsonl
+source_cache_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/source/llava_v1_5_7b/manifest.jsonl
+split_assignment: /home/team/zhanghaonan/TAFFC/mprisk/data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl
+prompt_set: /home/team/zhanghaonan/TAFFC/mprisk/configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
+prompt_set_key: vt_main_p8_seed20260717
+training_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/llava_v1_5_7b_tme_seed20260717.yaml
+training_device: cuda:0
+description_config: null
+reused_description:
+  path: /home/team/zhanghaonan/TAFFC/mprisk-v2/outputs/misread/llava_v1_5_7b/descriptions.jsonl
+  sha256: 3828e811e3cf4846583d3ca9ee45f5b0fefcea2f577631968dc8541475a4322f
+  rows: 1876
+  schema: mprisk_v2_diagnostic_description_v1
+  subject_model_key: llava_v1_5_7b
+  protocol: VT
+  max_new_tokens: 64
+counts: {diagnostic: 0, formal: 1876, unmatched: 0, prompts: 8}
+sha256:
+  legacy_assigned_manifest: afcfd1d9d9ac76017ba8c4b1927d9aad285a097e971ee5f15c2acf3bdf104810
+  formal_manifest: 3266770cae5ef2f69dae03261a321da4f46efb0a78e651f8391ad7d9bc1c63be
+  source_cache_manifest: 9b39ac5f5200c9867b32526739e9de94543515e016ac4265a4c6a6814251405d
+  split_assignment: 49e6f86905c709e79bb1d570d7fb22ee96bec3ea5efc94ca3db73df858cd9225
+  prompt_set: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90

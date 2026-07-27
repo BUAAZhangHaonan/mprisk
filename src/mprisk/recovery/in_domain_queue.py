@@ -58,6 +58,13 @@ def load_queue(path: Path) -> dict[str, Any]:
             isinstance(item, str) and item for item in command
         ):
             raise ValueError(f"Step command must be a non-empty argv list: {step_id}")
+        dry_run_command = step.get("dry_run_command")
+        if not isinstance(dry_run_command, list) or not dry_run_command or not all(
+            isinstance(item, str) and item for item in dry_run_command
+        ):
+            raise ValueError(
+                f"Step dry_run_command must be a non-empty argv list: {step_id}"
+            )
         completion = step.get("completion")
         if not isinstance(completion, list) or not completion:
             raise ValueError(f"Step completion contract is missing: {step_id}")
@@ -68,6 +75,37 @@ def load_queue(path: Path) -> dict[str, Any]:
     value["_resolved_output_root"] = output_root
     value["_resolved_status_path"] = status_path
     return value
+
+
+def dry_run_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """Parse and preflight every stage command without starting GPU/API work."""
+    results: list[dict[str, Any]] = []
+    for step in config["steps"]:
+        command = step["dry_run_command"]
+        completed = subprocess.run(
+            command,
+            cwd=config["_resolved_repository_root"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            raise RuntimeError(
+                f"Recovery dry-run failed for {step['id']}: "
+                f"{completed.stderr.strip() or completed.stdout.strip()}"
+            )
+        try:
+            payload = json.loads(completed.stdout.strip())
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Recovery dry-run did not return JSON for {step['id']}"
+            ) from error
+        if not isinstance(payload, dict) or payload.get("would_start_gpu") is not False:
+            raise ValueError(f"Recovery dry-run GPU contract failed: {step['id']}")
+        if payload.get("would_issue_api_requests") is not False:
+            raise ValueError(f"Recovery dry-run API contract failed: {step['id']}")
+        results.append({"id": step["id"], **payload})
+    return results
 
 
 def gate_evidence(config: dict[str, Any]) -> dict[str, Any]:
@@ -163,8 +201,11 @@ def _contracts_pass(contracts: list[dict[str, Any]]) -> bool:
                 ]
                 if len(rows) != int(contract["expected_rows"]):
                     return False
-                ids = [row["sample_id"] for row in rows]
-                if len(ids) != len(set(ids)):
+                identity_fields = contract.get("identity_fields", ["sample_id"])
+                identities = [
+                    tuple(row[field] for field in identity_fields) for row in rows
+                ]
+                if len(identities) != len(set(identities)):
                     return False
             elif kind == "json_field":
                 value = json.loads(path.read_text(encoding="utf-8"))
@@ -191,6 +232,14 @@ def _validate_contract(contract: Any, output_root: Path) -> None:
         or contract["expected_rows"] <= 0
     ):
         raise ValueError("jsonl_count requires positive expected_rows")
+    if kind == "jsonl_count":
+        identity_fields = contract.get("identity_fields", ["sample_id"])
+        if (
+            not isinstance(identity_fields, list)
+            or not identity_fields
+            or not all(isinstance(field, str) and field for field in identity_fields)
+        ):
+            raise ValueError("jsonl_count identity_fields must be non-empty strings")
     if kind == "json_field" and (
         not isinstance(contract.get("field"), str) or "equals" not in contract
     ):
@@ -289,6 +338,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "gate": evidence,
         "steps": [step["id"] for step in config["steps"]],
     }
+    if not args.execute:
+        summary["stage_preflights"] = dry_run_commands(config)
     print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
     if not args.execute:
         return 0

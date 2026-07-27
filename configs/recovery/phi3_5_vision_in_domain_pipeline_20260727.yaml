@@ -1,0 +1,23 @@
+schema_name: mprisk_in_domain_recovery_model_v1
+model_key: phi3_5_vision
+protocol: vt
+repository_root: /home/team/zhanghaonan/TAFFC/mprisk
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision
+python_executable: /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+legacy_assigned_manifest: /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/vt_merged_primary_assigned_only.jsonl
+formal_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_vt.jsonl
+source_cache_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/source/phi3_5_vision/manifest.jsonl
+split_assignment: /home/team/zhanghaonan/TAFFC/mprisk/data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_vt.jsonl
+prompt_set: /home/team/zhanghaonan/TAFFC/mprisk/configs/prompts/equiv_sets/vt_main_p8_seed20260717.yaml
+prompt_set_key: vt_main_p8_seed20260717
+training_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi3_5_vision_tme_seed20260717.yaml
+training_device: cuda:0
+description_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi3_5_vision_descriptions_20260727.yaml
+description_stall_timeout_seconds: 1800
+counts: {diagnostic: 1876, formal: 1876, unmatched: 0, prompts: 8}
+sha256:
+  legacy_assigned_manifest: afcfd1d9d9ac76017ba8c4b1927d9aad285a097e971ee5f15c2acf3bdf104810
+  formal_manifest: 3266770cae5ef2f69dae03261a321da4f46efb0a78e651f8391ad7d9bc1c63be
+  source_cache_manifest: c54f358485733a3ce41fb63bff9dc8d235f834f6cc7d362c61c3975de552bbd0
+  split_assignment: 49e6f86905c709e79bb1d570d7fb22ee96bec3ea5efc94ca3db73df858cd9225
+  prompt_set: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
