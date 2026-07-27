@@ -3,6 +3,11 @@
 # Usage: run_ca_tme.sh MODEL SEED GPU [CONFIG_NAME]
 #   CONFIG_NAME defaults to ${MODEL}_tme_sdr (yaml under configs/experiments/cache_matrix_20260722/)
 # Output: outputs/cache_matrix_20260722/runs/ca_tme/${MODEL}_seed${SEED}/
+#
+# SKIP policy (idempotent re-runs):
+#   Skip only when train_metrics.json exists AND its final_epoch >= 50.
+#   This prevents an earlier smoke5 cell (max_epochs=5) from being mistaken
+#   for a completed run.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${MPRISK_ROOT:-$SCRIPT_DIR/../..}"
@@ -29,9 +34,24 @@ LOG=outputs/cache_matrix_20260722/_logs/ca_tme_${MODEL}_seed${SEED}.log
 
 mkdir -p "$(dirname "$OUT")" "$(dirname "$LOG")"
 
-if [ -f "$OUT/best_checkpoint.pt" ] || [ -f "$OUT/metrics.json" ]; then
-  echo "SKIP: $OUT exists"
-  exit 0
+# SKIP only when a full (>=50 epoch) run completed. Smoke cells are re-run.
+if [ -f "$OUT/train_metrics.json" ]; then
+  FINAL_EPOCH=$(python3 -c "
+import json, sys
+try:
+    with open('$OUT/train_metrics.json') as fh:
+        d = json.load(fh)
+    print(int(d.get('final_epoch', 0)))
+except Exception:
+    print(0)
+" 2>/dev/null || echo 0)
+  if [ "$FINAL_EPOCH" -ge 50 ]; then
+    echo "SKIP: $OUT complete (final_epoch=$FINAL_EPOCH)"
+    exit 0
+  else
+    echo "[CA-TME] $OUT has stale smoke run (final_epoch=$FINAL_EPOCH); removing"
+    rm -rf "$OUT"
+  fi
 fi
 
 [ -f "$DATASET" ] || { echo "[FATAL] dataset missing: $DATASET"; exit 2; }

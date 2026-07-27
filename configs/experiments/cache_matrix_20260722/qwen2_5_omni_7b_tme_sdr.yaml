@@ -40,8 +40,8 @@ state_selection_max_d_mannwhitney_p: 1.0
 state_selection_min_d_effect_size: 0.0
 patience: 10
 min_delta: 0.0001
-key: cache_matrix_qwen3_vl_8b_tme_sdr_v1
-model_key: qwen3_vl_8b
-protocol: vt
-prompt_set_key: vt_main_p8_seed20260717
-prompt_set_artifact_sha256: 12eb3c725eaf80c302ffb412984d8dc0964f8fd81e20e5aa88cdc14e8461ea90
+key: cache_matrix_qwen2_5_omni_7b_tme_sdr_v1
+model_key: qwen2_5_omni_7b
+protocol: va
+prompt_set_key: va_main_p8_seed20260717
+prompt_set_artifact_sha256: 23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c
