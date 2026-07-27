@@ -55,8 +55,8 @@ log "SDR retry done"
 
 # Re-aggregate + audit
 log "Re-aggregate"
-PYTHONPATH=src python scripts/cache_matrix_20260722/aggregate_results.py 2>&1 | tee -a "$RETRY_LOG"
+PYTHONPATH=src /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python scripts/cache_matrix_20260722/aggregate_results.py 2>&1 | tee -a "$RETRY_LOG"
 log "Re-audit"
-PYTHONPATH=src python scripts/cache_matrix_20260722/audit.py 2>&1 | tee -a "$RETRY_LOG"
+PYTHONPATH=src /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python scripts/cache_matrix_20260722/audit.py 2>&1 | tee -a "$RETRY_LOG"
 
 log "RETRY CHAIN COMPLETE"
