@@ -98,6 +98,10 @@ class TrainingConfig:
     patience: int = 10
     min_delta: float = 1e-4
     seed: int = 0
+    # Gradient clipping max norm (0 disables). Mitigates unlucky-seed
+    # divergence when proxy_alpha=32 + PyTorch default init produce a first-step
+    # gradient spike that derails proxy-anchor training.
+    grad_clip: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -1407,6 +1411,8 @@ def _train_epoch(
             d_values.append(diagnostics["D"].detach())
             angle_values.append(diagnostics["split_angle_rad"].detach())
             d_labels.append(grouped_labels.detach())
+        if config.grad_clip and config.grad_clip > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=config.grad_clip)
         optimizer.step()
         total_losses.append(total_loss_value)
     metrics = {
