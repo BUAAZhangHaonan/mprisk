@@ -19,11 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="cpu")
     parser.add_argument(
         "--encoder-type",
-        choices=("gru", "lstm"),
+        choices=("gru", "lstm", "bilstm"),
         default=None,
         help="Override the TME sequence module. 'gru' (default) uses "
         "SphericalTMEV1 (1-layer GRU); 'lstm' uses SphericalTME_LSTM "
-        "(2-layer uni-directional LSTM). When omitted, the encoder_type "
+        "(2-layer uni-directional LSTM); 'bilstm' uses SphericalTME_BiLSTM (2-layer bi-directional LSTM). When omitted, the encoder_type "
         "field in the YAML config is used (and falls back to 'gru' if "
         "the YAML does not specify it). Only meaningful when the config's "
         "repr_key is tme_proxy_anchor_v1.",

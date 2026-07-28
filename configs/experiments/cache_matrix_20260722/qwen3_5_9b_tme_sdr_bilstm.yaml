@@ -1,5 +1,5 @@
 schema: mprisk_representation_training_v4
-architecture_version: layer_l2_bilstm_linear_relation_v1
+architecture_version: tme_bilstm_proxy_anchor_v1
 repr_key: tme_proxy_anchor_v1
 classification_objective: proxy_anchor_only
 expected_prompt_count: 8
