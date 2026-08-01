@@ -12,6 +12,7 @@ import gc
 import hashlib
 import io
 import json
+import os
 import subprocess
 import time
 from collections.abc import Mapping, Sequence
@@ -219,6 +220,10 @@ class Phi4MmWrapper(BaseModelWrapper):
                 "transformers_version": self._runtime_versions.get("transformers", "injected"),
                 "peft_version": self._runtime_versions.get("peft", "injected"),
                 "torch_version": self._runtime_versions.get("torch", torch.__version__),
+                "cuda_allocator": _cuda_allocator_provenance(
+                    torch,
+                    track_cuda=track_cuda,
+                ),
                 "source_dtype": self.dtype_name,
                 "stored_dtype": "float32",
                 "device": self.device,
@@ -600,6 +605,18 @@ def _tokenizer_eos_token_ids(processor: Any) -> tuple[int, ...]:
     if not result:
         raise ValueError("Phi-4 eos_token_id is empty")
     return result
+
+
+def _cuda_allocator_provenance(torch: Any, *, track_cuda: bool) -> dict[str, Any]:
+    environment = {
+        name: os.environ[name]
+        for name in ("PYTORCH_ALLOC_CONF", "PYTORCH_CUDA_ALLOC_CONF")
+        if name in os.environ
+    }
+    return {
+        "backend": torch.cuda.get_allocator_backend() if track_cuda else None,
+        "environment": environment,
+    }
 
 
 def _trajectory_from_outputs(

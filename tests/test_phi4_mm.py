@@ -102,6 +102,7 @@ def test_phi4_va_prefill_contract(
     expected_audio,
     expected_tokens,
 ):
+    monkeypatch.setenv("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     model_path = tmp_path / "model"
     model_path.mkdir()
     (model_path / "config.json").write_text(
@@ -150,6 +151,12 @@ def test_phi4_va_prefill_contract(
     assert result.t0_token_index == 4
     assert result.token_count == 5
     assert result.provenance["hidden_state_index_offset"] == 1
+    assert result.provenance["cuda_allocator"] == {
+        "backend": None,
+        "environment": {
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+        },
+    }
     call = processor.calls[-1]
     assert len(call["images"] or []) == expected_images
     assert len(call["audios"] or []) == expected_audio
