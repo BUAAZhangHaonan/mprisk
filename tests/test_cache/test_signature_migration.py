@@ -344,9 +344,9 @@ def test_allocator_classifier_removes_only_allocator_provenance() -> None:
         (
             "src/mprisk/cache/prefill_writer.py",
             "python_timezone_alias_only",
-            b"from datetime import UTC\ndef f():\n    return UTC\n",
-            b"from datetime import timezone\ndef f():\n    return timezone.utc\n",
-            b"from datetime import timezone\ndef f():\n    return None\n",
+            b"from datetime import UTC, datetime\ndef f():\n    return datetime.now(UTC)\n",
+            b"from datetime import datetime, timezone\ndef f():\n    return datetime.now(timezone.utc)\n",
+            b"from datetime import datetime, timezone\ndef f():\n    return datetime.now()\n",
         ),
         (
             "src/mprisk/models/llava.py",

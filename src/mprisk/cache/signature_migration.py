@@ -1058,6 +1058,7 @@ def _classification_ast_sha256(
                         else alias
                         for alias in node.names
                     ]
+                    node.names.sort(key=lambda alias: (alias.name, alias.asname or ""))
                 return node
 
             def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
