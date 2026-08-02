@@ -379,11 +379,18 @@ def audit_completed_cache(
                 "stat": _stat_identity(path),
             }
     task_set = [item["task_id"] for item in sorted(entries, key=lambda item: item["task_id"])]
+    payload_tree_sha256 = _fingerprint(
+        [
+            {"path": item["path"], "sha256": item["sha256"]}
+            for item in sorted(artifact_records.values(), key=lambda item: item["path"])
+        ]
+    )
     content = {
         "expected_tasks": expected_tasks,
         "expected_signature_sha256": _fingerprint(expected_signature),
         "ledger_signature_sha256": _fingerprint(ledger_signature),
         "ledger_content_sha256": _ledger_content_fingerprint(ledger),
+        "payload_tree_sha256": payload_tree_sha256,
         "task_set_sha256": _fingerprint(task_set),
         "entries_sha256": _fingerprint(
             sorted(entries, key=lambda item: item["task_id"])
@@ -410,6 +417,7 @@ def audit_completed_cache(
         "path": str(receipt_path),
         "content_sha256": content_sha256,
         "entries": len(entries),
+        "payload_tree_sha256": payload_tree_sha256,
         "receipt_written": write_receipt,
     }
 
