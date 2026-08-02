@@ -281,3 +281,57 @@ def test_protected_symbol_ast_hash_ignores_unrelated_addition() -> None:
     assert migration._symbol_ast_sha256(before, "A.protected") == migration._symbol_ast_sha256(
         after, "A.protected"
     )
+
+
+def test_generation_classifier_removes_only_declared_generation_path() -> None:
+    before = b"class PrefillRequest:\n    pass\nclass GenerationRequest:\n    pass\n"
+    after = (
+        b"REQUIRED_GENERATION_KWARGS = frozenset()\n"
+        b"class PrefillRequest:\n    pass\n"
+        b"class GenerationRequest:\n    changed = True\n"
+        b"def validate_generation_kwargs(value):\n    return value\n"
+        b"def generate_with_standard_kwargs():\n    return None\n"
+    )
+    assert migration._classification_ast_sha256(
+        before,
+        path="src/mprisk/models/base_wrapper.py",
+        classification="generation_only",
+    ) == migration._classification_ast_sha256(
+        after,
+        path="src/mprisk/models/base_wrapper.py",
+        classification="generation_only",
+    )
+    changed_prefill = after.replace(
+        b"class PrefillRequest:\n    pass",
+        b"class PrefillRequest:\n    value = 1",
+    )
+    assert migration._classification_ast_sha256(
+        before,
+        path="src/mprisk/models/base_wrapper.py",
+        classification="generation_only",
+    ) != migration._classification_ast_sha256(
+        changed_prefill,
+        path="src/mprisk/models/base_wrapper.py",
+        classification="generation_only",
+    )
+
+
+def test_allocator_classifier_removes_only_allocator_provenance() -> None:
+    before = b"def extract():\n    return {'value': 1}\n"
+    after = (
+        b"import os\n"
+        b"def extract():\n"
+        b"    return {'value': 1, 'cuda_allocator': _cuda_allocator_provenance()}\n"
+        b"def _cuda_allocator_provenance():\n    return {'environment': dict(os.environ)}\n"
+    )
+    kwargs = {
+        "path": "src/mprisk/models/phi4_mm.py",
+        "classification": "allocator_provenance_only",
+    }
+    assert migration._classification_ast_sha256(
+        before, **kwargs
+    ) == migration._classification_ast_sha256(after, **kwargs)
+    changed_math = after.replace(b"'value': 1", b"'value': 2")
+    assert migration._classification_ast_sha256(
+        before, **kwargs
+    ) != migration._classification_ast_sha256(changed_math, **kwargs)

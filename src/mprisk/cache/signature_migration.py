@@ -331,6 +331,18 @@ def _verify_code_evidence(
         diff = _git_bytes(repo_root, "diff", "--binary", base, head, "--", path)
         if item.get("git_diff_sha256") != _sha256_bytes(diff):
             raise SignatureMigrationError(f"Code evidence diff hash mismatch: {path}")
+        old_normalized = _classification_ast_sha256(
+            old_source, path=path, classification=classification
+        )
+        current_normalized = _classification_ast_sha256(
+            current_source, path=path, classification=classification
+        )
+        if old_normalized != current_normalized:
+            raise SignatureMigrationError(
+                f"Semantic diff exceeds declared classification: {classification}:{path}"
+            )
+        if item.get("normalized_module_ast_sha256") != old_normalized:
+            raise SignatureMigrationError(f"Normalized module AST evidence mismatch: {path}")
         ast_hashes = {}
         for symbol in required_symbols:
             old_ast = _symbol_ast_sha256(old_source, symbol)
@@ -347,6 +359,7 @@ def _verify_code_evidence(
                 "path": path,
                 "classification": classification,
                 "git_diff_sha256": item["git_diff_sha256"],
+                "normalized_module_ast_sha256": old_normalized,
                 "protected_symbol_ast_sha256": ast_hashes,
             }
         )
@@ -551,6 +564,96 @@ def _symbol_ast_sha256(source: bytes, symbol: str) -> str:
             raise SignatureMigrationError(f"Protected symbol is missing or ambiguous: {symbol}")
         node = matches[0]
     return hashlib.sha256(ast.dump(node, include_attributes=False).encode()).hexdigest()
+
+
+def _classification_ast_sha256(
+    source: bytes, *, path: str, classification: str
+) -> str:
+    tree = ast.parse(source.decode())
+    if classification == "generation_only" and path.endswith("base_wrapper.py"):
+        removed_assignments = {
+            "OPTIONAL_GENERATION_KWARGS",
+            "REQUIRED_GENERATION_KWARGS",
+            "SUPPORTED_GENERATION_KWARGS",
+        }
+        removed_definitions = {
+            "GenerationRequest",
+            "generate_with_standard_kwargs",
+            "validate_generation_kwargs",
+        }
+        tree.body = [
+            node
+            for node in tree.body
+            if not (
+                isinstance(node, ast.Assign)
+                and any(
+                    isinstance(target, ast.Name) and target.id in removed_assignments
+                    for target in node.targets
+                )
+            )
+            and not (
+                isinstance(node, ast.FunctionDef | ast.ClassDef)
+                and node.name in removed_definitions
+            )
+        ]
+    elif classification == "generation_only" and path.endswith("hf_visual_prefill.py"):
+        removed_imports = {
+            "GenerationRequest",
+            "GenerationResult",
+            "generate_with_standard_kwargs",
+        }
+        removed_functions = {"_new_generation_tokens", "_tokenizer_eos_token_ids"}
+        body = []
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "mprisk.models.base_wrapper":
+                node.names = [alias for alias in node.names if alias.name not in removed_imports]
+            if isinstance(node, ast.FunctionDef) and node.name in removed_functions:
+                continue
+            if isinstance(node, ast.ClassDef) and node.name == "HfVisualPrefillWrapper":
+                node.body = [
+                    item
+                    for item in node.body
+                    if not (
+                        isinstance(item, ast.FunctionDef)
+                        and item.name == "generate_conditioned"
+                    )
+                ]
+            body.append(node)
+        tree.body = body
+    elif classification == "allocator_provenance_only" and path.endswith("phi4_mm.py"):
+        body = []
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                node.names = [alias for alias in node.names if alias.name != "os"]
+                if not node.names:
+                    continue
+            if isinstance(node, ast.FunctionDef) and node.name == "_cuda_allocator_provenance":
+                continue
+            body.append(node)
+        tree.body = body
+
+        class RemoveAllocatorProvenance(ast.NodeTransformer):
+            def visit_Dict(self, node: ast.Dict) -> ast.AST:
+                self.generic_visit(node)
+                pairs = [
+                    (key, value)
+                    for key, value in zip(node.keys, node.values, strict=True)
+                    if not (
+                        isinstance(key, ast.Constant)
+                        and key.value == "cuda_allocator"
+                    )
+                ]
+                node.keys = [key for key, _ in pairs]
+                node.values = [value for _, value in pairs]
+                return node
+
+        tree = RemoveAllocatorProvenance().visit(tree)
+    else:
+        raise SignatureMigrationError(
+            f"No AST normalizer for semantic classification: {classification}:{path}"
+        )
+    ast.fix_missing_locations(tree)
+    return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 
 def _verify_file_reference(value: Any, *, label: str) -> Path:
