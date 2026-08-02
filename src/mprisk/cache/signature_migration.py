@@ -825,11 +825,7 @@ def _verify_domain_guards(
     if len(rows) != expected_rows or guard.get("expected_completed_rows") != expected_rows:
         raise SignatureMigrationError("Domain guard completed-row count mismatch")
     if required_kind == "llava_onevision_token_limit":
-        config_path = Path(_required_text(current_signature, "model_path")) / "config.json"
-        config = _read_json(config_path)
-        limit = config.get("max_position_embeddings")
-        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
-            raise SignatureMigrationError("LLaVA-OneVision checkpoint token limit is invalid")
+        limit = _llava_onevision_effective_context_limit(current_signature)
         token_counts = [row["entry"].get("token_count") for row in rows]
         if any(not isinstance(value, int) or isinstance(value, bool) for value in token_counts):
             raise SignatureMigrationError("LLaVA-OneVision ledger token counts are invalid")
@@ -879,6 +875,57 @@ def _verify_domain_guards(
     if not checked or guard != result:
         raise SignatureMigrationError("Gemma-4 same-media domain guard evidence mismatch")
     return [result]
+
+
+def _llava_onevision_effective_context_limit(
+    current_signature: dict[str, Any],
+) -> int:
+    """Resolve the exact context limit through the wrapper's official config class."""
+    python = _required_text(current_signature, "sys_executable")
+    model_path = _required_text(current_signature, "model_path")
+    runtime_library_path = _required_text(current_signature, "runtime_library_path")
+    code = (
+        "from transformers import LlavaOnevisionConfig; import sys; "
+        "config=LlavaOnevisionConfig.from_pretrained(sys.argv[1], local_files_only=True); "
+        "print(int(config.text_config.max_position_embeddings))"
+    )
+    env = dict(os.environ)
+    inherited_library_path = env.get("LD_LIBRARY_PATH", "")
+    env["LD_LIBRARY_PATH"] = runtime_library_path + (
+        f":{inherited_library_path}" if inherited_library_path else ""
+    )
+    if current_signature.get("python_no_user_site") is True:
+        env.update(
+            {
+                "PYTHONNOUSERSITE": "1",
+                "HF_HUB_OFFLINE": "1",
+                "TRANSFORMERS_OFFLINE": "1",
+            }
+        )
+    else:
+        env.pop("PYTHONNOUSERSITE", None)
+    completed = subprocess.run(
+        [python, "-c", code, model_path],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=180,
+    )
+    if completed.returncode != 0:
+        raise SignatureMigrationError(
+            "LLaVA-OneVision effective config inspection failed: "
+            + completed.stderr.strip()
+        )
+    try:
+        limit = int(completed.stdout.strip())
+    except ValueError as exc:
+        raise SignatureMigrationError(
+            "LLaVA-OneVision effective context limit is not an integer"
+        ) from exc
+    if limit <= 0:
+        raise SignatureMigrationError("LLaVA-OneVision effective context limit is invalid")
+    return limit
 
 
 def _verify_ledger_provenance(

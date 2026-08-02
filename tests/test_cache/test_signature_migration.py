@@ -382,8 +382,10 @@ def test_llava_limit_domain_guard_rejects_changed_boundary(
 ) -> None:
     model_root = tmp_path / "model"
     model_root.mkdir()
-    (model_root / "config.json").write_text(
-        json.dumps({"max_position_embeddings": 8}), encoding="utf-8"
+    monkeypatch.setattr(
+        migration,
+        "_llava_onevision_effective_context_limit",
+        lambda _signature: 8,
     )
     monkeypatch.setattr(
         migration,
@@ -451,6 +453,35 @@ def test_phi_mixed_provenance_requires_exact_attempt_buckets(
         current_signature={"wrapper_path": "src/mprisk/models/phi4_mm.py"},
         ledger={"counts": {"completed": 2}},
     ) == declared
+
+
+def test_llava_effective_context_limit_uses_bound_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, "32768\n", "")
+
+    monkeypatch.setattr(migration.subprocess, "run", run)
+    signature = {
+        "sys_executable": "/env/bin/python",
+        "model_path": "/models/llava-onevision",
+        "runtime_library_path": "/env/lib",
+        "python_no_user_site": True,
+    }
+    assert migration._llava_onevision_effective_context_limit(signature) == 32768
+    assert captured["command"][0] == "/env/bin/python"
+    assert "LlavaOnevisionConfig.from_pretrained" in captured["command"][2]
+    assert captured["command"][-1] == "/models/llava-onevision"
+    env = captured["env"]
+    assert isinstance(env, dict)
+    assert env["LD_LIBRARY_PATH"].split(":", 1)[0] == "/env/lib"
+    assert env["PYTHONNOUSERSITE"] == "1"
+    assert env["HF_HUB_OFFLINE"] == "1"
+    assert env["TRANSFORMERS_OFFLINE"] == "1"
 
 
 def test_legacy_v2_provenance_requires_exact_baseline_and_asset_age(
