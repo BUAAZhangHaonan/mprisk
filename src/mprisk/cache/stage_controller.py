@@ -806,7 +806,13 @@ class StageController:
                         continue
                     _atomic_json(self.paths.source_audit, audit)
                     _atomic_json(self.paths.final_audit, audit)
-                    self.write_status("complete", source=source, target=target)
+                    self.write_status(
+                        "complete",
+                        source=source,
+                        target=target,
+                        supervisors=source_lane_status + target_supervisors,
+                        lane_ownership=lane_ownership,
+                    )
                     self.emit("cache_matrix_complete")
                     return 0
                 if not source["strict_complete"]:

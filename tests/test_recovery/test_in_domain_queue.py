@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 
+import mprisk.recovery.in_domain_queue as in_domain_queue
 from mprisk.recovery.in_domain_queue import _contracts_pass, load_queue
 
 
@@ -85,3 +87,49 @@ def test_jsonl_contract_can_use_relation_row_identity(tmp_path: Path) -> None:
             }
         ]
     )
+
+
+def test_gate_accepts_complete_controller_status_with_idle_target_supervisors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    status_path = tmp_path / "status.json"
+    status_path.write_text(
+        json.dumps(
+            {
+                "status": "complete",
+                "target": {"strict_complete": True},
+                "supervisors": [
+                    {
+                        "stage": "target",
+                        "lane": lane,
+                        "active": False,
+                        "lock_exists": False,
+                        "lock_pid_alive": False,
+                        "session_exists": False,
+                    }
+                    for lane in (0, 1)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = {
+        "_resolved_status_path": status_path,
+        "gate": {
+            "target_tmux_sessions": ["target0", "target1"],
+            "forbidden_cuda_worker_patterns": ["worker.py"],
+        },
+    }
+    monkeypatch.setattr(in_domain_queue, "_live_tmux_sessions", lambda _: [])
+    monkeypatch.setattr(in_domain_queue, "_matching_cuda_workers", lambda _: [])
+
+    evidence = in_domain_queue.gate_evidence(config)
+
+    assert evidence == {
+        "ready": True,
+        "target_strict_complete": True,
+        "target_supervisors_idle": True,
+        "live_target_tmux_sessions": [],
+        "matching_cuda_workers": [],
+        "controller_status_path": str(status_path),
+    }

@@ -455,18 +455,25 @@ def test_controller_runs_parallel_dag_and_completes_only_after_both_domains(
         return summary(records, stage=stage)
 
     def fake_stage_statuses(config, *, stage: str, sessions) -> list[dict]:
+        def status(lane: int, **kwargs) -> dict:
+            return {
+                **_lane_status(lane, **kwargs),
+                "stage": stage,
+                "lock_pid_alive": False,
+            }
+
         if stage == "source":
             return [
-                _lane_status(
+                status(
                     0,
                     session_exists=phase == 0,
                     lock_exists=phase == 0,
                     active=phase == 0,
                 ),
-                _lane_status(1),
+                status(1),
             ]
         return [
-            _lane_status(
+            status(
                 lane,
                 session_exists=lane in active_target_lanes,
                 lock_exists=lane in active_target_lanes,
@@ -537,6 +544,44 @@ def test_controller_runs_parallel_dag_and_completes_only_after_both_domains(
     assert status["status"] == "complete"
     assert status["source"]["strict_complete"] is True
     assert status["target"]["strict_complete"] is True
+    assert [
+        {
+            key: row[key]
+            for key in (
+                "stage",
+                "lane",
+                "session_exists",
+                "lock_exists",
+                "lock_pid_alive",
+                "active",
+            )
+        }
+        for row in status["supervisors"]
+        if row["stage"] == "target"
+    ] == [
+        {
+            "stage": "target",
+            "lane": 0,
+            "session_exists": False,
+            "lock_exists": False,
+            "lock_pid_alive": False,
+            "active": False,
+        },
+        {
+            "stage": "target",
+            "lane": 1,
+            "session_exists": False,
+            "lock_exists": False,
+            "lock_pid_alive": False,
+            "active": False,
+        },
+    ]
+    assert status["lane_ownership"] == {
+        "source_owned": [],
+        "target_active": [],
+        "target_launchable": [],
+        "target_waiting": [],
+    }
     assert (tmp_path / "status" / "SOURCE_COMPLETE_AUDIT.json").is_file()
     assert (tmp_path / "status" / "EXTRACTION_LAUNCH_AUDIT.json").is_file()
     assert (tmp_path / "status" / "FINAL_CACHE_AUDIT.json").is_file()
