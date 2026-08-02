@@ -19,7 +19,12 @@ from mprisk.cache.cache_matrix_queue import (
     build_asset_signature,
     load_matrix_config,
 )
-from mprisk.cache.integrity import CacheIntegrityError, audit_completed_cache
+from mprisk.cache.integrity import (
+    CacheIntegrityError,
+    audit_completed_cache,
+    build_checkpoint_digest,
+    build_model_asset_inventory,
+)
 
 
 MIGRATION_MANIFEST_SCHEMA = "mprisk_cache_asset_signature_migration_v1"
@@ -39,6 +44,17 @@ REQUIRED_PROBE_FIELDS = (
     "sample_id",
 )
 ALLOWED_MODALITIES = frozenset({"audio", "image", "text", "video"})
+LEGACY_V2_SCHEMA = "mprisk_cache_asset_signature_v2"
+CURRENT_V3_SCHEMA = "mprisk_cache_asset_signature_v3"
+V3_PROVENANCE_FIELDS = (
+    "checkpoint_digest_receipt",
+    "checkpoint_digest_schema",
+    "checkpoint_sha256",
+    "extractor_semantic_files",
+    "extractor_semantic_schema",
+    "extractor_semantic_sha256",
+    "model_asset_fingerprint",
+)
 
 # A classification is accepted only when every protected prefill symbol remains
 # AST-identical across the commits bound by the evidence file. Unknown changed
@@ -69,6 +85,50 @@ PROTECTED_SYMBOLS = {
         "Phi4MmWrapper._prepare_modal_inputs",
         "_token_position",
         "_trajectory_from_outputs",
+    ),
+    (
+        "python_timezone_alias_only",
+        "src/mprisk/cache/prefill_writer.py",
+    ): ("write_full_cache_manifest",),
+    (
+        "llava_onevision_class_move_only",
+        "src/mprisk/models/llava.py",
+    ): (
+        "LlavaV15Wrapper._prepare_inputs",
+        "_validate_llava_v15_sampled_frames",
+        "_validate_llava_v15_processor_tokens",
+    ),
+    (
+        "llava_onevision_limit_boundary_only",
+        "src/mprisk/models/llava_onevision.py",
+    ): (
+        "LlavaOneVisionWrapper._validate_request",
+        "LlavaOneVisionWrapper._prepare_inputs",
+    ),
+    (
+        "gemma4_same_media_and_provenance_only",
+        "src/mprisk/models/gemma4.py",
+    ): (
+        "Gemma4Wrapper.load",
+        "_move_inputs_to_device",
+        "_require_attention_mask",
+        "_media_keys",
+    ),
+    (
+        "generation_allocator_provenance_only",
+        "src/mprisk/models/phi4_mm.py",
+    ): (
+        "Phi4MmWrapper._prepare_modal_inputs",
+        "_token_position",
+        "_trajectory_from_outputs",
+    ),
+    (
+        "generation_only",
+        "src/mprisk/models/qwen_omni.py",
+    ): (
+        "QwenOmniWrapper.extract_prefill",
+        "_require_attention_mask",
+        "_move_inputs_to_device",
     ),
 }
 
@@ -114,6 +174,15 @@ def migrate_asset_signature(
     if old_signature == current_signature:
         raise SignatureMigrationError("Asset signature already matches; migration is unnecessary")
 
+    signature_provenance = _verify_signature_provenance(
+        config.repo_root,
+        old_signature_path=old_signature_path,
+        old_signature=old_signature,
+        current_signature=current_signature,
+        manifest=manifest,
+        current_head=current_head,
+    )
+
     evidence_bundle = _verify_file_reference(
         manifest.get("evidence_bundle"), label="evidence_bundle"
     )
@@ -127,7 +196,15 @@ def migrate_asset_signature(
         current_signature=current_signature,
         evidence=code_evidence,
         current_head=current_head,
+        historical_files=signature_provenance.get(
+            "baseline_repository_files_sha256"
+        ),
     )
+    if (
+        signature_provenance.get("baseline_git_sha") is not None
+        and code_result["base_git_sha"] != signature_provenance["baseline_git_sha"]
+    ):
+        raise SignatureMigrationError("Code evidence base does not match legacy baseline")
     probe_results = _verify_probes(
         manifest,
         job=job,
@@ -136,6 +213,19 @@ def migrate_asset_signature(
     _verify_inactive(job, manifest)
 
     ledger = _verify_complete_ledger(job)
+    domain_guards = _verify_domain_guards(
+        manifest,
+        job=job,
+        old_signature=old_signature,
+        current_signature=current_signature,
+        ledger=ledger,
+    )
+    ledger_provenance = _verify_ledger_provenance(
+        manifest,
+        job=job,
+        current_signature=current_signature,
+        ledger=ledger,
+    )
 
     expected_batch_signature = _expected_batch_signature(config, job)
     output_root_hash = hashlib.sha256(str(job.output_root).encode()).hexdigest()
@@ -171,6 +261,9 @@ def migrate_asset_signature(
             "manifest_file_sha256": _sha256_bytes(manifest_bytes),
             "evidence_bundle_path": str(evidence_bundle),
             "code_diff": code_result,
+            "signature_provenance": signature_provenance,
+            "domain_guards": domain_guards,
+            "ledger_provenance": ledger_provenance,
             "probes": probe_results,
             "old_signature_sha256": old_signature_sha256,
             "current_expected_signature_sha256": current_signature_sha256,
@@ -277,6 +370,146 @@ def _apply_migration(
         raise
 
 
+def _verify_signature_provenance(
+    repo_root: Path,
+    *,
+    old_signature_path: Path,
+    old_signature: dict[str, Any],
+    current_signature: dict[str, Any],
+    manifest: dict[str, Any],
+    current_head: str,
+) -> dict[str, Any]:
+    schema = old_signature.get("schema")
+    if current_signature.get("schema") != CURRENT_V3_SCHEMA:
+        raise SignatureMigrationError("Current signature is not the required v3 schema")
+    legacy = manifest.get("legacy_v2")
+    if schema == CURRENT_V3_SCHEMA:
+        if legacy is not None:
+            raise SignatureMigrationError("legacy_v2 evidence is forbidden for a v3 signature")
+        return {"old_schema": CURRENT_V3_SCHEMA, "mode": "field_exact_v3"}
+    if schema != LEGACY_V2_SCHEMA:
+        raise SignatureMigrationError(f"Unsupported old signature schema: {schema!r}")
+    if not isinstance(legacy, dict):
+        raise SignatureMigrationError("legacy_v2 evidence is required for a v2 signature")
+
+    stat = old_signature_path.stat()
+    actual_stat = {
+        "size": stat.st_size,
+        "mtime_ns": stat.st_mtime_ns,
+        "sha256": _sha256_file(old_signature_path),
+    }
+    if legacy.get("asset_signature_stat") != actual_stat:
+        raise SignatureMigrationError("legacy_v2 ASSET_SIGNATURE stat evidence mismatch")
+
+    old_keys = set(old_signature)
+    current_keys = set(current_signature)
+    missing = sorted(current_keys - old_keys)
+    if missing != list(V3_PROVENANCE_FIELDS):
+        raise SignatureMigrationError(f"Unexpected v2-to-v3 missing fields: {missing}")
+    if legacy.get("missing_v3_fields") != missing:
+        raise SignatureMigrationError("legacy_v2 missing-field evidence mismatch")
+    allowed_changed = ["schema", "wrapper_file_sha256", "wrapper_git_sha"]
+    if legacy.get("allowed_changed_fields") != allowed_changed:
+        raise SignatureMigrationError("legacy_v2 allowed changed fields are not exact")
+    changed_overlap = sorted(
+        key for key in old_keys & current_keys if old_signature[key] != current_signature[key]
+    )
+    if set(changed_overlap) - set(allowed_changed):
+        raise SignatureMigrationError(
+            f"legacy_v2 changed fields exceed the allowed set: {changed_overlap}"
+        )
+    if legacy.get("changed_overlap_fields") != changed_overlap:
+        raise SignatureMigrationError("legacy_v2 changed overlap field list mismatch")
+    overlap = sorted((old_keys & current_keys) - set(allowed_changed))
+    mismatches = [key for key in overlap if old_signature[key] != current_signature[key]]
+    if mismatches:
+        raise SignatureMigrationError(f"legacy_v2 overlapping fields changed: {mismatches}")
+    if legacy.get("equal_overlap_fields") != overlap:
+        raise SignatureMigrationError("legacy_v2 equal overlap field list mismatch")
+    if legacy.get("equal_overlap_sha256") != _fingerprint(
+        {key: old_signature[key] for key in overlap}
+    ):
+        raise SignatureMigrationError("legacy_v2 overlap evidence hash mismatch")
+
+    baseline = _required_text(legacy, "baseline_git_sha")
+    expected_baseline = _git(
+        repo_root,
+        "rev-list",
+        "-1",
+        f"--before=@{stat.st_mtime_ns // 1_000_000_000}",
+        current_head,
+    ).strip()
+    if baseline != expected_baseline:
+        raise SignatureMigrationError("legacy_v2 baseline is not the last commit before ASSET_SIGNATURE")
+    wrapper_path = _required_text(old_signature, "wrapper_path")
+    wrapper_source = _git_bytes(repo_root, "show", f"{baseline}:{wrapper_path}")
+    if _sha256_bytes(wrapper_source) != old_signature.get("wrapper_file_sha256"):
+        raise SignatureMigrationError("legacy_v2 baseline wrapper does not match old signature")
+    wrapper_commit = _required_text(old_signature, "wrapper_git_sha")
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", wrapper_commit, baseline],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if ancestor.returncode != 0:
+        raise SignatureMigrationError("legacy_v2 wrapper commit is not an ancestor of baseline")
+
+    current_files = _semantic_repository_files(current_signature)
+    baseline_files = {
+        path: _sha256_bytes(_git_bytes(repo_root, "show", f"{baseline}:{path}"))
+        for path in current_files
+    }
+    if legacy.get("baseline_repository_files_sha256") != baseline_files:
+        raise SignatureMigrationError("legacy_v2 baseline semantic file evidence mismatch")
+
+    model_root = Path(_required_text(current_signature, "model_path")).resolve()
+    checkpoint = build_checkpoint_digest(model_root)
+    inventory = build_model_asset_inventory(model_root, checkpoint_receipt=checkpoint)
+    asset_files = []
+    for item in inventory["inventory"]["files"]:
+        path = model_root / str(item["path"])
+        file_stat = path.stat()
+        if file_stat.st_mtime_ns > stat.st_mtime_ns or file_stat.st_ctime_ns > stat.st_mtime_ns:
+            raise SignatureMigrationError(f"Model asset is newer than legacy signature: {path}")
+        asset_files.append(
+            {
+                "path": str(item["path"]),
+                "bytes": int(item["bytes"]),
+                "sha256": str(item["sha256"]),
+                "role": str(item["role"]),
+                "mtime_ns": file_stat.st_mtime_ns,
+                "ctime_ns": file_stat.st_ctime_ns,
+            }
+        )
+    asset_guard = {
+        "file_count": len(asset_files),
+        "latest_mtime_ns": max(item["mtime_ns"] for item in asset_files),
+        "latest_ctime_ns": max(item["ctime_ns"] for item in asset_files),
+        "checkpoint_sha256": checkpoint["checkpoint_sha256"],
+        "model_asset_fingerprint": inventory["sha256"],
+        "files_sha256": _fingerprint(asset_files),
+    }
+    if legacy.get("model_asset_age_guard") != asset_guard:
+        raise SignatureMigrationError("legacy_v2 model asset age evidence mismatch")
+    if checkpoint["checkpoint_sha256"] != current_signature.get("checkpoint_sha256"):
+        raise SignatureMigrationError("Current checkpoint hash changed during legacy verification")
+    if inventory["sha256"] != current_signature.get("model_asset_fingerprint"):
+        raise SignatureMigrationError("Current model asset fingerprint changed during verification")
+    return {
+        "old_schema": LEGACY_V2_SCHEMA,
+        "mode": "historical_baseline_and_asset_age_proof",
+        "asset_signature_stat": actual_stat,
+        "baseline_git_sha": baseline,
+        "equal_overlap_fields": overlap,
+        "changed_overlap_fields": changed_overlap,
+        "missing_v3_fields": missing,
+        "model_asset_age_guard": asset_guard,
+        "baseline_repository_files_sha256": baseline_files,
+    }
+
+
 def _verify_code_evidence(
     repo_root: Path,
     *,
@@ -284,6 +517,7 @@ def _verify_code_evidence(
     current_signature: dict[str, Any],
     evidence: dict[str, Any],
     current_head: str,
+    historical_files: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     if evidence.get("schema") != CODE_EVIDENCE_SCHEMA:
         raise SignatureMigrationError("Unsupported code diff evidence schema")
@@ -291,7 +525,11 @@ def _verify_code_evidence(
     head = _required_text(evidence, "head_git_sha")
     if head != current_head:
         raise SignatureMigrationError("Code evidence head does not match current HEAD")
-    old_files = _semantic_repository_files(old_signature)
+    old_files = (
+        _semantic_repository_files(old_signature)
+        if historical_files is None
+        else historical_files
+    )
     current_files = _semantic_repository_files(current_signature)
     if set(old_files) != set(current_files):
         raise SignatureMigrationError(
@@ -519,6 +757,193 @@ def _verify_complete_ledger(job: Any) -> dict[str, Any]:
     return ledger
 
 
+def _completed_ledger_rows(job: Any) -> list[dict[str, Any]]:
+    connection = sqlite3.connect(f"file:{job.output_root / 'batch_state.sqlite3'}?mode=ro", uri=True)
+    try:
+        rows = connection.execute(
+            "SELECT task_id, attempts, entry_json FROM tasks WHERE status='completed' "
+            "ORDER BY task_id"
+        ).fetchall()
+    finally:
+        connection.close()
+    result = []
+    for task_id, attempts, entry_json in rows:
+        entry = json.loads(str(entry_json))
+        result.append(
+            {"task_id": str(task_id), "attempts": int(attempts), "entry": entry}
+        )
+    return result
+
+
+def _entry_sidecar(job: Any, entry: dict[str, Any]) -> tuple[Path, dict[str, Any]]:
+    cache_root = Path(_required_text(entry, "cache_root")).resolve()
+    if not cache_root.is_relative_to(job.output_root.resolve()):
+        raise SignatureMigrationError("Ledger entry cache_root escapes the job output root")
+    metadata = entry.get("metadata")
+    if not isinstance(metadata, dict):
+        raise SignatureMigrationError("Ledger entry metadata is missing")
+    path = (cache_root / _required_text(metadata, "sidecar_path")).resolve()
+    if not path.is_relative_to(job.output_root.resolve()) or not path.is_file():
+        raise SignatureMigrationError(f"Ledger sidecar is missing or outside job root: {path}")
+    sidecar = _read_json(path)
+    sidecar_entry = sidecar.get("entry")
+    if not isinstance(sidecar_entry, dict):
+        raise SignatureMigrationError(f"Sidecar entry is missing: {path}")
+    for field in ("sample_id", "model_key", "protocol", "prompt_id", "condition", "checksum"):
+        if sidecar_entry.get(field) != entry.get(field):
+            raise SignatureMigrationError(f"Ledger/sidecar mismatch: {path}:{field}")
+    return path, sidecar
+
+
+def _verify_domain_guards(
+    manifest: dict[str, Any],
+    *,
+    job: Any,
+    old_signature: dict[str, Any],
+    current_signature: dict[str, Any],
+    ledger: dict[str, Any],
+) -> list[dict[str, Any]]:
+    declared = manifest.get("domain_guards", [])
+    if not isinstance(declared, list) or any(not isinstance(item, dict) for item in declared):
+        raise SignatureMigrationError("domain_guards must be a list of objects")
+    required_kind = None
+    if old_signature.get("schema") == LEGACY_V2_SCHEMA:
+        path = str(current_signature.get("wrapper_path", ""))
+        if path.endswith("llava_onevision.py"):
+            required_kind = "llava_onevision_token_limit"
+        elif path.endswith("gemma4.py"):
+            required_kind = "gemma4_same_media"
+    if required_kind is None:
+        if declared:
+            raise SignatureMigrationError("Domain guards were declared for a job that needs none")
+        return []
+    if len(declared) != 1 or declared[0].get("kind") != required_kind:
+        raise SignatureMigrationError(f"Exactly one {required_kind} domain guard is required")
+    guard = declared[0]
+    rows = _completed_ledger_rows(job)
+    expected_rows = int(ledger["counts"]["completed"])
+    if len(rows) != expected_rows or guard.get("expected_completed_rows") != expected_rows:
+        raise SignatureMigrationError("Domain guard completed-row count mismatch")
+    if required_kind == "llava_onevision_token_limit":
+        config_path = Path(_required_text(current_signature, "model_path")) / "config.json"
+        config = _read_json(config_path)
+        limit = config.get("max_position_embeddings")
+        if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+            raise SignatureMigrationError("LLaVA-OneVision checkpoint token limit is invalid")
+        token_counts = [row["entry"].get("token_count") for row in rows]
+        if any(not isinstance(value, int) or isinstance(value, bool) for value in token_counts):
+            raise SignatureMigrationError("LLaVA-OneVision ledger token counts are invalid")
+        maximum = max(token_counts)
+        result = {
+            "kind": required_kind,
+            "expected_completed_rows": expected_rows,
+            "max_position_embeddings": limit,
+            "maximum_completed_token_count": maximum,
+        }
+        if maximum >= limit:
+            raise SignatureMigrationError("LLaVA-OneVision cache reaches changed limit boundary")
+        if guard != result:
+            raise SignatureMigrationError("LLaVA-OneVision domain guard evidence mismatch")
+        return [result]
+
+    checked = []
+    for row in rows:
+        entry = row["entry"]
+        if entry.get("condition") != "M12":
+            continue
+        _, sidecar = _entry_sidecar(job, entry)
+        request = sidecar.get("request")
+        if not isinstance(request, dict) or request.get("use_audio_in_video") is not True:
+            raise SignatureMigrationError("Gemma-4 M12 request does not use embedded audio")
+        media_paths = request.get("media_paths")
+        if not isinstance(media_paths, dict):
+            raise SignatureMigrationError("Gemma-4 M12 request lacks media_paths")
+        vision = str(media_paths.get("vision", ""))
+        audio = str(media_paths.get("audio", ""))
+        if not vision or vision != audio:
+            raise SignatureMigrationError("Gemma-4 M12 vision/audio assets differ")
+        checked.append(
+            {
+                "task_id": row["task_id"],
+                "sample_id": str(entry.get("sample_id")),
+                "prompt_id": str(entry.get("prompt_id")),
+                "media_path": vision,
+            }
+        )
+    result = {
+        "kind": required_kind,
+        "expected_completed_rows": expected_rows,
+        "m12_rows": len(checked),
+        "m12_contract_sha256": _fingerprint(checked),
+    }
+    if not checked or guard != result:
+        raise SignatureMigrationError("Gemma-4 same-media domain guard evidence mismatch")
+    return [result]
+
+
+def _verify_ledger_provenance(
+    manifest: dict[str, Any],
+    *,
+    job: Any,
+    current_signature: dict[str, Any],
+    ledger: dict[str, Any],
+) -> dict[str, Any] | None:
+    declared = manifest.get("ledger_provenance")
+    requires_mixed = (
+        job.job_id == "target:phi4_multimodal"
+        and current_signature.get("wrapper_path") == "src/mprisk/models/phi4_mm.py"
+    )
+    if not requires_mixed:
+        if declared is not None:
+            raise SignatureMigrationError("ledger_provenance is forbidden for this job")
+        return None
+    if not isinstance(declared, dict) or declared.get("kind") != "phi4_allocator_mixed_v1":
+        raise SignatureMigrationError("Explicit Phi-4 mixed ledger provenance is required")
+    expected_allocator = {
+        "backend": "native",
+        "environment": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    }
+    records = []
+    counts = {"attempt_1_without_allocator": 0, "attempt_2_with_allocator": 0}
+    rows = _completed_ledger_rows(job)
+    if len(rows) != int(ledger["counts"]["completed"]):
+        raise SignatureMigrationError("Phi-4 mixed provenance row count mismatch")
+    for row in rows:
+        path, sidecar = _entry_sidecar(job, row["entry"])
+        provenance = sidecar.get("provenance")
+        if not isinstance(provenance, dict):
+            raise SignatureMigrationError(f"Phi-4 sidecar provenance is missing: {path}")
+        has_allocator = "cuda_allocator" in provenance
+        if row["attempts"] == 1 and not has_allocator:
+            bucket = "attempt_1_without_allocator"
+        elif row["attempts"] == 2 and provenance.get("cuda_allocator") == expected_allocator:
+            bucket = "attempt_2_with_allocator"
+        else:
+            raise SignatureMigrationError(
+                f"Unexpected Phi-4 attempt/allocator provenance combination: {path}"
+            )
+        counts[bucket] += 1
+        entry = row["entry"]
+        records.append(
+            {
+                "task_id": row["task_id"],
+                "attempts": row["attempts"],
+                "bucket": bucket,
+                "checksum": str(entry.get("checksum")),
+            }
+        )
+    result = {
+        "kind": "phi4_allocator_mixed_v1",
+        "completed_rows": len(rows),
+        "counts": counts,
+        "expected_allocator": expected_allocator,
+        "records_sha256": _fingerprint(records),
+    }
+    if declared != result:
+        raise SignatureMigrationError("Phi-4 mixed ledger provenance evidence mismatch")
+    return result
+
+
 def _process_cmdlines() -> dict[int, str]:
     result = {}
     for path in Path("/proc").glob("[0-9]*/cmdline"):
@@ -620,7 +1045,178 @@ def _classification_ast_sha256(
                 ]
             body.append(node)
         tree.body = body
-    elif classification == "allocator_provenance_only" and path.endswith("phi4_mm.py"):
+    elif classification == "python_timezone_alias_only" and path.endswith(
+        "prefill_writer.py"
+    ):
+        class NormalizeUtcAlias(ast.NodeTransformer):
+            def visit_ImportFrom(self, node: ast.ImportFrom) -> ast.AST:
+                self.generic_visit(node)
+                if node.module == "datetime":
+                    node.names = [
+                        ast.alias(name="UTC")
+                        if alias.name in {"UTC", "timezone"}
+                        else alias
+                        for alias in node.names
+                    ]
+                return node
+
+            def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+                self.generic_visit(node)
+                if (
+                    node.attr == "utc"
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id == "timezone"
+                ):
+                    return ast.copy_location(ast.Name(id="UTC", ctx=ast.Load()), node)
+                return node
+
+        tree = NormalizeUtcAlias().visit(tree)
+    elif classification == "llava_onevision_class_move_only" and path.endswith(
+        "llava.py"
+    ):
+        tree.body = [
+            node
+            for node in tree.body
+            if not (isinstance(node, ast.ClassDef) and node.name == "LlavaOneVisionWrapper")
+        ]
+    elif classification == "llava_onevision_limit_boundary_only" and path.endswith(
+        "llava_onevision.py"
+    ):
+        class NormalizeLimitBoundary(ast.NodeTransformer):
+            def visit_If(self, node: ast.If) -> ast.AST:
+                self.generic_visit(node)
+                test = node.test
+                if (
+                    isinstance(test, ast.Compare)
+                    and isinstance(test.left, ast.Name)
+                    and test.left.id == "token_count"
+                    and len(test.ops) == 1
+                    and isinstance(test.ops[0], (ast.Gt, ast.GtE))
+                    and len(test.comparators) == 1
+                    and isinstance(test.comparators[0], ast.Name)
+                    and test.comparators[0].id == "max_position_embeddings"
+                ):
+                    test.ops = [ast.Gt()]
+                    node.body = [
+                        ast.Raise(
+                            exc=ast.Call(
+                                func=ast.Name(id="ValueError", ctx=ast.Load()),
+                                args=[ast.Constant(value="TOKEN_LIMIT")],
+                                keywords=[],
+                            ),
+                            cause=None,
+                        )
+                    ]
+                return node
+
+        tree = NormalizeLimitBoundary().visit(tree)
+    elif classification == "gemma4_same_media_and_provenance_only" and path.endswith(
+        "gemma4.py"
+    ):
+        class NormalizeGemma4(ast.NodeTransformer):
+            def _strip_docstring(self, node: ast.AST) -> ast.AST:
+                body = getattr(node, "body", None)
+                if (
+                    isinstance(body, list)
+                    and body
+                    and isinstance(body[0], ast.Expr)
+                    and isinstance(body[0].value, ast.Constant)
+                    and isinstance(body[0].value.value, str)
+                ):
+                    node.body = body[1:]
+                return node
+
+            def visit_Module(self, node: ast.Module) -> ast.AST:
+                self.generic_visit(node)
+                self._strip_docstring(node)
+                prefix = []
+                remainder = list(node.body)
+                while remainder and isinstance(remainder[0], (ast.Import, ast.ImportFrom)):
+                    prefix.append(remainder.pop(0))
+                node.body = sorted(
+                    prefix, key=lambda item: ast.dump(item, include_attributes=False)
+                ) + remainder
+                return node
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
+                self.generic_visit(node)
+                return self._strip_docstring(node)
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
+                self.generic_visit(node)
+                self._strip_docstring(node)
+                if node.name == "__init__":
+                    node.body = [
+                        item
+                        for item in node.body
+                        if not (
+                            isinstance(item, ast.Assign)
+                            and any(
+                                isinstance(target, ast.Attribute)
+                                and target.attr in {"_weight_file", "_weight_file_sha256"}
+                                for target in item.targets
+                            )
+                        )
+                    ]
+                if node.name == "_validate_request":
+                    removable = {
+                        "request.condition == 'M12' and (not request.use_audio_in_video)",
+                        "request.condition == 'M12' and request.use_audio_in_video",
+                    }
+                    node.body = [
+                        item
+                        for item in node.body
+                        if not (
+                            isinstance(item, ast.If)
+                            and ast.unparse(item.test) in removable
+                        )
+                    ]
+                if node.name == "build_va_request":
+                    node.body = [
+                        item
+                        for item in node.body
+                        if not (
+                            isinstance(item, ast.Assign)
+                            and any(
+                                isinstance(target, ast.Name)
+                                and target.id == "use_embedded_audio"
+                                for target in item.targets
+                            )
+                        )
+                    ]
+                    for item in ast.walk(node):
+                        if isinstance(item, ast.keyword) and item.arg == "use_audio_in_video":
+                            item.value = ast.Compare(
+                                left=ast.Name(id="condition", ctx=ast.Load()),
+                                ops=[ast.Eq()],
+                                comparators=[ast.Constant(value="M12")],
+                            )
+                return node
+
+            def visit_Dict(self, node: ast.Dict) -> ast.AST:
+                self.generic_visit(node)
+                pairs = [
+                    (key, value)
+                    for key, value in zip(node.keys, node.values, strict=True)
+                    if not (
+                        isinstance(key, ast.Constant)
+                        and key.value in {"weight_file_path", "weight_file_sha256"}
+                    )
+                ]
+                node.keys = [key for key, _ in pairs]
+                node.values = [value for _, value in pairs]
+                return node
+
+        tree.body = [
+            node
+            for node in tree.body
+            if not (isinstance(node, ast.FunctionDef) and node.name == "_single_weight_file")
+        ]
+        tree = NormalizeGemma4().visit(tree)
+    elif classification in {
+        "allocator_provenance_only",
+        "generation_allocator_provenance_only",
+    } and path.endswith("phi4_mm.py"):
         body = []
         for node in tree.body:
             if isinstance(node, ast.Import):
@@ -629,6 +1225,40 @@ def _classification_ast_sha256(
                     continue
             if isinstance(node, ast.FunctionDef) and node.name == "_cuda_allocator_provenance":
                 continue
+            if (
+                classification == "generation_allocator_provenance_only"
+                and isinstance(node, ast.FunctionDef)
+                and node.name == "_tokenizer_eos_token_ids"
+            ):
+                continue
+            if (
+                classification == "generation_allocator_provenance_only"
+                and isinstance(node, ast.ImportFrom)
+                and node.module == "mprisk.models.base_wrapper"
+            ):
+                node.names = [
+                    alias
+                    for alias in node.names
+                    if alias.name
+                    not in {
+                        "GenerationRequest",
+                        "GenerationResult",
+                        "generate_with_standard_kwargs",
+                    }
+                ]
+            if (
+                classification == "generation_allocator_provenance_only"
+                and isinstance(node, ast.ClassDef)
+                and node.name == "Phi4MmWrapper"
+            ):
+                node.body = [
+                    item
+                    for item in node.body
+                    if not (
+                        isinstance(item, ast.FunctionDef)
+                        and item.name == "generate_conditioned"
+                    )
+                ]
             body.append(node)
         tree.body = body
 
@@ -648,6 +1278,23 @@ def _classification_ast_sha256(
                 return node
 
         tree = RemoveAllocatorProvenance().visit(tree)
+    elif classification == "generation_only" and path.endswith("qwen_omni.py"):
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module == "mprisk.models.base_wrapper":
+                node.names = [
+                    alias
+                    for alias in node.names
+                    if alias.name != "generate_with_standard_kwargs"
+                ]
+            if isinstance(node, ast.ClassDef) and node.name == "QwenOmniWrapper":
+                node.body = [
+                    item
+                    for item in node.body
+                    if not (
+                        isinstance(item, ast.FunctionDef)
+                        and item.name == "generate_conditioned"
+                    )
+                ]
     else:
         raise SignatureMigrationError(
             f"No AST normalizer for semantic classification: {classification}:{path}"

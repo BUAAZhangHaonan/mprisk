@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -335,3 +336,228 @@ def test_allocator_classifier_removes_only_allocator_provenance() -> None:
     assert migration._classification_ast_sha256(
         before, **kwargs
     ) != migration._classification_ast_sha256(changed_math, **kwargs)
+
+
+@pytest.mark.parametrize(
+    ("path", "classification", "before", "after", "changed"),
+    [
+        (
+            "src/mprisk/cache/prefill_writer.py",
+            "python_timezone_alias_only",
+            b"from datetime import UTC\ndef f():\n    return UTC\n",
+            b"from datetime import timezone\ndef f():\n    return timezone.utc\n",
+            b"from datetime import timezone\ndef f():\n    return None\n",
+        ),
+        (
+            "src/mprisk/models/llava.py",
+            "llava_onevision_class_move_only",
+            b"class Keep:\n    x = 1\nclass LlavaOneVisionWrapper:\n    x = 2\n",
+            b"class Keep:\n    x = 1\n",
+            b"class Keep:\n    x = 3\n",
+        ),
+        (
+            "src/mprisk/models/qwen_omni.py",
+            "generation_only",
+            b"from mprisk.models.base_wrapper import PrefillRequest\nclass QwenOmniWrapper:\n    def extract_prefill(self):\n        return 1\n    def generate_conditioned(self):\n        return 1\n",
+            b"from mprisk.models.base_wrapper import PrefillRequest, generate_with_standard_kwargs\nclass QwenOmniWrapper:\n    def extract_prefill(self):\n        return 1\n    def generate_conditioned(self):\n        return 2\n",
+            b"from mprisk.models.base_wrapper import PrefillRequest, generate_with_standard_kwargs\nclass QwenOmniWrapper:\n    def extract_prefill(self):\n        return 2\n    def generate_conditioned(self):\n        return 2\n",
+        ),
+    ],
+)
+def test_new_classifiers_are_exact_and_detect_nonclassified_changes(
+    path: str,
+    classification: str,
+    before: bytes,
+    after: bytes,
+    changed: bytes,
+) -> None:
+    kwargs = {"path": path, "classification": classification}
+    expected = migration._classification_ast_sha256(before, **kwargs)
+    assert migration._classification_ast_sha256(after, **kwargs) == expected
+    assert migration._classification_ast_sha256(changed, **kwargs) != expected
+
+
+def test_llava_limit_domain_guard_rejects_changed_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    (model_root / "config.json").write_text(
+        json.dumps({"max_position_embeddings": 8}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        migration,
+        "_completed_ledger_rows",
+        lambda _job: [{"task_id": "t", "attempts": 1, "entry": {"token_count": 8}}],
+    )
+    with pytest.raises(migration.SignatureMigrationError, match="reaches changed limit"):
+        migration._verify_domain_guards(
+            {
+                "domain_guards": [
+                    {
+                        "kind": "llava_onevision_token_limit",
+                        "expected_completed_rows": 1,
+                        "max_position_embeddings": 8,
+                        "maximum_completed_token_count": 8,
+                    }
+                ]
+            },
+            job=_job(tmp_path),
+            old_signature={"schema": migration.LEGACY_V2_SCHEMA},
+            current_signature={
+                "wrapper_path": "src/mprisk/models/llava_onevision.py",
+                "model_path": str(model_root),
+            },
+            ledger={"counts": {"completed": 1}},
+        )
+
+
+def test_phi_mixed_provenance_requires_exact_attempt_buckets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = _job(tmp_path)
+    job.job_id = "target:phi4_multimodal"
+    rows = [
+        {"task_id": "a", "attempts": 1, "entry": {"checksum": "x"}},
+        {"task_id": "b", "attempts": 2, "entry": {"checksum": "y"}},
+    ]
+    allocator = {
+        "backend": "native",
+        "environment": {"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"},
+    }
+    monkeypatch.setattr(migration, "_completed_ledger_rows", lambda _job: rows)
+    monkeypatch.setattr(
+        migration,
+        "_entry_sidecar",
+        lambda _job, entry: (
+            tmp_path / "sidecar.json",
+            {"provenance": {} if entry["checksum"] == "x" else {"cuda_allocator": allocator}},
+        ),
+    )
+    records = [
+        {"task_id": "a", "attempts": 1, "bucket": "attempt_1_without_allocator", "checksum": "x"},
+        {"task_id": "b", "attempts": 2, "bucket": "attempt_2_with_allocator", "checksum": "y"},
+    ]
+    declared = {
+        "kind": "phi4_allocator_mixed_v1",
+        "completed_rows": 2,
+        "counts": {"attempt_1_without_allocator": 1, "attempt_2_with_allocator": 1},
+        "expected_allocator": allocator,
+        "records_sha256": migration._fingerprint(records),
+    }
+    assert migration._verify_ledger_provenance(
+        {"ledger_provenance": declared},
+        job=job,
+        current_signature={"wrapper_path": "src/mprisk/models/phi4_mm.py"},
+        ledger={"counts": {"completed": 2}},
+    ) == declared
+
+
+def test_legacy_v2_provenance_requires_exact_baseline_and_asset_age(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    model_root = tmp_path / "model"
+    model_root.mkdir()
+    asset = model_root / "config.json"
+    asset.write_text("{}\n", encoding="utf-8")
+    old_source = b"def f():\n    return 1\n"
+    old_hash = migration._sha256_bytes(old_source)
+    old = {
+        "schema": migration.LEGACY_V2_SCHEMA,
+        "model_path": str(model_root),
+        "wrapper_path": "src/mprisk/models/wrapper.py",
+        "wrapper_git_sha": "1" * 40,
+        "wrapper_file_sha256": old_hash,
+        "stable": "same",
+    }
+    current = {
+        **old,
+        "schema": migration.CURRENT_V3_SCHEMA,
+        "checkpoint_digest_receipt": str(tmp_path / "receipt.json"),
+        "checkpoint_digest_schema": "checkpoint-v1",
+        "checkpoint_sha256": "c" * 64,
+        "extractor_semantic_files": {
+            "repository": {"src/mprisk/models/wrapper.py": "n" * 64},
+            "trust_remote_code": {},
+        },
+        "extractor_semantic_schema": "extractor-v1",
+        "extractor_semantic_sha256": "e" * 64,
+        "model_asset_fingerprint": "m" * 64,
+    }
+    signature_path = tmp_path / "ASSET_SIGNATURE.json"
+    signature_path.write_text(json.dumps(old) + "\n", encoding="utf-8")
+    stat = signature_path.stat()
+    asset_stat = asset.stat()
+    baseline = "2" * 40
+    baseline_files = {"src/mprisk/models/wrapper.py": old_hash}
+    asset_records = [
+        {
+            "path": "config.json",
+            "bytes": asset_stat.st_size,
+            "sha256": "a" * 64,
+            "role": "runtime_asset",
+            "mtime_ns": asset_stat.st_mtime_ns,
+            "ctime_ns": asset_stat.st_ctime_ns,
+        }
+    ]
+    overlap = ["model_path", "stable", "wrapper_path"]
+    legacy = {
+        "asset_signature_stat": {
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": migration._sha256_file(signature_path),
+        },
+        "missing_v3_fields": list(migration.V3_PROVENANCE_FIELDS),
+        "allowed_changed_fields": ["schema", "wrapper_file_sha256", "wrapper_git_sha"],
+        "changed_overlap_fields": ["schema"],
+        "equal_overlap_fields": overlap,
+        "equal_overlap_sha256": migration._fingerprint({key: old[key] for key in overlap}),
+        "baseline_git_sha": baseline,
+        "baseline_repository_files_sha256": baseline_files,
+        "model_asset_age_guard": {
+            "file_count": 1,
+            "latest_mtime_ns": asset_stat.st_mtime_ns,
+            "latest_ctime_ns": asset_stat.st_ctime_ns,
+            "checkpoint_sha256": "c" * 64,
+            "model_asset_fingerprint": "m" * 64,
+            "files_sha256": migration._fingerprint(asset_records),
+        },
+    }
+    monkeypatch.setattr(migration, "_git", lambda *_args: baseline + "\n")
+    monkeypatch.setattr(migration, "_git_bytes", lambda *_args: old_source)
+    monkeypatch.setattr(
+        migration.subprocess,
+        "run",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, "", ""),
+    )
+    monkeypatch.setattr(
+        migration,
+        "build_checkpoint_digest",
+        lambda _root: {"checkpoint_sha256": "c" * 64},
+    )
+    monkeypatch.setattr(
+        migration,
+        "build_model_asset_inventory",
+        lambda _root, checkpoint_receipt: {
+            "sha256": "m" * 64,
+            "inventory": {
+                "files": [
+                    {
+                        "path": "config.json",
+                        "bytes": asset_stat.st_size,
+                        "sha256": "a" * 64,
+                        "role": "runtime_asset",
+                    }
+                ]
+            },
+        },
+    )
+    result = migration._verify_signature_provenance(
+        tmp_path,
+        old_signature_path=signature_path,
+        old_signature=old,
+        current_signature=current,
+        manifest={"legacy_v2": legacy},
+        current_head="3" * 40,
+    )
+    assert result["mode"] == "historical_baseline_and_asset_age_proof"
