@@ -20,4 +20,4 @@ generation_kwargs:
   num_beams: 1
   max_new_tokens: 256
 video_fps: 1.0
-attn_implementation: sdpa
+attn_implementation: eager
