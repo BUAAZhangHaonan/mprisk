@@ -519,6 +519,73 @@ def test_new_classifiers_are_exact_and_detect_nonclassified_changes(
     assert migration._classification_ast_sha256(changed, **kwargs) != expected
 
 
+def test_phi3_loader_dtype_classifier_accepts_only_keyword_compatibility_change() -> None:
+    before = b"""\
+class Phi3VisionWrapper:
+    def __init__(self):
+        self.video_num_segments = 8
+    def _load_dependencies(self):
+        model = AutoModelForCausalLM.from_pretrained(
+            'model', dtype=torch.bfloat16, device_map='cuda'
+        )
+        return model
+    def _prepare_inputs(self, request):
+        return request
+"""
+    after = before.replace(b"dtype=torch.bfloat16", b"torch_dtype=torch.bfloat16")
+    changed_value = after.replace(b"torch.bfloat16", b"torch.float16")
+    changed_argument = after.replace(b"device_map='cuda'", b"device_map='cpu'")
+    kwargs = {
+        "path": "src/mprisk/models/phi3_vision.py",
+        "classification": "phi3_loader_dtype_keyword_only",
+    }
+
+    expected = migration._classification_ast_sha256(before, **kwargs)
+    assert migration._classification_ast_sha256(after, **kwargs) == expected
+    assert migration._classification_ast_sha256(changed_value, **kwargs) != expected
+    assert migration._classification_ast_sha256(changed_argument, **kwargs) != expected
+    assert migration.PROTECTED_SYMBOLS[
+        ("phi3_loader_dtype_keyword_only", "src/mprisk/models/phi3_vision.py")
+    ] == (
+        "Phi3VisionWrapper.__init__",
+        "Phi3VisionWrapper._prepare_inputs",
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b"""\
+class Phi3VisionWrapper:
+    def _load_dependencies(self):
+        return None
+""",
+        b"""\
+class Phi3VisionWrapper:
+    def _load_dependencies(self):
+        return AutoModelForCausalLM.from_pretrained(
+            'model', dtype=x, torch_dtype=x
+        )
+""",
+        b"""\
+class Phi3VisionWrapper:
+    def _load_dependencies(self):
+        first = AutoModelForCausalLM.from_pretrained('one', dtype=x)
+        return AutoModelForCausalLM.from_pretrained('two', dtype=x)
+""",
+    ],
+)
+def test_phi3_loader_dtype_classifier_fails_closed_for_missing_or_ambiguous_keyword(
+    source: bytes,
+) -> None:
+    with pytest.raises(migration.SignatureMigrationError, match="Phi3 loader"):
+        migration._classification_ast_sha256(
+            source,
+            path="src/mprisk/models/phi3_vision.py",
+            classification="phi3_loader_dtype_keyword_only",
+        )
+
+
 def test_llava_limit_domain_guard_rejects_changed_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

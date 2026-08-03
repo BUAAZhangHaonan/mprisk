@@ -130,6 +130,13 @@ PROTECTED_SYMBOLS = {
         "_require_attention_mask",
         "_move_inputs_to_device",
     ),
+    (
+        "phi3_loader_dtype_keyword_only",
+        "src/mprisk/models/phi3_vision.py",
+    ): (
+        "Phi3VisionWrapper.__init__",
+        "Phi3VisionWrapper._prepare_inputs",
+    ),
 }
 
 
@@ -1489,6 +1496,46 @@ def _classification_ast_sha256(
                         and item.name == "generate_conditioned"
                     )
                 ]
+    elif classification == "phi3_loader_dtype_keyword_only" and path.endswith(
+        "phi3_vision.py"
+    ):
+        normalized_keywords = 0
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.ClassDef)
+                and node.name == "Phi3VisionWrapper"
+            ):
+                continue
+            for item in node.body:
+                if not (
+                    isinstance(item, ast.FunctionDef)
+                    and item.name == "_load_dependencies"
+                ):
+                    continue
+                for call in ast.walk(item):
+                    if not (
+                        isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "from_pretrained"
+                        and isinstance(call.func.value, ast.Name)
+                        and call.func.value.id == "AutoModelForCausalLM"
+                    ):
+                        continue
+                    dtype_keywords = [
+                        keyword
+                        for keyword in call.keywords
+                        if keyword.arg in {"dtype", "torch_dtype"}
+                    ]
+                    if len(dtype_keywords) != 1:
+                        raise SignatureMigrationError(
+                            "Phi3 loader must contain exactly one dtype keyword"
+                        )
+                    dtype_keywords[0].arg = "torch_dtype"
+                    normalized_keywords += 1
+        if normalized_keywords != 1:
+            raise SignatureMigrationError(
+                "Phi3 loader dtype normalizer requires exactly one model load"
+            )
     else:
         raise SignatureMigrationError(
             f"No AST normalizer for semantic classification: {classification}:{path}"
