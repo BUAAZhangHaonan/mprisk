@@ -19,6 +19,7 @@ from mprisk.diagnostic_affect.generation import (
     CANONICAL_DIAGNOSTIC_AFFECT_PROMPT,
     diagnostic_request_protocol_signature_sha256,
 )
+from mprisk.judge.ensemble_misread import EnsembleMisreadConfig
 from mprisk.models.base_wrapper import validate_generation_kwargs
 
 MATRIX_SCHEMA = "mprisk_cross_domain_misread_matrix_v1"
@@ -27,7 +28,8 @@ GT_SCHEMA = "mprisk_gt_description_v1"
 GT_INPUT_SCHEMA = "gt_annotation_input_v1"
 DIAGNOSTIC_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
 GENERATION_POLICIES_SCHEMA = "mprisk_diagnostic_generation_policies_v1"
-ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v2"
+ENSEMBLE_SCHEMA = "mprisk_ensemble_misread_judgment_config_v3"
+STRICT_ENSEMBLE_API_URL = "https://api.deepseek.com/beta/chat/completions"
 REQUEST_PLAN_SCHEMA = "mprisk_misread_request_plan_v1"
 SOURCE_LABEL_SCHEMA = "mprisk_v2_misread_label_v1"
 GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
@@ -67,6 +69,8 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
         raise ValueError(f"Matrix config fields differ: {sorted(set(config) ^ required)}")
     if config["temperature"] != 0 or config["flash_replicates"] != 3:
         raise ValueError("The fixed protocol requires temperature=0 and three Flash calls")
+    if config["api_url"] != STRICT_ENSEMBLE_API_URL:
+        raise ValueError("The v3 ensemble protocol requires the DeepSeek Beta strict-tool URL")
     assets = index_assets(
         load_model_assets(Path(config["asset_config"]), require_local_paths=False)
     )
@@ -231,6 +235,10 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "attn_implementation": "sdpa",
         }
         diagnostic_manifest = diagnostic_root / "manifest.jsonl"
+        forbidden_started_calls = judgment_root / "forbidden_started_calls.jsonl"
+        forbidden_started_calls_sha256 = _ensure_forbidden_started_calls(
+            forbidden_started_calls
+        )
         diagnostic_ready = _diagnostic_manifest_ready(
             diagnostic_manifest,
             sample_ids=set(ids),
@@ -251,6 +259,8 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
             "split": job["split"],
             "api_url": config["api_url"],
             "temperature": 0,
+            "thinking": "disabled",
+            "max_tokens": 256,
             "confidence_threshold": config["confidence_threshold"],
             "flash_model": config["flash_model"],
             "pro_model": config["pro_model"],
@@ -268,10 +278,13 @@ def prepare_matrix(config_path: Path, *, destination: Path) -> dict[str, Any]:
                 request_protocol_signature_sha256
             ),
             "output_root": str(judgment_root),
+            "forbidden_started_calls_path": str(forbidden_started_calls),
+            "forbidden_started_calls_sha256": forbidden_started_calls_sha256,
             "request_timeout_seconds": config["request_timeout_seconds"],
             "max_concurrency": config["max_concurrency"],
             "pricing": config["pricing"],
         }
+        ensemble_payload = _validated_ensemble_payload(ensemble_payload)
         _atomic_yaml(diagnostic_config, diagnostic_payload)
         _atomic_yaml(ensemble_config, ensemble_payload)
 
@@ -1009,6 +1022,18 @@ def _sha256(path: Path) -> str:
         for block in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def _ensure_forbidden_started_calls(path: Path) -> str:
+    if path.exists() and not path.is_file():
+        raise ValueError("Forbidden started-call path is not a regular file")
+    if not path.exists():
+        _atomic_bytes(path, b"")
+    return _sha256(path)
+
+
+def _validated_ensemble_payload(value: dict[str, Any]) -> dict[str, Any]:
+    return EnsembleMisreadConfig.model_validate(value).model_dump(mode="json")
 
 
 def _atomic_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:

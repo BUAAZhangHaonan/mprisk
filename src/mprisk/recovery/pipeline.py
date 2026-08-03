@@ -370,14 +370,16 @@ def _build_judgment_config(
     if not isinstance(signature, dict):
         raise ValueError("Description provenance has no immutable signature")
     payload = {
-        "schema_name": "mprisk_ensemble_misread_judgment_config_v2",
-        "run_id": f"{config['model_key']}_in_domain_judgment_20260727",
+        "schema_name": "mprisk_ensemble_misread_judgment_config_v3",
+        "run_id": f"{config['model_key']}_in_domain_judgment_v3_20260804",
         "status": "ready",
         "subject_model_key": config["model_key"],
         "protocol": config["protocol"].upper(),
         "split": "recovery_all",
-        "api_url": "https://api.deepseek.com/v1/chat/completions",
+        "api_url": "https://api.deepseek.com/beta/chat/completions",
         "temperature": 0,
+        "thinking": "disabled",
+        "max_tokens": 256,
         "confidence_threshold": 0.5,
         "flash_model": "deepseek-v4-flash",
         "pro_model": "deepseek-v4-pro",
@@ -397,6 +399,8 @@ def _build_judgment_config(
             "request_protocol_signature_sha256"
         ],
         "output_root": paths["judgment_root"],
+        "forbidden_started_calls_path": paths["v2_started_calls"],
+        "forbidden_started_calls_sha256": _sha256(paths["v2_started_calls"]),
         "request_timeout_seconds": 120.0,
         "max_concurrency": 16,
         "pricing": {
@@ -638,13 +642,17 @@ def _paths(config: dict[str, Any]) -> dict[str, Path]:
         / "reused_description_receipt.json",
         "description_manifest": root / "descriptions" / "manifest.jsonl",
         "description_provenance": root / "descriptions" / "provenance.json",
-        "judgment_root": root / "judgments",
-        "judgment_config": root / "judgments" / "config.yaml",
-        "judgments": root / "judgments" / "judgments.jsonl",
-        "judgment_summary": root / "judgments" / "summary.json",
-        "formal_judgments": root / "judgments" / "formal_cache_closed.jsonl",
-        "formal_judgment_report": root
+        "v2_started_calls": root
         / "judgments"
+        / "frozen_v2_20260804"
+        / "started_calls.jsonl",
+        "judgment_root": root / "judgments_v3",
+        "judgment_config": root / "judgments_v3" / "config.yaml",
+        "judgments": root / "judgments_v3" / "judgments.jsonl",
+        "judgment_summary": root / "judgments_v3" / "summary.json",
+        "formal_judgments": root / "judgments_v3" / "formal_cache_closed.jsonl",
+        "formal_judgment_report": root
+        / "judgments_v3"
         / "formal_intersection_report.json",
         "relation_root": root / "relation",
         "relation_dataset": root / "relation" / "relation_dataset.jsonl",

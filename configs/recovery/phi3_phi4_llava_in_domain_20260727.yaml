@@ -78,9 +78,9 @@ steps:
     command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi3_5_vision_in_domain_pipeline_20260727.yaml, --stage, judgment]
     dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi3_5_vision_in_domain_pipeline_20260727.yaml, --stage, judgment, --dry-run]
     completion:
-      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments/judgments.jsonl, expected_rows: 1876}
-      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments/summary.json, field: unresolved, equals: 0}
-      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments/summary.json, field: calls_failed, equals: 0}
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments_v3/judgments.jsonl, expected_rows: 1876}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments_v3/summary.json, field: unresolved, equals: 0}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments_v3/summary.json, field: calls_failed, equals: 0}
   - id: phi3_prepare_relation
     requires: [phi3_judgments_1876]
     command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi3_5_vision_in_domain_pipeline_20260727.yaml, --stage, prepare_relation]

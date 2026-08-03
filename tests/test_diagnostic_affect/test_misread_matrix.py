@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections import Counter
 from pathlib import Path
@@ -9,11 +10,73 @@ import pytest
 from mprisk.diagnostic_affect.matrix import (
     _audit_target_gt_coverage,
     _diagnostic_generation_policy,
+    _ensure_forbidden_started_calls,
     _gt_row,
     _load_generation_policies,
     _planned_request_records,
+    _validated_ensemble_payload,
     _write_blocked_gt_plan,
 )
+
+
+def test_forbidden_started_call_evidence_is_never_overwritten(tmp_path: Path) -> None:
+    path = tmp_path / "forbidden_started_calls.jsonl"
+    content = b'{"call_id":"paid-call"}\n'
+    path.write_bytes(content)
+
+    digest = _ensure_forbidden_started_calls(path)
+
+    assert path.read_bytes() == content
+    assert digest == hashlib.sha256(content).hexdigest()
+
+
+def test_matrix_v3_judgment_payload_is_strict_loadable(tmp_path: Path) -> None:
+    forbidden = tmp_path / "forbidden_started_calls.jsonl"
+    forbidden_digest = _ensure_forbidden_started_calls(forbidden)
+    payload = _validated_ensemble_payload(
+        {
+            "schema_name": "mprisk_ensemble_misread_judgment_config_v3",
+            "run_id": "matrix-v3",
+            "status": "pending",
+            "subject_model_key": "model",
+            "protocol": "VT",
+            "split": "train",
+            "api_url": "https://api.deepseek.com/beta/chat/completions",
+            "temperature": 0,
+            "thinking": "disabled",
+            "max_tokens": 256,
+            "confidence_threshold": 0.5,
+            "flash_model": "deepseek-v4-flash",
+            "pro_model": "deepseek-v4-pro",
+            "flash_replicates": 3,
+            "gt_coverage_receipt_path": tmp_path / "coverage.json",
+            "gt_description_manifest_path": tmp_path / "gt.jsonl",
+            "diagnostic_affect_description_manifest_path": tmp_path / "diagnostic.jsonl",
+            "diagnostic_run_id": "diagnostic",
+            "diagnostic_manifest_sha256": None,
+            "diagnostic_prompt_sha256": "a" * 64,
+            "diagnostic_generation_policy_sha256": "b" * 64,
+            "diagnostic_request_protocol_signature_sha256": "c" * 64,
+            "output_root": tmp_path / "judgment",
+            "forbidden_started_calls_path": forbidden,
+            "forbidden_started_calls_sha256": forbidden_digest,
+            "request_timeout_seconds": 90,
+            "max_concurrency": 8,
+            "pricing": {
+                model: {
+                    "input_usd_per_million": None,
+                    "output_usd_per_million": None,
+                }
+                for model in ("deepseek-v4-flash", "deepseek-v4-pro")
+            },
+        }
+    )
+
+    assert payload["api_url"] == "https://api.deepseek.com/beta/chat/completions"
+    assert payload["forbidden_started_calls_sha256"] == forbidden_digest
+    assert all(
+        rate is None for rates in payload["pricing"].values() for rate in rates.values()
+    )
 
 
 def test_matrix_request_plan_has_unique_global_call_ids() -> None:

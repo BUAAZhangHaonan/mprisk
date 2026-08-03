@@ -7,7 +7,7 @@ frame_plan_validation: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_
 bundle_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721
 existing_source_judgment_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/deliveries/taffc_complete_bundle_20260721/misread_labels
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cross_domain_misread_20260723
-api_url: https://api.deepseek.com/v1/chat/completions
+api_url: https://api.deepseek.com/beta/chat/completions
 temperature: 0
 confidence_threshold: 0.5
 flash_model: deepseek-v4-flash
