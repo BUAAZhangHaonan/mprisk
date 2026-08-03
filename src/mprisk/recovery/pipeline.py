@@ -412,7 +412,7 @@ def _build_judgment_config(
     }
     parsed = EnsembleMisreadConfig.model_validate(payload)
     if publish:
-        _publish_yaml(paths["judgment_config"], payload)
+        _publish_yaml(paths["judgment_config"], parsed.model_dump(mode="json"))
     return parsed
 
 

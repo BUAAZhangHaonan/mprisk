@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 import mprisk.recovery.pipeline as recovery_pipeline
+from mprisk.judge.ensemble_misread import EnsembleMisreadConfig
 from mprisk.recovery.pipeline import _export, _prepare_inputs, _run_description
 
 
@@ -256,3 +257,82 @@ def test_description_stage_passes_explicit_retry_failed_policy(
     assert captured["retry_failed"] is True
     with pytest.raises(ValueError, match="description_retry_failed must be boolean"):
         _run_description({**config, "description_retry_failed": "true"})
+
+
+def _judgment_stage_config(
+    tmp_path: Path, *, prompt_sha256: str = "a" * 64
+) -> dict[str, object]:
+    output_root = tmp_path / "output"
+    descriptions = output_root / "descriptions"
+    _write_jsonl(
+        descriptions / "manifest.jsonl",
+        [{"sample_id": "sample-1", "DIAGNOSTIC_AFFECT_DESCRIPTION": "Worried."}],
+    )
+    descriptions.joinpath("provenance.json").write_text(
+        json.dumps(
+            {
+                "signature": {
+                    "run_id": "subject-model-diagnostic-run",
+                    "prompt_sha256": prompt_sha256,
+                    "generation_policy_sha256": "b" * 64,
+                    "request_protocol_signature_sha256": "c" * 64,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "model_key": "subject_model",
+        "protocol": "vt",
+        "output_root": str(output_root),
+        "counts": {"diagnostic": 1},
+    }
+
+
+def test_judgment_config_publishes_validated_json_compatible_yaml(tmp_path: Path) -> None:
+    config = _judgment_stage_config(tmp_path)
+
+    parsed = recovery_pipeline._build_judgment_config(config, publish=True)
+
+    published_path = Path(config["output_root"]) / "judgments" / "config.yaml"
+    first_bytes = published_path.read_bytes()
+    published = yaml.safe_load(published_path.read_text(encoding="utf-8"))
+    assert published == parsed.model_dump(mode="json")
+    path_fields = {
+        field_name
+        for field_name, field in EnsembleMisreadConfig.model_fields.items()
+        if field.annotation is Path
+    }
+    assert path_fields == {
+        "gt_coverage_receipt_path",
+        "gt_description_manifest_path",
+        "diagnostic_affect_description_manifest_path",
+        "output_root",
+    }
+    for field in path_fields:
+        assert isinstance(published[field], str)
+    assert EnsembleMisreadConfig.model_validate(published) == parsed
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        EnsembleMisreadConfig.model_validate({**published, "unknown": "field"})
+
+    assert recovery_pipeline._build_judgment_config(config, publish=True) == parsed
+    assert published_path.read_bytes() == first_bytes
+
+
+def test_judgment_config_dry_run_does_not_publish(tmp_path: Path) -> None:
+    config = _judgment_stage_config(tmp_path)
+    judgment_root = Path(config["output_root"]) / "judgments"
+
+    parsed = recovery_pipeline._build_judgment_config(config, publish=False)
+
+    assert isinstance(parsed, EnsembleMisreadConfig)
+    assert not judgment_root.exists()
+
+
+def test_judgment_config_rejects_invalid_binding_before_publish(tmp_path: Path) -> None:
+    config = _judgment_stage_config(tmp_path, prompt_sha256="invalid")
+
+    with pytest.raises(ValueError, match="SHA-256"):
+        recovery_pipeline._build_judgment_config(config, publish=True)
+
+    assert not (Path(config["output_root"]) / "judgments" / "config.yaml").exists()
