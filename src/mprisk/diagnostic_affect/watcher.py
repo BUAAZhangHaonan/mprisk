@@ -119,13 +119,20 @@ def watch_description_generation(
         return 1
     last_summary = before
     last_activity = monotonic_fn()
+    awaiting_retry_reset = bool(
+        retry_failed and before is not None and before["failed"] > 0
+    )
     _write_status(
         status_path,
         state="running",
         child_pid=int(process.pid),
         child_returncode=None,
         ledger=before,
-        detail="full immutable plan launched; ledger resumes missing tasks only",
+        detail=(
+            "full immutable plan launched; awaiting atomic failed-task retry reset"
+            if awaiting_retry_reset
+            else "full immutable plan launched; ledger resumes missing tasks only"
+        ),
     )
     while True:
         summary = read_ledger_summary(ledger_path)
@@ -141,7 +148,32 @@ def watch_description_generation(
                 ledger=summary,
                 detail="ledger heartbeat advanced",
             )
-        if summary is not None and summary["failed"] > 0:
+        if awaiting_retry_reset and summary != before:
+            if summary is None or summary["failed"] > 0:
+                _stop_child(process, terminate_grace_seconds)
+                _write_status(
+                    status_path,
+                    state="failed",
+                    child_pid=int(process.pid),
+                    child_returncode=process.poll(),
+                    ledger=summary,
+                    detail="invalid failed-task retry reset transition",
+                )
+                return 1
+            awaiting_retry_reset = False
+            _write_status(
+                status_path,
+                state="running",
+                child_pid=int(process.pid),
+                child_returncode=None,
+                ledger=summary,
+                detail="atomic failed-task retry reset observed; strict supervision resumed",
+            )
+        if (
+            not awaiting_retry_reset
+            and summary is not None
+            and summary["failed"] > 0
+        ):
             _stop_child(process, terminate_grace_seconds)
             _write_status(
                 status_path,

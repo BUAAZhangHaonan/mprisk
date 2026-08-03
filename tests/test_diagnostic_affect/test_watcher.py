@@ -228,6 +228,130 @@ def test_watcher_rejects_non_boolean_user_site_contract_before_probe(
         )
 
 
+def test_watcher_waits_for_atomic_retry_reset_before_enforcing_failed_gate(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["failed", "running", "pending"])
+    process_box: list[_FakeProcess] = []
+    clock = _Clock()
+    sleeps = 0
+
+    def factory(command, **kwargs):
+        process = _FakeProcess(command, **kwargs)
+        process_box.append(process)
+        return process
+
+    def advance(_seconds: float) -> None:
+        nonlocal sleeps
+        sleeps += 1
+        if sleeps == 1:
+            _write_ledger(output, ["pending", "running", "pending"])
+        else:
+            _write_ledger(output, ["completed", "completed", "completed"])
+            process_box[0].returncode = 0
+        clock.advance(1.0)
+
+    returncode = watch_description_generation(
+        config_path=config,
+        python_executable=Path("/env/bin/python"),
+        retry_failed=True,
+        stall_timeout_seconds=60,
+        poll_interval_seconds=1,
+        terminate_grace_seconds=1,
+        popen_factory=factory,
+        monotonic_fn=clock.monotonic,
+        sleep_fn=advance,
+    )
+
+    assert returncode == 0
+    assert process_box[0].terminated is False
+    assert process_box[0].command[-1] == "--retry-failed"
+    status = json.loads((output / "watcher_status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "completed"
+
+
+def test_watcher_rejects_failed_task_after_retry_reset_transition(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["failed", "pending"])
+    process = _FakeProcess([])
+    clock = _Clock()
+
+    def advance(_seconds: float) -> None:
+        _write_ledger(output, ["failed", "pending", "pending"])
+        clock.advance(1.0)
+
+    returncode = watch_description_generation(
+        config_path=config,
+        python_executable=Path("/env/bin/python"),
+        retry_failed=True,
+        stall_timeout_seconds=60,
+        poll_interval_seconds=1,
+        terminate_grace_seconds=1,
+        popen_factory=lambda *_args, **_kwargs: process,
+        monotonic_fn=clock.monotonic,
+        sleep_fn=advance,
+    )
+
+    assert returncode == 1
+    assert process.terminated is True
+    status = json.loads((output / "watcher_status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "failed"
+    assert status["detail"] == "invalid failed-task retry reset transition"
+
+
+def test_watcher_fails_when_retry_child_exits_before_atomic_reset(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["failed", "pending"])
+    process = _FakeProcess([])
+    process.returncode = 9
+
+    returncode = watch_description_generation(
+        config_path=config,
+        python_executable=Path("/env/bin/python"),
+        retry_failed=True,
+        stall_timeout_seconds=60,
+        poll_interval_seconds=1,
+        terminate_grace_seconds=1,
+        popen_factory=lambda *_args, **_kwargs: process,
+    )
+
+    assert returncode == 1
+    status = json.loads((output / "watcher_status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "failed"
+    assert status["child_returncode"] == 9
+
+
+def test_watcher_times_out_when_atomic_retry_reset_never_occurs(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["failed", "pending"])
+    process = _FakeProcess([])
+    clock = _Clock()
+
+    returncode = watch_description_generation(
+        config_path=config,
+        python_executable=Path("/env/bin/python"),
+        retry_failed=True,
+        stall_timeout_seconds=1,
+        poll_interval_seconds=1,
+        terminate_grace_seconds=1,
+        popen_factory=lambda *_args, **_kwargs: process,
+        monotonic_fn=clock.monotonic,
+        sleep_fn=clock.advance,
+    )
+
+    assert returncode == 1
+    assert process.terminated is True
+    status = json.loads((output / "watcher_status.json").read_text(encoding="utf-8"))
+    assert status["state"] == "timed_out"
+
+
 def test_watcher_propagates_abnormal_child_exit(tmp_path: Path) -> None:
     config, output = _write_config(tmp_path)
     _write_ledger(output, ["pending"])
