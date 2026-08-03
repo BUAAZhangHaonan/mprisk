@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 
 import mprisk.recovery.pipeline as recovery_pipeline
 from mprisk.recovery.pipeline import _export, _prepare_inputs
@@ -166,3 +167,15 @@ def test_export_rejects_relation_or_bundle_count_mismatch(
 
     with pytest.raises(RuntimeError, match=error):
         _export(config)
+
+
+def test_phi3_recovery_description_uses_supported_eager_attention() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    config = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi3_5_vision_descriptions_20260727.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert config["attn_implementation"] == "eager"

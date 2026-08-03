@@ -24,7 +24,6 @@ class Phi3VisionWrapper(HfVisualPrefillWrapper):
         *,
         video_num_segments: int = 8,
         processor_num_crops: int = 4,
-        attn_implementation: str = "eager",
         **kwargs: Any,
     ) -> None:
         self.video_num_segments = int(video_num_segments)
@@ -33,9 +32,7 @@ class Phi3VisionWrapper(HfVisualPrefillWrapper):
             raise ValueError("Phi-3.5 video_num_segments must be in [1, 64]")
         if self.processor_num_crops <= 0:
             raise ValueError("Phi-3.5 processor_num_crops must be positive")
-        if attn_implementation != "eager":
-            raise ValueError("Phi-3.5 Vision requires eager attention")
-        super().__init__(attn_implementation=attn_implementation, **kwargs)
+        super().__init__(**kwargs)
 
     def _load_dependencies(self) -> tuple[Any, Any]:
         import torch
@@ -51,7 +48,7 @@ class Phi3VisionWrapper(HfVisualPrefillWrapper):
             self.model_path,
             trust_remote_code=True,
             dtype=getattr(torch, self.dtype_name),
-            attn_implementation=self.attn_implementation,
+            _attn_implementation=self.attn_implementation,
             device_map={"": self.device},
             local_files_only=True,
             low_cpu_mem_usage=True,

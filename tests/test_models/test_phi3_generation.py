@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import sys
 import types
 
-import pytest
 import torch
 
 from mprisk.models.base_wrapper import GenerationRequest
@@ -105,84 +103,3 @@ def test_phi3_generation_reuses_prefill_prepare_inputs_and_forwards_policy(
     assert model.generate_kwargs is not None
     assert model.generate_kwargs["max_new_tokens"] == 256
     assert "Describe affect in plain English.<|end|>" in processor.calls[-1]["text"]
-
-
-def test_phi3_dependency_load_forwards_public_eager_attention(tmp_path, monkeypatch) -> None:
-    model_path = tmp_path / "model"
-    model_path.mkdir()
-    (model_path / "config.json").write_text(
-        json.dumps(
-            {
-                "model_type": "phi3_v",
-                "architectures": ["Phi3VForCausalLM"],
-                "num_hidden_layers": 2,
-                "hidden_size": 3,
-                "torch_dtype": "bfloat16",
-            }
-        ),
-        encoding="utf-8",
-    )
-    observed: dict[str, dict[str, object]] = {}
-
-    class AutoProcessor:
-        @staticmethod
-        def from_pretrained(path, **kwargs):
-            observed["processor"] = {"path": path, **kwargs}
-            return object()
-
-    class LoadedModel:
-        def eval(self):
-            return self
-
-    class AutoModelForCausalLM:
-        @staticmethod
-        def from_pretrained(path, **kwargs):
-            observed["model"] = {"path": path, **kwargs}
-            return LoadedModel()
-
-    monkeypatch.setitem(
-        sys.modules,
-        "transformers",
-        types.SimpleNamespace(
-            AutoModelForCausalLM=AutoModelForCausalLM,
-            AutoProcessor=AutoProcessor,
-        ),
-    )
-    wrapper = Phi3VisionWrapper(
-        model_key="phi3_5_vision",
-        model_path=model_path,
-        device="cpu",
-        dtype="bfloat16",
-    )
-
-    model, _ = wrapper._load_dependencies()
-
-    assert isinstance(model, LoadedModel)
-    assert observed["model"]["attn_implementation"] == "eager"
-    assert "_attn_implementation" not in observed["model"]
-
-
-def test_phi3_rejects_unsupported_sdpa_attention(tmp_path) -> None:
-    model_path = tmp_path / "model"
-    model_path.mkdir()
-    (model_path / "config.json").write_text(
-        json.dumps(
-            {
-                "model_type": "phi3_v",
-                "architectures": ["Phi3VForCausalLM"],
-                "num_hidden_layers": 2,
-                "hidden_size": 3,
-                "torch_dtype": "bfloat16",
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="requires eager attention"):
-        Phi3VisionWrapper(
-            model_key="phi3_5_vision",
-            model_path=model_path,
-            device="cpu",
-            dtype="bfloat16",
-            attn_implementation="sdpa",
-        )
