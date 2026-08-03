@@ -177,6 +177,148 @@ def test_code_evidence_rejects_unknown_semantic_diff(tmp_path: Path) -> None:
         )
 
 
+def _wrapper_provenance_signatures(
+    tmp_path: Path,
+) -> tuple[dict[str, object], dict[str, object], dict[str, object], bytes]:
+    relative = "src/mprisk/models/wrapper.py"
+    source = b"class Wrapper:\n    pass\n"
+    path = tmp_path / relative
+    path.parent.mkdir(parents=True)
+    path.write_bytes(source)
+    digest = migration._sha256_bytes(source)
+    old_git_sha = "1" * 40
+    current_git_sha = "2" * 40
+    common = {
+        "schema": migration.CURRENT_V3_SCHEMA,
+        "wrapper_path": relative,
+        "wrapper_file_sha256": digest,
+        "extractor_semantic_schema": "mprisk_extractor_semantic_digest_v1",
+        "extractor_semantic_sha256": "3" * 64,
+        "extractor_semantic_files": {"repository": {relative: digest}},
+    }
+    old = {**common, "wrapper_git_sha": old_git_sha}
+    current = {**common, "wrapper_git_sha": current_git_sha}
+    evidence = {
+        "schema": migration.CODE_EVIDENCE_SCHEMA,
+        "base_git_sha": "0" * 40,
+        "head_git_sha": "4" * 40,
+        "changed_files": [],
+        "provenance_only": {
+            "kind": "wrapper_git_sha_only",
+            "wrapper_path": relative,
+            "old_wrapper_git_sha": old_git_sha,
+            "current_wrapper_git_sha": current_git_sha,
+            "wrapper_file_sha256": digest,
+            "extractor_semantic_sha256": "3" * 64,
+        },
+    }
+    return old, current, evidence, source
+
+
+def test_code_evidence_accepts_exact_wrapper_provenance_only_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, current, evidence, source = _wrapper_provenance_signatures(tmp_path)
+    monkeypatch.setattr(migration, "_git_bytes", lambda *args: source)
+    monkeypatch.setattr(migration, "_git", lambda *args: "2" * 40 + "\n")
+    monkeypatch.setattr(
+        migration.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess([], 0, b"", b""),
+    )
+
+    result = migration._verify_code_evidence(
+        tmp_path,
+        old_signature=old,
+        current_signature=current,
+        evidence=evidence,
+        current_head="4" * 40,
+    )
+
+    assert result["changed_files"] == []
+    assert result["provenance_only"]["kind"] == "wrapper_git_sha_only"
+
+
+def test_code_evidence_rejects_extra_signature_change_as_provenance_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, current, evidence, source = _wrapper_provenance_signatures(tmp_path)
+    current["dtype"] = "bfloat16"
+    monkeypatch.setattr(migration, "_git_bytes", lambda *args: source)
+    monkeypatch.setattr(migration, "_git", lambda *args: "2" * 40 + "\n")
+    monkeypatch.setattr(
+        migration.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess([], 0, b"", b""),
+    )
+
+    with pytest.raises(migration.SignatureMigrationError, match="sole signature change"):
+        migration._verify_code_evidence(
+            tmp_path,
+            old_signature=old,
+            current_signature=current,
+            evidence=evidence,
+            current_head="4" * 40,
+        )
+
+
+def test_code_evidence_rejects_wrapper_blob_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, current, evidence, _source = _wrapper_provenance_signatures(tmp_path)
+    monkeypatch.setattr(migration, "_git_bytes", lambda *args: b"different\n")
+
+    with pytest.raises(migration.SignatureMigrationError, match="does not reproduce"):
+        migration._verify_code_evidence(
+            tmp_path,
+            old_signature=old,
+            current_signature=current,
+            evidence=evidence,
+            current_head="4" * 40,
+        )
+
+
+def test_code_evidence_rejects_missing_wrapper_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, current, evidence, _source = _wrapper_provenance_signatures(tmp_path)
+
+    def missing_blob(*args: object) -> bytes:
+        raise subprocess.CalledProcessError(128, ["git", "show"])
+
+    monkeypatch.setattr(migration, "_git_bytes", missing_blob)
+
+    with pytest.raises(migration.SignatureMigrationError, match="blob is not readable"):
+        migration._verify_code_evidence(
+            tmp_path,
+            old_signature=old,
+            current_signature=current,
+            evidence=evidence,
+            current_head="4" * 40,
+        )
+
+
+def test_code_evidence_rejects_non_ancestor_wrapper_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    old, current, evidence, source = _wrapper_provenance_signatures(tmp_path)
+    monkeypatch.setattr(migration, "_git_bytes", lambda *args: source)
+    monkeypatch.setattr(
+        migration.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess([], 1, b"", b""),
+    )
+
+    with pytest.raises(migration.SignatureMigrationError, match="not an ancestor"):
+        migration._verify_code_evidence(
+            tmp_path,
+            old_signature=old,
+            current_signature=current,
+            evidence=evidence,
+            current_head="4" * 40,
+        )
+
+
 def test_apply_rolls_back_signature_and_pointer_on_payload_drift(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

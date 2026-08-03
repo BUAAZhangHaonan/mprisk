@@ -539,7 +539,28 @@ def _verify_code_evidence(
         path for path in old_files if old_files[path] != current_files[path]
     )
     items = evidence.get("changed_files")
-    if not isinstance(items, list) or not items:
+    if not isinstance(items, list):
+        raise SignatureMigrationError("Code evidence changed_files is missing")
+    if not changed_paths:
+        if items:
+            raise SignatureMigrationError(
+                "Code evidence does not cover exact semantic diff paths"
+            )
+        provenance_only = _verify_wrapper_provenance_only(
+            repo_root,
+            old_signature=old_signature,
+            current_signature=current_signature,
+            evidence=evidence.get("provenance_only"),
+            base_git_sha=base,
+            current_head=current_head,
+        )
+        return {
+            "base_git_sha": base,
+            "head_git_sha": head,
+            "changed_files": [],
+            "provenance_only": provenance_only,
+        }
+    if not items:
         raise SignatureMigrationError("Code evidence changed_files is missing")
     by_path = {item.get("path"): item for item in items if isinstance(item, dict)}
     if sorted(by_path) != changed_paths or len(by_path) != len(items):
@@ -602,6 +623,131 @@ def _verify_code_evidence(
             }
         )
     return {"base_git_sha": base, "head_git_sha": head, "changed_files": verified}
+
+
+def _verify_wrapper_provenance_only(
+    repo_root: Path,
+    *,
+    old_signature: dict[str, Any],
+    current_signature: dict[str, Any],
+    evidence: Any,
+    base_git_sha: str,
+    current_head: str,
+) -> dict[str, str]:
+    changed_fields = sorted(
+        key
+        for key in set(old_signature) | set(current_signature)
+        if old_signature.get(key) != current_signature.get(key)
+    )
+    if changed_fields != ["wrapper_git_sha"]:
+        raise SignatureMigrationError(
+            "Provenance-only migration requires wrapper_git_sha as the sole signature change"
+        )
+    if old_signature.get("schema") != CURRENT_V3_SCHEMA:
+        raise SignatureMigrationError("Provenance-only migration requires a v3 signature")
+    wrapper_path = _required_text(current_signature, "wrapper_path")
+    if old_signature.get("wrapper_path") != wrapper_path:
+        raise SignatureMigrationError("Wrapper path changed under provenance-only migration")
+    wrapper_sha256 = _required_text(current_signature, "wrapper_file_sha256")
+    if old_signature.get("wrapper_file_sha256") != wrapper_sha256:
+        raise SignatureMigrationError("Wrapper bytes changed under provenance-only migration")
+    extractor_sha256 = _required_text(current_signature, "extractor_semantic_sha256")
+    if old_signature.get("extractor_semantic_sha256") != extractor_sha256:
+        raise SignatureMigrationError(
+            "Extractor semantics changed under provenance-only migration"
+        )
+    old_wrapper_git_sha = _required_text(old_signature, "wrapper_git_sha")
+    current_wrapper_git_sha = _required_text(current_signature, "wrapper_git_sha")
+    expected = {
+        "kind": "wrapper_git_sha_only",
+        "wrapper_path": wrapper_path,
+        "old_wrapper_git_sha": old_wrapper_git_sha,
+        "current_wrapper_git_sha": current_wrapper_git_sha,
+        "wrapper_file_sha256": wrapper_sha256,
+        "extractor_semantic_sha256": extractor_sha256,
+    }
+    if evidence != expected:
+        raise SignatureMigrationError("Wrapper provenance-only evidence mismatch")
+    current_path = repo_root / wrapper_path
+    if _sha256_file(current_path) != wrapper_sha256:
+        raise SignatureMigrationError("Current wrapper bytes do not match signature")
+    old_wrapper_bytes = _required_git_blob(
+        repo_root,
+        commit=old_wrapper_git_sha,
+        path=wrapper_path,
+        label="Old wrapper commit",
+    )
+    current_wrapper_bytes = _required_git_blob(
+        repo_root,
+        commit=current_wrapper_git_sha,
+        path=wrapper_path,
+        label="Current wrapper commit",
+    )
+    if _sha256_bytes(old_wrapper_bytes) != wrapper_sha256:
+        raise SignatureMigrationError("Old wrapper commit does not reproduce wrapper bytes")
+    if _sha256_bytes(current_wrapper_bytes) != wrapper_sha256:
+        raise SignatureMigrationError("Current wrapper commit does not reproduce wrapper bytes")
+    _require_git_ancestor(
+        repo_root,
+        ancestor=old_wrapper_git_sha,
+        descendant=base_git_sha,
+        label="Old wrapper commit",
+    )
+    _require_git_ancestor(
+        repo_root,
+        ancestor=base_git_sha,
+        descendant=current_head,
+        label="Code evidence base",
+    )
+    _require_git_ancestor(
+        repo_root,
+        ancestor=current_wrapper_git_sha,
+        descendant=current_head,
+        label="Current wrapper commit",
+    )
+    _require_git_ancestor(
+        repo_root,
+        ancestor=old_wrapper_git_sha,
+        descendant=current_wrapper_git_sha,
+        label="Old wrapper commit",
+    )
+    observed_wrapper_git_sha = _git(
+        repo_root, "log", "-1", "--format=%H", "--", wrapper_path
+    ).strip()
+    if observed_wrapper_git_sha != current_wrapper_git_sha:
+        raise SignatureMigrationError("Current wrapper provenance is stale")
+    return expected
+
+
+def _required_git_blob(
+    repo_root: Path, *, commit: str, path: str, label: str
+) -> bytes:
+    try:
+        return _git_bytes(repo_root, "show", f"{commit}:{path}")
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise SignatureMigrationError(f"{label} blob is not readable") from exc
+
+
+def _require_git_ancestor(
+    repo_root: Path, *, ancestor: str, descendant: str, label: str
+) -> None:
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+        ],
+        check=False,
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise SignatureMigrationError(
+            f"{label} is not an ancestor of required provenance"
+        )
 
 
 def _verify_probes(
