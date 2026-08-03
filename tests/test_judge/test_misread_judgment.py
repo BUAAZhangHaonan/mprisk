@@ -150,6 +150,7 @@ def test_strict_response_parser_rejects_repairable_invalid_values() -> None:
             {"decision": "MISREAD", "confidence": float("inf"), "rationale": "One sentence."}
         ),
         json.dumps({"decision": "MISREAD", "confidence": 0.5, "rationale": "First. Second."}),
+        json.dumps({"decision": "MISREAD", "confidence": 0.5, "rationale": "."}),
     ):
         with pytest.raises(MisreadJudgmentValidationError):
             validate_misread_judgment_response(invalid)

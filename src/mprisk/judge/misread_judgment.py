@@ -13,7 +13,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -405,6 +405,7 @@ def validate_misread_judgment_response(raw: Any) -> dict[str, Any]:
         len(_SENTENCE_END.findall(rationale)) != 1
         or rationale[-1] not in ".!?"
         or len(rationale.split()) > 30
+        or re.search(r"[A-Za-z0-9]", rationale) is None
     ):
         raise MisreadJudgmentValidationError("judge rationale must be one short sentence")
     return {"decision": decision, "confidence": float(confidence), "rationale": rationale}
@@ -791,4 +792,4 @@ def _atomic_bytes(path: Path, content: bytes) -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

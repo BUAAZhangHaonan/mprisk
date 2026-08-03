@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -12,7 +13,7 @@ import tempfile
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -21,27 +22,40 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from mprisk.config.loader import load_yaml
 from mprisk.judge.misread_judgment import (
-    MISREAD_JUDGMENT_PROMPT,
+    MisreadJudgmentValidationError,
     validate_misread_judgment_response,
 )
 
-CONFIG_SCHEMA = "mprisk_ensemble_misread_judgment_config_v2"
-SIGNATURE_SCHEMA = "mprisk_ensemble_misread_signature_v2"
-OUTPUT_SCHEMA = "mprisk_ensemble_misread_label_v2"
-PROVENANCE_SCHEMA = "mprisk_ensemble_misread_provenance_v1"
+CONFIG_SCHEMA = "mprisk_ensemble_misread_judgment_config_v3"
+SIGNATURE_SCHEMA = "mprisk_ensemble_misread_signature_v3"
+OUTPUT_SCHEMA = "mprisk_ensemble_misread_label_v3"
+PROVENANCE_SCHEMA = "mprisk_ensemble_misread_provenance_v2"
 GT_COVERAGE_SCHEMA = "mprisk_target_gt_coverage_v1"
+STRICT_API_URL = "https://api.deepseek.com/beta/chat/completions"
+JUDGMENT_TOOL_NAME = "submit_misread_judgment"
+JUDGMENT_RATIONALE_PATTERN = r"^[^\r\n.!?]*[A-Za-z0-9][^\r\n.!?]*[.!?]$"
+STRICT_MISREAD_JUDGMENT_PROMPT = (
+    "Compare the reference description with the diagnostic affect description. Return MISREAD "
+    "when the diagnostic is led by surface cues, contradicts the primary affect, wrongly "
+    "compresses distinct affects, omits a decisive component, or gives a confidently opposite "
+    "account. Return NON_MISREAD when the core affect is compatible, synonymous, or a valid "
+    "simplification. Return UNCERTAIN only when the comparison cannot decide. Submit exactly one "
+    "judgment through the required tool. Confidence is a number from 0 through 1. Rationale is "
+    "one sentence of at most 30 words."
+)
 ARBITRATION_PROMPT = (
     "Act as the final adjudicator for an affective Misread decision. Independently compare the "
     "reference and diagnostic descriptions, then use the three blinded preliminary assessments "
-    "only as supporting evidence. Return exact JSON with decision, confidence, and one short "
-    "rationale sentence. Use MISREAD, NON_MISREAD, or UNCERTAIN; do not force a binary decision."
+    "only as supporting evidence. Submit exactly one judgment through the required tool. "
+    "Confidence is a number from 0 through 1. Rationale is one sentence of at most 30 words. "
+    "Use MISREAD, NON_MISREAD, or UNCERTAIN; do not force a binary decision."
 )
 
 
 class EnsembleMisreadConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_name: Literal["mprisk_ensemble_misread_judgment_config_v2"]
+    schema_name: Literal["mprisk_ensemble_misread_judgment_config_v3"]
     run_id: str
     status: Literal["pending", "ready"]
     subject_model_key: str
@@ -49,6 +63,8 @@ class EnsembleMisreadConfig(BaseModel):
     split: str
     api_url: str
     temperature: Literal[0]
+    thinking: Literal["disabled"]
+    max_tokens: Literal[256]
     confidence_threshold: float
     flash_model: Literal["deepseek-v4-flash"]
     pro_model: Literal["deepseek-v4-pro"]
@@ -62,6 +78,8 @@ class EnsembleMisreadConfig(BaseModel):
     diagnostic_generation_policy_sha256: str
     diagnostic_request_protocol_signature_sha256: str
     output_root: Path
+    forbidden_started_calls_path: Path
+    forbidden_started_calls_sha256: str
     request_timeout_seconds: float
     max_concurrency: int
     pricing: dict[str, dict[str, float | None]]
@@ -87,6 +105,13 @@ class EnsembleMisreadConfig(BaseModel):
             raise ValueError("timeout and concurrency must be positive")
         return value
 
+    @field_validator("api_url")
+    @classmethod
+    def strict_api_url(cls, value: str) -> str:
+        if value != STRICT_API_URL:
+            raise ValueError(f"Strict tool mode requires {STRICT_API_URL}")
+        return value
+
     @model_validator(mode="after")
     def pricing_contract(self) -> EnsembleMisreadConfig:
         for model in (self.flash_model, self.pro_model):
@@ -97,12 +122,16 @@ class EnsembleMisreadConfig(BaseModel):
             }:
                 raise ValueError(f"Missing explicit pricing contract for {model}")
             for rate in rates.values():
-                if rate is not None and rate < 0:
-                    raise ValueError("pricing rates must be nonnegative or null")
+                if rate is not None:
+                    raise ValueError(
+                        "v3 ledger pricing must remain null until cache-hit and cache-miss "
+                        "rates are represented separately"
+                    )
         digests = (
             self.diagnostic_prompt_sha256,
             self.diagnostic_generation_policy_sha256,
             self.diagnostic_request_protocol_signature_sha256,
+            self.forbidden_started_calls_sha256,
         )
         if any(len(value) != 64 for value in digests):
             raise ValueError("Diagnostic binding fields must be SHA-256 digests")
@@ -139,7 +168,16 @@ class ApiCompletion:
     request_id: str
     response_model: str
     usage: dict[str, int]
-    response_envelope_sha256: str
+    tool_call_id: str
+
+
+@dataclass(frozen=True)
+class HttpResponseReceipt:
+    status_code: int
+    response_body: bytes
+    response_sha256: str
+    provider_request_id: str | None
+    received_at: str
 
 
 def load_config(path: Path) -> EnsembleMisreadConfig:
@@ -246,7 +284,7 @@ def build_flash_calls(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]
     for task in tasks:
         request = _request(
             config.flash_model,
-            MISREAD_JUDGMENT_PROMPT,
+            STRICT_MISREAD_JUDGMENT_PROMPT,
             {
                 "GT_DESCRIPTION": task.reference,
                 "DIAGNOSTIC_AFFECT_DESCRIPTION": task.diagnostic,
@@ -275,6 +313,26 @@ def build_flash_calls(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]
                 )
             )
     return calls
+
+
+def validate_forbidden_call_isolation(
+    config: EnsembleMisreadConfig, calls: Sequence[CallSpec]
+) -> dict[str, int]:
+    path = config.forbidden_started_calls_path
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    if _sha256(path) != config.forbidden_started_calls_sha256:
+        raise ValueError("Forbidden started-call ledger SHA-256 mismatch")
+    rows = _read_jsonl(path)
+    forbidden = {_required_text(row, "call_id") for row in rows}
+    planned = {call.call_id for call in calls}
+    overlap = sorted(forbidden & planned)
+    if overlap:
+        raise ValueError(f"Planned calls overlap {len(overlap)} previously started call IDs")
+    return {
+        "forbidden_started_call_count": len(forbidden),
+        "planned_forbidden_call_id_overlap": 0,
+    }
 
 
 def build_pro_call(
@@ -313,51 +371,99 @@ class DeepSeekEnsembleClient:
         self.client = httpx.AsyncClient(timeout=httpx.Timeout(config.request_timeout_seconds))
         self.headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
-    async def complete(self, call: CallSpec) -> ApiCompletion:
+    async def complete(self, call: CallSpec) -> HttpResponseReceipt:
         try:
             response = await self.client.post(
                 self.config.api_url, headers=self.headers, json=call.request
             )
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise RuntimeError(type(exc).__name__) from exc
-        if response.status_code >= 400:
-            raise RuntimeError(f"HTTP {response.status_code}")
-        envelope_bytes = response.content
-        try:
-            envelope = response.json()
-        except json.JSONDecodeError as exc:
-            raise ValueError("API envelope is not JSON") from exc
-        if envelope.get("model") != call.model:
-            raise ValueError("API model differs from requested model")
-        request_id = envelope.get("id")
-        if not isinstance(request_id, str) or not request_id.strip():
-            raise ValueError("API response has no request ID")
-        choices = envelope.get("choices")
-        if not isinstance(choices, list) or len(choices) != 1:
-            raise ValueError("API response must contain one choice")
-        message = choices[0].get("message") if isinstance(choices[0], dict) else None
-        content = message.get("content") if isinstance(message, dict) else None
-        if not isinstance(content, str):
-            raise ValueError("API response content is missing")
-        usage_raw = envelope.get("usage")
-        if not isinstance(usage_raw, dict):
-            raise ValueError("API response usage is missing")
-        usage = {}
-        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-            value = usage_raw.get(key)
-            if not isinstance(value, int) or value < 0:
-                raise ValueError(f"API usage {key} is invalid")
-            usage[key] = value
-        return ApiCompletion(
-            raw_content=content,
-            request_id=request_id,
-            response_model=call.model,
-            usage=usage,
-            response_envelope_sha256=hashlib.sha256(envelope_bytes).hexdigest(),
+        body = response.content
+        return HttpResponseReceipt(
+            status_code=response.status_code,
+            response_body=body,
+            response_sha256=hashlib.sha256(body).hexdigest(),
+            provider_request_id=_extract_provider_request_id(body),
+            received_at=_now(),
         )
 
     async def close(self) -> None:
         await self.client.aclose()
+
+
+def _extract_provider_request_id(body: bytes) -> str | None:
+    try:
+        envelope = json.loads(body)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    request_id = envelope.get("id") if isinstance(envelope, dict) else None
+    return request_id if isinstance(request_id, str) and request_id.strip() else None
+
+
+def _parse_api_completion(receipt: HttpResponseReceipt, expected_model: str) -> ApiCompletion:
+    if receipt.status_code >= 400:
+        raise ValueError(f"API HTTP status is {receipt.status_code}")
+    try:
+        envelope = json.loads(receipt.response_body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ValueError("API envelope is not JSON") from exc
+    if not isinstance(envelope, dict):
+        raise ValueError("API envelope must be an object")
+    if envelope.get("model") != expected_model:
+        raise ValueError("API model differs from requested model")
+    request_id = envelope.get("id")
+    if not isinstance(request_id, str) or not request_id.strip():
+        raise ValueError("API response has no request ID")
+    choices = envelope.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise ValueError("API response must contain one choice")
+    choice = choices[0]
+    if not isinstance(choice, dict) or choice.get("finish_reason") != "tool_calls":
+        raise ValueError("API response did not finish with a tool call")
+    message = choice.get("message")
+    tool_calls = message.get("tool_calls") if isinstance(message, dict) else None
+    if not isinstance(tool_calls, list) or len(tool_calls) != 1:
+        raise ValueError("API response must contain exactly one tool call")
+    tool_call = tool_calls[0]
+    if not isinstance(tool_call, dict) or tool_call.get("type") != "function":
+        raise ValueError("API response tool call type is invalid")
+    tool_call_id = tool_call.get("id")
+    function = tool_call.get("function")
+    if not isinstance(tool_call_id, str) or not tool_call_id.strip():
+        raise ValueError("API response tool call has no ID")
+    if not isinstance(function, dict) or function.get("name") != JUDGMENT_TOOL_NAME:
+        raise ValueError("API response called an unexpected function")
+    arguments = function.get("arguments")
+    if not isinstance(arguments, str):
+        raise ValueError("API response tool arguments are missing")
+    usage_raw = envelope.get("usage")
+    if not isinstance(usage_raw, dict):
+        raise ValueError("API response usage is missing")
+    usage = {}
+    for key in (
+        "prompt_tokens",
+        "prompt_cache_hit_tokens",
+        "prompt_cache_miss_tokens",
+        "completion_tokens",
+        "total_tokens",
+    ):
+        value = usage_raw.get(key)
+        if not isinstance(value, int) or value < 0:
+            raise ValueError(f"API usage {key} is invalid")
+        usage[key] = value
+    if usage["prompt_tokens"] != (
+        usage["prompt_cache_hit_tokens"] + usage["prompt_cache_miss_tokens"]
+    ):
+        raise ValueError("API prompt-token usage breakdown is inconsistent")
+    if usage["total_tokens"] != usage["prompt_tokens"] + usage["completion_tokens"]:
+        raise ValueError("API total-token usage is inconsistent")
+    return ApiCompletion(
+        raw_content=arguments,
+        request_id=request_id,
+        response_model=expected_model,
+        usage=usage,
+        tool_call_id=tool_call_id,
+    )
 
 
 class EnsembleLedger:
@@ -375,8 +481,11 @@ class EnsembleLedger:
               role TEXT NOT NULL,slot INTEGER NOT NULL,
               model TEXT NOT NULL,request_sha256 TEXT NOT NULL,request_json TEXT NOT NULL,
               status TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,request_id TEXT,
-              response_sha256 TEXT,raw_response TEXT,result_json TEXT,usage_json TEXT,
+              tool_call_id TEXT,response_status_code INTEGER,response_sha256 TEXT,
+              response_body_base64 TEXT,
+              raw_response TEXT,result_json TEXT,usage_json TEXT,
               estimated_cost_usd REAL,error_type TEXT,error_message TEXT,updated_at TEXT NOT NULL,
+              started_at TEXT,response_received_at TEXT,validated_at TEXT,terminal_at TEXT,
               UNIQUE(sample_id,role,slot));
             CREATE TABLE IF NOT EXISTS final(
               sample_id TEXT PRIMARY KEY,status TEXT NOT NULL,decision TEXT,confidence REAL,
@@ -384,16 +493,62 @@ class EnsembleLedger:
             """
         )
 
-    def prepare(self, signature: dict[str, Any], *, retry_failed: bool) -> None:
+    def prepare(self, signature: dict[str, Any]) -> None:
         encoded = _canonical(signature)
         with self.db:
             current = self.db.execute("SELECT value FROM metadata WHERE key='signature'").fetchone()
             if current is not None and current[0] != encoded:
                 raise ValueError("Existing ensemble ledger signature differs")
             self.db.execute("INSERT OR IGNORE INTO metadata VALUES('signature',?)", (encoded,))
-            self.db.execute("UPDATE calls SET status='pending' WHERE status='running'")
-            if retry_failed:
-                self.db.execute("UPDATE calls SET status='pending' WHERE status='failed'")
+        bad_attempts = self.db.execute(
+            """SELECT COUNT(*) FROM calls WHERE attempts NOT IN (0,1)
+            OR (attempts=1 AND status='pending') OR (attempts=0 AND status!='pending')"""
+        ).fetchone()[0]
+        if bad_attempts:
+            raise RuntimeError("Ledger violates the attempt-zero-only dispatch contract")
+        bad_receipts = self.db.execute(
+            """SELECT COUNT(*) FROM calls
+            WHERE status IN ('response_received','completed','invalid_response')
+            AND (response_status_code IS NULL OR response_sha256 IS NULL
+                 OR response_body_base64 IS NULL OR response_received_at IS NULL)"""
+        ).fetchone()[0]
+        if bad_receipts:
+            raise RuntimeError("Ledger contains a response state without a durable receipt")
+        bad_phases = self.db.execute(
+            """SELECT COUNT(*) FROM calls WHERE
+            (attempts=1 AND started_at IS NULL)
+            OR (status='completed' AND (tool_call_id IS NULL OR raw_response IS NULL
+                OR result_json IS NULL OR usage_json IS NULL OR validated_at IS NULL
+                OR terminal_at IS NULL))
+            OR (status='invalid_response' AND (validated_at IS NULL OR terminal_at IS NULL))
+            OR (status='ambiguous' AND terminal_at IS NULL)"""
+        ).fetchone()[0]
+        if bad_phases:
+            raise RuntimeError("Ledger contains an incomplete phase timeline")
+        bad_domains = self.db.execute(
+            """SELECT COUNT(*) FROM calls
+            WHERE role NOT IN ('flash','pro') OR status NOT IN
+            ('pending','started','response_received','completed','invalid_response','ambiguous')"""
+        ).fetchone()[0]
+        if bad_domains:
+            raise RuntimeError("Ledger contains an unknown role or state")
+
+    def assert_dispatch_safe(self) -> None:
+        blocked = self.db.execute(
+            """SELECT status,COUNT(*) FROM calls
+            WHERE status IN ('started','ambiguous','invalid_response')
+            GROUP BY status ORDER BY status"""
+        ).fetchall()
+        if blocked:
+            details = ", ".join(f"{row[0]}={row[1]}" for row in blocked)
+            raise RuntimeError(f"Ledger contains non-repeatable calls: {details}")
+        duplicate_provider_ids = self.db.execute(
+            """SELECT COUNT(*) FROM (
+            SELECT request_id FROM calls WHERE request_id IS NOT NULL
+            GROUP BY request_id HAVING COUNT(*)>1)"""
+        ).fetchone()[0]
+        if duplicate_provider_ids:
+            raise RuntimeError("Ledger contains duplicate provider request IDs")
 
     def add_calls(self, calls: Sequence[CallSpec]) -> None:
         with self.db:
@@ -423,50 +578,139 @@ class EnsembleLedger:
                     ),
                 )
 
-    def pending_calls(self) -> list[str]:
+    def assert_role_plan(self, role: str, calls: Sequence[CallSpec]) -> None:
+        expected = {call.call_id for call in calls}
+        observed = {
+            row[0]
+            for row in self.db.execute("SELECT call_id FROM calls WHERE role=?", (role,))
+        }
+        if observed != expected:
+            raise RuntimeError(f"Ledger {role} call set differs from the immutable plan")
+
+    def assert_stage_boundary(self) -> None:
+        pro_count = self.db.execute(
+            "SELECT COUNT(*) FROM calls WHERE role='pro'"
+        ).fetchone()[0]
+        incomplete_flash = self.db.execute(
+            "SELECT COUNT(*) FROM calls WHERE role='flash' AND status!='completed'"
+        ).fetchone()[0]
+        if pro_count and incomplete_flash:
+            raise RuntimeError("Pro calls exist before the Flash stage is complete")
+
+    def pending_calls(self, allowed_call_ids: Sequence[str]) -> list[str]:
+        allowed = set(allowed_call_ids)
         return [
             row[0]
             for row in self.db.execute(
                 "SELECT call_id FROM calls WHERE status='pending' ORDER BY role,sample_id,slot"
             )
+            if row[0] in allowed
         ]
 
     def start(self, call_id: str) -> None:
         with self.db:
-            self.db.execute(
-                """UPDATE calls SET status='running',attempts=attempts+1,
-                updated_at=? WHERE call_id=?""",
-                (_now(), call_id),
+            cursor = self.db.execute(
+                """UPDATE calls SET status='started',attempts=1,
+                updated_at=?,started_at=? WHERE call_id=? AND status='pending' AND attempts=0""",
+                (_now(), _now(), call_id),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Call cannot be dispatched exactly once: {call_id}")
 
-    def complete(
-        self, call_id: str, completion: ApiCompletion, result: dict[str, Any], cost: float | None
+    def record_response(self, call_id: str, receipt: HttpResponseReceipt) -> None:
+        with self.db:
+            cursor = self.db.execute(
+                """UPDATE calls SET status='response_received',request_id=?,
+                response_status_code=?,response_sha256=?,response_body_base64=?,
+                response_received_at=?,error_type=NULL,error_message=NULL,updated_at=?
+                WHERE call_id=? AND status='started' AND attempts=1""",
+                (
+                    receipt.provider_request_id,
+                    receipt.status_code,
+                    receipt.response_sha256,
+                    base64.b64encode(receipt.response_body).decode("ascii"),
+                    receipt.received_at,
+                    receipt.received_at,
+                    call_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Response cannot be recorded from current state: {call_id}")
+
+    def record_parsed_completion(
+        self, call_id: str, completion: ApiCompletion, cost: float | None
     ) -> None:
         with self.db:
-            self.db.execute(
-                """UPDATE calls SET status='completed',request_id=?,
-                response_sha256=?,raw_response=?,result_json=?,usage_json=?,
-                estimated_cost_usd=?,error_type=NULL,error_message=NULL,
-                updated_at=? WHERE call_id=?""",
+            cursor = self.db.execute(
+                """UPDATE calls SET request_id=?,tool_call_id=?,raw_response=?,usage_json=?,
+                estimated_cost_usd=?,updated_at=?
+                WHERE call_id=? AND status='response_received'
+                AND (request_id IS NULL OR request_id=?)""",
                 (
                     completion.request_id,
-                    completion.response_envelope_sha256,
+                    completion.tool_call_id,
                     completion.raw_content,
-                    _canonical(result),
                     _canonical(completion.usage),
                     cost,
                     _now(),
                     call_id,
+                    completion.request_id,
                 ),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Parsed response conflicts with durable receipt: {call_id}")
 
-    def fail(self, call_id: str, exc: Exception) -> None:
-        with self.db:
+    def provider_request_id_is_unique(self, call_id: str) -> bool:
+        row = self.db.execute(
+            "SELECT request_id FROM calls WHERE call_id=?", (call_id,)
+        ).fetchone()
+        if row is None or not row[0]:
+            return False
+        return (
             self.db.execute(
-                """UPDATE calls SET status='failed',error_type=?,error_message=?,
-                updated_at=? WHERE call_id=?""",
-                (type(exc).__name__, str(exc), _now(), call_id),
+                "SELECT COUNT(*) FROM calls WHERE request_id=?", (row[0],)
+            ).fetchone()[0]
+            == 1
+        )
+
+    def complete_validation(self, call_id: str, result: dict[str, Any]) -> None:
+        with self.db:
+            cursor = self.db.execute(
+                """UPDATE calls SET status='completed',result_json=?,
+                error_type=NULL,error_message=NULL,updated_at=?,validated_at=?,terminal_at=?
+                WHERE call_id=? AND status='response_received'""",
+                (_canonical(result), _now(), _now(), _now(), call_id),
             )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Response cannot be completed from current state: {call_id}")
+
+    def mark_invalid_response(self, call_id: str, exc: Exception) -> None:
+        with self.db:
+            cursor = self.db.execute(
+                """UPDATE calls SET status='invalid_response',error_type=?,error_message=?,
+                updated_at=?,validated_at=?,terminal_at=?
+                WHERE call_id=? AND status='response_received'""",
+                (type(exc).__name__, str(exc), _now(), _now(), _now(), call_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Invalid response cannot be recorded: {call_id}")
+
+    def mark_ambiguous(self, call_id: str, exc: Exception) -> None:
+        with self.db:
+            cursor = self.db.execute(
+                """UPDATE calls SET status='ambiguous',error_type=?,error_message=?,
+                updated_at=?,terminal_at=? WHERE call_id=? AND status='started'""",
+                (type(exc).__name__, str(exc), _now(), _now(), call_id),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(f"Ambiguous dispatch cannot be recorded: {call_id}")
+
+    def response_received_rows(self) -> list[sqlite3.Row]:
+        return list(
+            self.db.execute(
+                "SELECT * FROM calls WHERE status='response_received' ORDER BY role,sample_id,slot"
+            )
+        )
 
     def call_rows(self) -> list[sqlite3.Row]:
         return list(self.db.execute("SELECT * FROM calls ORDER BY sample_id,role,slot"))
@@ -509,23 +753,30 @@ class EnsembleLedger:
 
 
 async def run_ensemble(
-    config: EnsembleMisreadConfig, *, client: Any | None = None, retry_failed: bool = False
-) -> dict[str, int]:
+    config: EnsembleMisreadConfig, *, client: Any | None = None
+) -> dict[str, int | float | None]:
     if config.status != "ready":
         raise ValueError("Ensemble config is not ready")
     tasks = build_sample_tasks(config)
     flash_calls = build_flash_calls(config, tasks)
+    validate_forbidden_call_isolation(config, flash_calls)
     by_call = {call.call_id: call for call in flash_calls}
     signature = _signature(config, tasks)
     ledger = EnsembleLedger(config.output_root / "request_ledger.sqlite3")
-    ledger.prepare(signature, retry_failed=retry_failed)
-    ledger.add_calls(flash_calls)
     owns_client = client is None
     try:
+        ledger.prepare(signature)
+        ledger.add_calls(flash_calls)
+        ledger.assert_role_plan("flash", flash_calls)
+        _replay_recorded_responses(ledger)
+        ledger.assert_dispatch_safe()
+        ledger.assert_stage_boundary()
         if client is None:
             client = DeepSeekEnsembleClient(config, load_api_key())
-        await _execute_pending(config, ledger, by_call, client)
-        _raise_failed_calls(ledger, stage="Flash")
+        await _execute_pending(
+            config, ledger, by_call, client, call_ids=[call.call_id for call in flash_calls]
+        )
+        ledger.assert_dispatch_safe()
         pro_calls: list[CallSpec] = []
         for task in tasks:
             flashes = ledger.results(task.sample_id, "flash")
@@ -547,9 +798,13 @@ async def run_ensemble(
                 call = build_pro_call(config, task, flashes)
                 pro_calls.append(call)
                 by_call[call.call_id] = call
+        validate_forbidden_call_isolation(config, pro_calls)
         ledger.add_calls(pro_calls)
-        await _execute_pending(config, ledger, by_call, client)
-        _raise_failed_calls(ledger, stage="Pro")
+        ledger.assert_role_plan("pro", pro_calls)
+        await _execute_pending(
+            config, ledger, by_call, client, call_ids=[call.call_id for call in pro_calls]
+        )
+        ledger.assert_dispatch_safe()
         for task in tasks:
             pro = ledger.results(task.sample_id, "pro")
             if not pro:
@@ -567,10 +822,10 @@ async def run_ensemble(
                 arbitrator_used=True,
                 rationale=result["rationale"],
             )
-        _materialize(config, signature, tasks, ledger)
+        _materialize(config, signature, tasks, ledger, final=True)
         return _summary(tasks, ledger)
     except Exception:
-        _materialize(config, signature, tasks, ledger)
+        _materialize(config, signature, tasks, ledger, final=False)
         raise
     finally:
         if owns_client and client is not None:
@@ -583,34 +838,133 @@ async def _execute_pending(
     ledger: EnsembleLedger,
     by_call: dict[str, CallSpec],
     client: Any,
+    *,
+    call_ids: Sequence[str],
 ) -> None:
-    semaphore = asyncio.Semaphore(config.max_concurrency)
+    pending_call_ids = ledger.pending_calls(call_ids)
+    pending = iter(pending_call_ids)
+    dispatch_lock = asyncio.Lock()
+    stop_dispatch = asyncio.Event()
+    worker_errors: list[Exception] = []
 
-    async def execute_one(call_id: str) -> None:
-        call = by_call.get(call_id)
-        if call is None:
-            raise ValueError(f"Pending call is absent from the immutable plan: {call_id}")
-        async with semaphore:
-            ledger.start(call_id)
+    async def claim() -> tuple[str, CallSpec] | None:
+        async with dispatch_lock:
+            if stop_dispatch.is_set():
+                return None
             try:
-                completion = await client.complete(call)
-                result = validate_misread_judgment_response(completion.raw_content)
-                ledger.complete(
+                call_id = next(pending)
+            except StopIteration:
+                return None
+            call = by_call.get(call_id)
+            if call is None:
+                raise ValueError(f"Pending call is absent from the immutable plan: {call_id}")
+            ledger.start(call_id)
+            return call_id, call
+
+    async def worker() -> None:
+        while True:
+            try:
+                claimed = await claim()
+            except Exception as exc:
+                stop_dispatch.set()
+                worker_errors.append(exc)
+                return
+            if claimed is None:
+                return
+            call_id, call = claimed
+            try:
+                receipt = await client.complete(call)
+            except Exception as exc:
+                stop_dispatch.set()
+                try:
+                    ledger.mark_ambiguous(call_id, exc)
+                except Exception as ledger_exc:
+                    worker_errors.append(ledger_exc)
+                return
+            try:
+                ledger.record_response(call_id, receipt)
+                completion = _parse_api_completion(receipt, call.model)
+                ledger.record_parsed_completion(
                     call_id,
                     completion,
-                    result,
                     _estimate_cost(config, call.model, completion.usage),
                 )
+                if not ledger.provider_request_id_is_unique(call_id):
+                    raise MisreadJudgmentValidationError(
+                        "provider request ID must be globally unique"
+                    )
+                result = validate_misread_judgment_response(completion.raw_content)
+                ledger.complete_validation(call_id, result)
             except Exception as exc:
-                ledger.fail(call_id, exc)
+                stop_dispatch.set()
+                try:
+                    ledger.mark_invalid_response(call_id, exc)
+                except Exception as ledger_exc:
+                    worker_errors.append(ledger_exc)
+                return
 
-    await asyncio.gather(*(execute_one(call_id) for call_id in ledger.pending_calls()))
+    pending_count = len(pending_call_ids)
+    results = await asyncio.gather(
+        *(worker() for _ in range(min(config.max_concurrency, pending_count))),
+        return_exceptions=True,
+    )
+    worker_errors.extend(result for result in results if isinstance(result, Exception))
+    if worker_errors:
+        raise RuntimeError(
+            f"Judgment workers failed after draining {len(worker_errors)} internal error(s)"
+        ) from worker_errors[0]
+
+
+def _replay_recorded_responses(ledger: EnsembleLedger) -> None:
+    for row in ledger.response_received_rows():
+        call_id = row["call_id"]
+        try:
+            body = base64.b64decode(row["response_body_base64"], validate=True)
+            if hashlib.sha256(body).hexdigest() != row["response_sha256"]:
+                raise MisreadJudgmentValidationError("durable response body hash differs")
+            receipt = HttpResponseReceipt(
+                status_code=row["response_status_code"],
+                response_body=body,
+                response_sha256=row["response_sha256"],
+                provider_request_id=row["request_id"],
+                received_at=row["response_received_at"],
+            )
+            completion = _parse_api_completion(receipt, row["model"])
+            ledger.record_parsed_completion(call_id, completion, None)
+            if not ledger.provider_request_id_is_unique(call_id):
+                raise MisreadJudgmentValidationError(
+                    "provider request ID must be globally unique"
+                )
+            result = validate_misread_judgment_response(completion.raw_content)
+            ledger.complete_validation(call_id, result)
+        except Exception as exc:
+            ledger.mark_invalid_response(call_id, exc)
+
+
+def offline_replay(config: EnsembleMisreadConfig) -> dict[str, int | float | None]:
+    """Validate recorded responses without constructing a client or reading an API key."""
+    tasks = build_sample_tasks(config)
+    calls = build_flash_calls(config, tasks)
+    validate_forbidden_call_isolation(config, calls)
+    signature = _signature(config, tasks)
+    ledger_path = config.output_root / "request_ledger.sqlite3"
+    if not ledger_path.is_file():
+        raise FileNotFoundError(ledger_path)
+    ledger = EnsembleLedger(ledger_path)
+    try:
+        ledger.prepare(signature)
+        _replay_recorded_responses(ledger)
+        _materialize(config, signature, tasks, ledger, final=False)
+        return _summary(tasks, ledger)
+    finally:
+        ledger.close()
 
 
 def dry_run(config: EnsembleMisreadConfig) -> dict[str, Any]:
     """Validate frozen inputs and requests without reading the API key."""
     tasks = build_sample_tasks(config)
     calls = build_flash_calls(config, tasks)
+    isolation = validate_forbidden_call_isolation(config, calls)
     return {
         "sample_count": len(tasks),
         "flash_request_count": len(calls),
@@ -621,17 +975,9 @@ def dry_run(config: EnsembleMisreadConfig) -> dict[str, Any]:
         "unique_request_payload_sha256_count": len({call.request_sha256 for call in calls}),
         "api_requests_issued": 0,
         "api_key_accessed": False,
+        **isolation,
         "signature": _signature(config, tasks),
     }
-
-
-def _raise_failed_calls(ledger: EnsembleLedger, *, stage: str) -> None:
-    failed = [row for row in ledger.call_rows() if row["status"] == "failed"]
-    if failed:
-        raise RuntimeError(
-            f"{stage} judgment failed for {len(failed)} request(s); "
-            "resume with --retry-failed after correcting the external failure"
-        )
 
 
 def _estimate_cost(
@@ -652,6 +998,8 @@ def _materialize(
     signature: dict[str, Any],
     tasks: Sequence[SampleTask],
     ledger: EnsembleLedger,
+    *,
+    final: bool,
 ) -> None:
     call_rows = [dict(row) for row in ledger.call_rows()]
     finals = [dict(row) for row in ledger.final_rows()]
@@ -701,7 +1049,7 @@ def _materialize(
             )
         }
         for row in call_rows
-        if row["status"] == "failed"
+        if row["status"] in {"started", "ambiguous", "invalid_response"}
     ]
     request_records = [
         {
@@ -716,29 +1064,58 @@ def _materialize(
                 "status",
                 "attempts",
                 "request_id",
+                "tool_call_id",
+                "response_status_code",
                 "response_sha256",
                 "usage_json",
                 "estimated_cost_usd",
                 "error_type",
                 "error_message",
+                "started_at",
+                "response_received_at",
+                "validated_at",
+                "terminal_at",
             )
         }
         for row in call_rows
     ]
-    payloads = {
-        "judgments.jsonl": _jsonl(judgments),
-        "human_review_queue.jsonl": _jsonl(queue),
-        "failures.jsonl": _jsonl(failures),
-        "requests.jsonl": _jsonl(request_records),
-        "summary.json": (
-            json.dumps(_summary(tasks, ledger), sort_keys=True, indent=2) + "\n"
-        ).encode(),
-    }
+    summary = _summary(tasks, ledger)
+    if final:
+        non_completed = [row for row in call_rows if row["status"] != "completed"]
+        if summary["unresolved"] or non_completed or failures:
+            raise RuntimeError("Incomplete judgment state cannot be materialized as final")
+        payloads = {
+            "judgments.jsonl": _jsonl(judgments),
+            "human_review_queue.jsonl": _jsonl(queue),
+            "failures.jsonl": _jsonl(failures),
+            "requests.jsonl": _jsonl(request_records),
+            "summary.json": (
+                json.dumps(summary, sort_keys=True, indent=2) + "\n"
+            ).encode(),
+        }
+        provenance_name = "provenance.json"
+        artifact_root = config.output_root
+        artifact_prefix = Path()
+    else:
+        payloads = {
+            "audit_failures.jsonl": _jsonl(failures),
+            "audit_requests.jsonl": _jsonl(request_records),
+            "audit_summary.json": (
+                json.dumps(summary, sort_keys=True, indent=2) + "\n"
+            ).encode(),
+        }
+        provenance_name = "audit_provenance.json"
+        snapshot_id = _hash(
+            _canonical({"summary": summary, "requests": request_records})
+        )
+        artifact_root = config.output_root / "audit_snapshots" / snapshot_id
+        artifact_prefix = Path("audit_snapshots") / snapshot_id
     for name, content in payloads.items():
-        _atomic_bytes(config.output_root / name, content)
+        _atomic_bytes(artifact_root / name, content)
     provenance = {
         "schema_name": PROVENANCE_SCHEMA,
         "run_id": config.run_id,
+        "status": "complete" if final else "incomplete",
         "signature": signature,
         "policy": {
             "flash_replicates": 3,
@@ -748,11 +1125,15 @@ def _materialize(
         },
         "pricing": config.pricing,
         "artifacts": {
-            name: {"path": name, "sha256": _sha256(config.output_root / name)} for name in payloads
+            name: {
+                "path": str(artifact_prefix / name),
+                "sha256": _sha256(artifact_root / name),
+            }
+            for name in payloads
         },
     }
     _atomic_bytes(
-        config.output_root / "provenance.json",
+        artifact_root / provenance_name,
         (json.dumps(provenance, sort_keys=True, indent=2) + "\n").encode(),
     )
 
@@ -761,16 +1142,22 @@ def _summary(tasks: Sequence[SampleTask], ledger: EnsembleLedger) -> dict[str, i
     calls = [dict(row) for row in ledger.call_rows()]
     finals = [dict(row) for row in ledger.final_rows()]
     status = Counter(row["status"] for row in finals)
+    call_status = Counter(row["status"] for row in calls)
     costs = [row["estimated_cost_usd"] for row in calls if row["estimated_cost_usd"] is not None]
     return {
         "samples": len(tasks),
         "completed": status["completed"],
         "human_review": status["human_review"],
         "unresolved": len(tasks) - len(finals),
-        "calls_completed": sum(row["status"] == "completed" for row in calls),
-        "calls_failed": sum(row["status"] == "failed" for row in calls),
+        "calls_completed": call_status["completed"],
+        "calls_pending": call_status["pending"],
+        "calls_started": call_status["started"],
+        "calls_response_received": call_status["response_received"],
+        "calls_invalid_response": call_status["invalid_response"],
+        "calls_ambiguous": call_status["ambiguous"],
+        "calls_failed": call_status["invalid_response"] + call_status["ambiguous"],
         "estimated_cost_usd": sum(costs)
-        if len(costs) == sum(row["status"] == "completed" for row in calls)
+        if len(costs) == sum(row["attempts"] > 0 for row in calls)
         else None,
     }
 
@@ -788,7 +1175,7 @@ def _signature(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]) -> di
         "flash_replicates": 3,
         "temperature": 0,
         "confidence_threshold": config.confidence_threshold,
-        "prompt_sha256": _hash(MISREAD_JUDGMENT_PROMPT),
+        "prompt_sha256": _hash(STRICT_MISREAD_JUDGMENT_PROMPT),
         "arbitration_prompt_sha256": _hash(ARBITRATION_PROMPT),
         "gt_coverage_receipt_sha256": _sha256(config.gt_coverage_receipt_path),
         "gt_manifest_sha256": _sha256(config.gt_description_manifest_path),
@@ -800,6 +1187,13 @@ def _signature(config: EnsembleMisreadConfig, tasks: Sequence[SampleTask]) -> di
         "diagnostic_request_protocol_signature_sha256": (
             config.diagnostic_request_protocol_signature_sha256
         ),
+        "strict_api_url": config.api_url,
+        "thinking": config.thinking,
+        "max_tokens": config.max_tokens,
+        "tool_name": JUDGMENT_TOOL_NAME,
+        "request_protocol_sha256": _hash(_canonical(_strict_request_protocol())),
+        "validator_contract_sha256": _hash(_canonical(_validator_contract())),
+        "forbidden_started_calls_sha256": config.forbidden_started_calls_sha256,
         "sample_count": len(tasks),
     }
 
@@ -811,17 +1205,77 @@ def _request(model: str, system: str, payload: dict[str, Any]) -> dict[str, Any]
             {"role": "system", "content": system},
             {"role": "user", "content": _canonical(payload)},
         ],
+        **_strict_request_protocol(),
+    }
+
+
+def _strict_request_protocol() -> dict[str, Any]:
+    return {
         "temperature": 0,
-        "response_format": {"type": "json_object"},
+        "thinking": {"type": "disabled"},
+        "max_tokens": 256,
+        "tools": [
+            {
+                "type": "function",
+                "function": {
+                    "name": JUDGMENT_TOOL_NAME,
+                    "description": "Submit one blinded affective Misread judgment.",
+                    "strict": True,
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "decision": {
+                                "type": "string",
+                                "enum": ["MISREAD", "NON_MISREAD", "UNCERTAIN"],
+                            },
+                            "confidence": {
+                                "type": "number",
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "rationale": {
+                                "type": "string",
+                                "pattern": JUDGMENT_RATIONALE_PATTERN,
+                                "description": "One sentence of at most 30 words.",
+                            },
+                        },
+                        "required": ["decision", "confidence", "rationale"],
+                        "additionalProperties": False,
+                    },
+                },
+            }
+        ],
+        "tool_choice": {
+            "type": "function",
+            "function": {"name": JUDGMENT_TOOL_NAME},
+        },
         "stream": False,
+    }
+
+
+def _validator_contract() -> dict[str, Any]:
+    return {
+        "decoder": "json.loads",
+        "exact_keys": ["confidence", "decision", "rationale"],
+        "decision_enum": ["MISREAD", "NON_MISREAD", "UNCERTAIN"],
+        "confidence": {"type": "number_not_boolean", "minimum": 0, "maximum": 1},
+        "rationale": {
+            "trimmed": True,
+            "single_line": True,
+            "sentence_end_count": 1,
+            "terminal": [".", "!", "?"],
+            "maximum_words": 30,
+            "requires_ascii_alphanumeric": True,
+        },
     }
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run strict 3xFlash+Pro Misread judgment.")
     parser.add_argument("--config", type=Path, required=True)
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--retry-failed", action="store_true")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--dry-run", action="store_true")
+    mode.add_argument("--offline-replay", action="store_true")
     return parser
 
 
@@ -831,7 +1285,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = (
         dry_run(config)
         if args.dry_run
-        else asyncio.run(run_ensemble(config, retry_failed=args.retry_failed))
+        else offline_replay(config)
+        if args.offline_replay
+        else asyncio.run(run_ensemble(config))
     )
     print(_canonical(result))
     return 0
@@ -899,7 +1355,7 @@ def _atomic_bytes(path: Path, content: bytes) -> None:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 if __name__ == "__main__":

@@ -3,14 +3,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from mprisk.judge.ensemble_misread import (
-    ApiCompletion,
+    EnsembleLedger,
     EnsembleMisreadConfig,
+    HttpResponseReceipt,
+    _execute_pending,
+    build_flash_calls,
+    build_pro_call,
+    build_sample_tasks,
     dry_run,
+    offline_replay,
     run_ensemble,
 )
 
@@ -19,10 +26,50 @@ def _jsonl(path: Path, rows: list[dict]) -> None:
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
 
 
+def _receipt(call, raw: str, request_id: str, number: int) -> HttpResponseReceipt:
+    envelope = {
+        "id": request_id,
+        "model": call.model,
+        "choices": [
+            {
+                "finish_reason": "tool_calls",
+                "message": {
+                    "tool_calls": [
+                        {
+                            "id": f"tool-{number}",
+                            "type": "function",
+                            "function": {
+                                "name": "submit_misread_judgment",
+                                "arguments": raw,
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 10,
+            "prompt_cache_hit_tokens": 4,
+            "prompt_cache_miss_tokens": 6,
+            "completion_tokens": 5,
+            "total_tokens": 15,
+        },
+    }
+    body = json.dumps(envelope, sort_keys=True).encode()
+    return HttpResponseReceipt(
+        status_code=200,
+        response_body=body,
+        response_sha256=hashlib.sha256(body).hexdigest(),
+        provider_request_id=request_id,
+        received_at="2026-08-04T00:00:00+00:00",
+    )
+
+
 def _config(tmp_path: Path) -> EnsembleMisreadConfig:
     gt = tmp_path / "gt.jsonl"
     diagnostic = tmp_path / "diagnostic.jsonl"
     coverage = tmp_path / "gt_coverage.json"
+    forbidden = tmp_path / "v2_started_calls.jsonl"
     prompt_sha256 = "a" * 64
     generation_policy_sha256 = "b" * 64
     request_protocol_signature_sha256 = "c" * 64
@@ -88,15 +135,18 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         + "\n",
         encoding="utf-8",
     )
+    _jsonl(forbidden, [{"call_id": "retired-paid-call"}])
     return EnsembleMisreadConfig(
-        schema_name="mprisk_ensemble_misread_judgment_config_v2",
+        schema_name="mprisk_ensemble_misread_judgment_config_v3",
         run_id="run",
         status="ready",
         subject_model_key="model",
         protocol="VT",
         split="train",
-        api_url="https://invalid.example",
+        api_url="https://api.deepseek.com/beta/chat/completions",
         temperature=0,
+        thinking="disabled",
+        max_tokens=256,
         confidence_threshold=0.5,
         flash_model="deepseek-v4-flash",
         pro_model="deepseek-v4-pro",
@@ -110,6 +160,8 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
         diagnostic_generation_policy_sha256=generation_policy_sha256,
         diagnostic_request_protocol_signature_sha256=request_protocol_signature_sha256,
         output_root=tmp_path / "out",
+        forbidden_started_calls_path=forbidden,
+        forbidden_started_calls_sha256=hashlib.sha256(forbidden.read_bytes()).hexdigest(),
         request_timeout_seconds=1.0,
         max_concurrency=2,
         pricing={
@@ -126,8 +178,9 @@ def _config(tmp_path: Path) -> EnsembleMisreadConfig:
 
 
 class FakeClient:
-    def __init__(self) -> None:
+    def __init__(self, *, request_offset: int = 0) -> None:
         self.calls = 0
+        self.request_offset = request_offset
 
     async def complete(self, call):
         self.calls += 1
@@ -151,13 +204,8 @@ class FakeClient:
                 "rationale": "The preliminary comparison yields this decision.",
             }
         raw = json.dumps(result)
-        return ApiCompletion(
-            raw_content=raw,
-            request_id=f"request-{self.calls}",
-            response_model=call.model,
-            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-            response_envelope_sha256=f"{self.calls:064x}",
-        )
+        number = self.request_offset + self.calls
+        return _receipt(call, raw, f"request-{number}", number)
 
 
 def test_dry_run_never_requires_api_key(tmp_path: Path, monkeypatch) -> None:
@@ -251,11 +299,16 @@ class FailingClient:
 
 def test_ensemble_external_failures_are_not_silent(tmp_path: Path) -> None:
     config = _config(tmp_path)
-    with pytest.raises(RuntimeError, match="Flash judgment failed for 6 request"):
-        asyncio.run(run_ensemble(config, client=FailingClient()))
-    summary = json.loads((config.output_root / "summary.json").read_text())
-    assert summary["calls_failed"] == 6
+    client = FailingClient()
+    with pytest.raises(RuntimeError, match="non-repeatable calls"):
+        asyncio.run(run_ensemble(config, client=client))
+    summary_path = next((config.output_root / "audit_snapshots").glob("*/audit_summary.json"))
+    summary = json.loads(summary_path.read_text())
+    assert summary["calls_ambiguous"] >= 1
+    assert summary["calls_ambiguous"] <= config.max_concurrency
     assert summary["unresolved"] == 2
+    assert not (config.output_root / "summary.json").exists()
+    assert not (config.output_root / "judgments.jsonl").exists()
 
 
 def test_confidence_threshold_is_frozen_at_half(tmp_path: Path) -> None:
@@ -263,3 +316,306 @@ def test_confidence_threshold_is_frozen_at_half(tmp_path: Path) -> None:
     payload["confidence_threshold"] = 0.6
     with pytest.raises(ValueError, match="frozen confidence threshold is 0.5"):
         EnsembleMisreadConfig.model_validate(payload)
+
+
+def test_strict_tool_request_is_forced_and_schema_bounded(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    request = build_flash_calls(config, build_sample_tasks(config))[0].request
+
+    assert request["thinking"] == {"type": "disabled"}
+    assert request["max_tokens"] == 256
+    assert "response_format" not in request
+    assert request["tool_choice"] == {
+        "type": "function",
+        "function": {"name": "submit_misread_judgment"},
+    }
+    function = request["tools"][0]["function"]
+    assert function["strict"] is True
+    assert function["parameters"]["additionalProperties"] is False
+    assert function["parameters"]["required"] == [
+        "decision",
+        "confidence",
+        "rationale",
+    ]
+    assert function["parameters"]["properties"]["confidence"] == {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+    }
+
+
+class InvalidResponseClient:
+    def __init__(self, raw: str, *, request_id: str = "provider-invalid") -> None:
+        self.raw = raw
+        self.request_id = request_id
+        self.calls = 0
+
+    async def complete(self, call):
+        self.calls += 1
+        return _receipt(
+            call,
+            self.raw,
+            f"{self.request_id}-{self.calls}",
+            1000 + self.calls,
+        )
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (
+            '{"decision":"MISREAD","confidence":90,"rationale":"It conflicts."}',
+            "confidence must be in [0,1]",
+        ),
+        (
+            '{"decision":"MISREAD","confidence":0.9,"rationale":"It conflicts. It reverses."}',
+            "one short sentence",
+        ),
+        ("not-json", "exact JSON"),
+    ],
+)
+def test_invalid_response_keeps_full_receipt_and_stops_new_dispatch(
+    tmp_path: Path, raw: str, message: str
+) -> None:
+    config = _config(tmp_path)
+    client = InvalidResponseClient(raw)
+
+    with pytest.raises(RuntimeError, match="invalid_response"):
+        asyncio.run(run_ensemble(config, client=client))
+
+    assert 1 <= client.calls <= config.max_concurrency
+    db = sqlite3.connect(config.output_root / "request_ledger.sqlite3")
+    db.row_factory = sqlite3.Row
+    invalid = list(db.execute("SELECT * FROM calls WHERE status='invalid_response'"))
+    pending = db.execute("SELECT COUNT(*) FROM calls WHERE status='pending'").fetchone()[0]
+    db.close()
+    assert invalid
+    assert pending >= 6 - config.max_concurrency
+    assert all(row["attempts"] == 1 for row in invalid)
+    assert all(row["request_id"] and row["tool_call_id"] for row in invalid)
+    assert all(row["response_body_base64"] and row["response_sha256"] for row in invalid)
+    assert all(row["started_at"] and row["response_received_at"] for row in invalid)
+    assert all(row["validated_at"] and row["terminal_at"] for row in invalid)
+    assert all(row["raw_response"] == raw for row in invalid)
+    assert all(message in row["error_message"] for row in invalid)
+    assert not (config.output_root / "judgments.jsonl").exists()
+
+
+class MalformedEnvelopeClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, call):
+        self.calls += 1
+        body = b"not-an-api-envelope"
+        return HttpResponseReceipt(
+            status_code=200,
+            response_body=body,
+            response_sha256=hashlib.sha256(body).hexdigest(),
+            provider_request_id=None,
+            received_at="2026-08-04T00:00:01+00:00",
+        )
+
+
+def test_malformed_http_envelope_is_durable_before_parse(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    client = MalformedEnvelopeClient()
+
+    with pytest.raises(RuntimeError, match="invalid_response"):
+        asyncio.run(run_ensemble(config, client=client))
+
+    db = sqlite3.connect(config.output_root / "request_ledger.sqlite3")
+    db.row_factory = sqlite3.Row
+    rows = list(db.execute("SELECT * FROM calls WHERE status='invalid_response'"))
+    db.close()
+    assert rows
+    assert all(row["request_id"] is None for row in rows)
+    assert all(row["response_status_code"] == 200 for row in rows)
+    assert all(row["response_body_base64"] == "bm90LWFuLWFwaS1lbnZlbG9wZQ==" for row in rows)
+    assert all(row["error_message"] == "API envelope is not JSON" for row in rows)
+    provenance_path = next(
+        (config.output_root / "audit_snapshots").glob("*/audit_provenance.json")
+    )
+    provenance = json.loads(provenance_path.read_text())
+    for artifact in provenance["artifacts"].values():
+        assert (config.output_root / artifact["path"]).is_file()
+
+
+class DrainInflightClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, call):
+        self.calls += 1
+        number = self.calls
+        if number == 1:
+            await asyncio.sleep(0)
+            raw = '{"decision":"MISREAD","confidence":90,"rationale":"Invalid."}'
+        else:
+            await asyncio.sleep(0.01)
+            raw = (
+                '{"decision":"MISREAD","confidence":0.9,'
+                '"rationale":"The descriptions conflict."}'
+            )
+        return _receipt(call, raw, f"drain-provider-{number}", number)
+
+
+def test_first_error_stops_claims_but_drains_inflight_receipts(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    client = DrainInflightClient()
+
+    with pytest.raises(RuntimeError, match="invalid_response"):
+        asyncio.run(run_ensemble(config, client=client))
+
+    db = sqlite3.connect(config.output_root / "request_ledger.sqlite3")
+    counts = dict(db.execute("SELECT status,COUNT(*) FROM calls GROUP BY status"))
+    db.close()
+    assert client.calls == config.max_concurrency
+    assert counts == {"completed": 1, "invalid_response": 1, "pending": 4}
+
+
+class SlowValidClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete(self, call):
+        self.calls += 1
+        await asyncio.sleep(0.01)
+        raw = (
+            '{"decision":"MISREAD","confidence":0.9,'
+            '"rationale":"The descriptions conflict."}'
+        )
+        return _receipt(call, raw, f"slow-provider-{self.calls}", self.calls)
+
+
+def test_claim_failure_stops_dispatch_and_drains_already_claimed_call(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = _config(tmp_path)
+    client = SlowValidClient()
+    original_start = EnsembleLedger.start
+    starts = 0
+
+    def fail_second_start(self, call_id):
+        nonlocal starts
+        starts += 1
+        if starts == 2:
+            raise RuntimeError("injected start failure")
+        return original_start(self, call_id)
+
+    monkeypatch.setattr(EnsembleLedger, "start", fail_second_start)
+
+    with pytest.raises(RuntimeError, match="workers failed after draining"):
+        asyncio.run(run_ensemble(config, client=client))
+
+    db = sqlite3.connect(config.output_root / "request_ledger.sqlite3")
+    counts = dict(db.execute("SELECT status,COUNT(*) FROM calls GROUP BY status"))
+    db.close()
+    assert client.calls == 1
+    assert counts == {"completed": 1, "pending": 5}
+
+
+def test_resume_with_completed_flash_and_pending_pro_dispatches_only_pro(
+    tmp_path: Path,
+) -> None:
+    config = _config(tmp_path)
+    tasks = build_sample_tasks(config)
+    flash_calls = build_flash_calls(config, tasks)
+    ledger = EnsembleLedger(config.output_root / "request_ledger.sqlite3")
+    ledger.prepare(dry_run(config)["signature"])
+    ledger.add_calls(flash_calls)
+    ledger.assert_role_plan("flash", flash_calls)
+    first_client = FakeClient()
+    asyncio.run(
+        _execute_pending(
+            config,
+            ledger,
+            {call.call_id: call for call in flash_calls},
+            first_client,
+            call_ids=[call.call_id for call in flash_calls],
+        )
+    )
+    assert first_client.calls == 6
+    pro_call = build_pro_call(config, tasks[1], ledger.results("b", "flash"))
+    ledger.add_calls([pro_call])
+    ledger.assert_role_plan("pro", [pro_call])
+    ledger.close()
+
+    resumed_client = FakeClient(request_offset=6)
+    summary = asyncio.run(run_ensemble(config, client=resumed_client))
+
+    assert resumed_client.calls == 1
+    assert summary["unresolved"] == 0
+    assert summary["calls_completed"] == 7
+
+
+def test_started_call_cannot_return_to_pending_or_dispatch_twice(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    tasks = build_sample_tasks(config)
+    calls = build_flash_calls(config, tasks)
+    ledger = EnsembleLedger(config.output_root / "request_ledger.sqlite3")
+    signature = dry_run(config)["signature"]
+    ledger.prepare(signature)
+    ledger.add_calls(calls)
+    ledger.start(calls[0].call_id)
+
+    with pytest.raises(RuntimeError, match="exactly once"):
+        ledger.start(calls[0].call_id)
+    with pytest.raises(RuntimeError, match="non-repeatable calls"):
+        ledger.assert_dispatch_safe()
+    row = ledger.db.execute(
+        "SELECT status,attempts FROM calls WHERE call_id=?", (calls[0].call_id,)
+    ).fetchone()
+    assert tuple(row) == ("started", 1)
+    ledger.close()
+
+
+def test_offline_replay_never_reads_key_or_constructs_client(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    tasks = build_sample_tasks(config)
+    calls = build_flash_calls(config, tasks)
+    ledger = EnsembleLedger(config.output_root / "request_ledger.sqlite3")
+    signature = dry_run(config)["signature"]
+    ledger.prepare(signature)
+    ledger.add_calls(calls)
+    ledger.start(calls[0].call_id)
+    raw = json.dumps(
+        {
+            "decision": "MISREAD",
+            "confidence": 0.8,
+            "rationale": "The diagnostic contradicts the reference.",
+        }
+    )
+    ledger.record_response(
+        calls[0].call_id,
+        _receipt(calls[0], raw, "offline-provider-id", 77),
+    )
+    ledger.close()
+    monkeypatch.setattr(
+        "mprisk.judge.ensemble_misread.load_api_key",
+        lambda: (_ for _ in ()).throw(AssertionError("API key was read")),
+    )
+    monkeypatch.setattr(
+        "mprisk.judge.ensemble_misread.DeepSeekEnsembleClient",
+        lambda *_: (_ for _ in ()).throw(AssertionError("client was constructed")),
+    )
+
+    summary = offline_replay(config)
+
+    assert summary["calls_completed"] == 1
+    assert summary["calls_pending"] == 5
+    assert list((config.output_root / "audit_snapshots").glob("*/audit_summary.json"))
+    assert not (config.output_root / "summary.json").exists()
+    assert not (config.output_root / "judgments.jsonl").exists()
+
+
+def test_forbidden_started_call_overlap_blocks_dry_run(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    call_id = build_flash_calls(config, build_sample_tasks(config))[0].call_id
+    _jsonl(config.forbidden_started_calls_path, [{"call_id": call_id}])
+    config.forbidden_started_calls_sha256 = hashlib.sha256(
+        config.forbidden_started_calls_path.read_bytes()
+    ).hexdigest()
+
+    with pytest.raises(ValueError, match="previously started call IDs"):
+        dry_run(config)
