@@ -7,7 +7,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from mprisk.data.representation_splits import build_representation_split_assignment
+from mprisk.data.representation_splits import (
+    build_representation_split_assignment,
+    load_representation_split_assignment,
+)
 
 
 def _row(
@@ -33,6 +36,106 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
     return path
+
+
+def _assignment_row(
+    *, group: str, master_split: str, representation_split: str
+) -> dict[str, object]:
+    return {
+        "schema": "mprisk_representation_split_assignment_v1",
+        "config_key": "fixture_split_v2",
+        "split_group_id": group,
+        "master_split": master_split,
+        "representation_split": representation_split,
+        "sample_ids": [f"sample-{group}"],
+        "sample_count": 1,
+        "protocols": ["VT"],
+        "source_datasets": ["fixture"],
+    }
+
+
+@pytest.mark.parametrize(
+    ("master_split", "representation_split"),
+    [
+        ("train", "relation_train"),
+        ("val", "relation_val"),
+        ("val", "aligned_calibration"),
+        ("test", "official_test"),
+        ("cross_domain_test", "cross_domain_test"),
+    ],
+)
+def test_assignment_loader_accepts_only_registered_split_pairs(
+    tmp_path: Path, master_split: str, representation_split: str
+) -> None:
+    path = _write_jsonl(
+        tmp_path / "assignment.jsonl",
+        [
+            _assignment_row(
+                group="group-a",
+                master_split=master_split,
+                representation_split=representation_split,
+            )
+        ],
+    )
+
+    assignments = load_representation_split_assignment(path)
+
+    assert assignments["group-a"]["master_split"] == master_split
+    assert assignments["group-a"]["representation_split"] == representation_split
+
+
+@pytest.mark.parametrize(
+    ("master_split", "representation_split", "error"),
+    [
+        ("unknown", "official_test", "invalid master_split"),
+        ("test", "unknown", "invalid representation_split"),
+        (
+            "cross_domain_test",
+            "official_test",
+            "representation_split mismatches master_split",
+        ),
+    ],
+)
+def test_assignment_loader_rejects_unknown_or_inconsistent_split_pairs(
+    tmp_path: Path,
+    master_split: str,
+    representation_split: str,
+    error: str,
+) -> None:
+    path = _write_jsonl(
+        tmp_path / "assignment.jsonl",
+        [
+            _assignment_row(
+                group="group-a",
+                master_split=master_split,
+                representation_split=representation_split,
+            )
+        ],
+    )
+
+    with pytest.raises(ValueError, match=error):
+        load_representation_split_assignment(path)
+
+
+def test_assignment_loader_rejects_duplicate_group_registration(tmp_path: Path) -> None:
+    path = _write_jsonl(
+        tmp_path / "assignment.jsonl",
+        [
+            _assignment_row(
+                group="group-a",
+                master_split="train",
+                representation_split="relation_train",
+            ),
+            _assignment_row(
+                group="group-a",
+                master_split="cross_domain_test",
+                representation_split="cross_domain_test",
+            ),
+        ],
+    )
+
+    with pytest.raises(ValueError, match="duplicate split_group_id"):
+        load_representation_split_assignment(path)
 
 
 def _config(tmp_path: Path, sources: list[Path]) -> Path:

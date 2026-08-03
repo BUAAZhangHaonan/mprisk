@@ -17,10 +17,19 @@ from mprisk.utils.io import write_json
 
 CONFIG_SCHEMA = "mprisk_representation_split_config_v1"
 ASSIGNMENT_SCHEMA = "mprisk_representation_split_assignment_v1"
-MASTER_SPLITS = frozenset({"train", "val", "test"})
-REPRESENTATION_SPLITS = frozenset(
+BUILDER_MASTER_SPLITS = frozenset({"train", "val", "test"})
+BUILDER_REPRESENTATION_SPLITS = frozenset(
     {"relation_train", "relation_val", "aligned_calibration", "official_test"}
 )
+REPRESENTATION_SPLIT_TO_MASTER = {
+    "relation_train": "train",
+    "relation_val": "val",
+    "aligned_calibration": "val",
+    "official_test": "test",
+    "cross_domain_test": "cross_domain_test",
+}
+MASTER_SPLITS = frozenset(REPRESENTATION_SPLIT_TO_MASTER.values())
+REPRESENTATION_SPLITS = frozenset(REPRESENTATION_SPLIT_TO_MASTER)
 
 
 @dataclass(frozen=True)
@@ -64,7 +73,7 @@ def build_representation_split_assignment(
                 ).items()
             )
         )
-        for split in sorted(REPRESENTATION_SPLITS)
+        for split in sorted(BUILDER_REPRESENTATION_SPLITS)
     }
     summary_path = write_json(
         output_root / "representation_split_summary_v1.json",
@@ -114,10 +123,16 @@ def load_representation_split_assignment(path: str | Path) -> dict[str, dict[str
         group = _required_text(row, "split_group_id")
         if group in assignments:
             raise ValueError(f"duplicate split_group_id in assignment: {group}")
-        if row.get("master_split") not in MASTER_SPLITS:
+        master_split = _required_text(row, "master_split")
+        representation_split = _required_text(row, "representation_split")
+        if master_split not in MASTER_SPLITS:
             raise ValueError(f"invalid master_split for assignment group {group}")
-        if row.get("representation_split") not in REPRESENTATION_SPLITS:
+        if representation_split not in REPRESENTATION_SPLITS:
             raise ValueError(f"invalid representation_split for assignment group {group}")
+        if REPRESENTATION_SPLIT_TO_MASTER[representation_split] != master_split:
+            raise ValueError(
+                f"representation_split mismatches master_split for assignment group {group}"
+            )
         listed = row.get("sample_ids")
         if not isinstance(listed, list) or not listed or any(not str(item) for item in listed):
             raise ValueError(f"assignment group {group} requires sample_ids")
@@ -216,7 +231,7 @@ def _group_rows(
     for row in rows:
         group = _required_text(row, group_field)
         master_split = _required_text(row, split_field)
-        if master_split not in MASTER_SPLITS:
+        if master_split not in BUILDER_MASTER_SPLITS:
             raise ValueError(f"invalid official master split: {master_split}")
         _required_text(row, "sample_type")
         groups[group].append(row)
