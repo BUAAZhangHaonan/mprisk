@@ -287,6 +287,46 @@ def test_retry_failed_resets_only_failed_and_preserves_completed(tmp_path: Path)
     ledger.close()
 
 
+def test_prepare_recovers_stale_running_attempt_without_repeating_completed(
+    tmp_path: Path,
+) -> None:
+    plan = _plan(tmp_path)
+    ledger = DiagnosticAffectDescriptionLedger(tmp_path / "batch_state.sqlite3")
+    ledger.prepare(plan.signature)
+    ledger.add_tasks(plan.tasks)
+    first, first_attempt = next(ledger.pending_tasks(plan.tasks))
+    completed = GenerationResult(
+        request=first.request,
+        text="The person appears emotionally unsettled.",
+        token_ids=(1, 2),
+        eos_token_ids=(2,),
+        finish_reason="eos",
+        input_token_count=5,
+    )
+    ledger.complete(first.task_id, first_attempt, completed, {"model_path": "model"})
+    second, second_attempt = next(ledger.pending_tasks(plan.tasks))
+
+    ledger.prepare(plan.signature, retry_failed=True)
+
+    tasks = ledger.connection.execute(
+        "SELECT task_id,status,attempts,result_json FROM tasks ORDER BY rowid"
+    ).fetchall()
+    assert tuple(tasks[0]) == (first.task_id, "completed", 1, tasks[0]["result_json"])
+    assert tasks[0]["result_json"] is not None
+    assert tuple(tasks[1]) == (second.task_id, "pending", 1, None)
+    attempt = ledger.connection.execute(
+        "SELECT outcome,finished_at FROM attempts WHERE task_id=? AND attempt=?",
+        (second.task_id, second_attempt),
+    ).fetchone()
+    assert attempt["outcome"] == "interrupted"
+    assert attempt["finished_at"] is not None
+    pending = list(ledger.pending_tasks(plan.tasks))
+    assert [(task.task_id, number) for task, number in pending] == [
+        (second.task_id, 2)
+    ]
+    ledger.close()
+
+
 def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> None:
     manifest = _write_manifest(tmp_path)
     model_path = _model_path(tmp_path)
