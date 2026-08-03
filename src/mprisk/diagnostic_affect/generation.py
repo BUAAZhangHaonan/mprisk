@@ -35,7 +35,17 @@ CONFIG_SCHEMA = "mprisk_diagnostic_affect_description_config_v3"
 OUTPUT_SCHEMA = "mprisk_diagnostic_affect_description_v3"
 PROVENANCE_SCHEMA = "mprisk_diagnostic_affect_description_provenance_v3"
 SIGNATURE_SCHEMA = "mprisk_diagnostic_affect_description_signature_v3"
-_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+_SENTENCE_CLOSERS = "\"'\u2019\u201d)]}"
+_SENTENCE_END_RE = re.compile(rf"[.!?](?=[{re.escape(_SENTENCE_CLOSERS)}]*(?:\s|$))")
+_SENTENCE_TERMINAL_RE = re.compile(rf"[.!?][{re.escape(_SENTENCE_CLOSERS)}]*$")
+_DELIMITER_PAIRS = {
+    "(": ")",
+    "[": "]",
+    "{": "}",
+    "\u2018": "\u2019",
+    "\u201c": "\u201d",
+}
+_CLOSING_DELIMITERS = {closing: opening for opening, closing in _DELIMITER_PAIRS.items()}
 _SUPPORTED_PROTOCOLS = frozenset({"VT", "VA"})
 _SUPPORTED_CONDITIONS = frozenset({"M12"})
 
@@ -268,8 +278,44 @@ def validate_diagnostic_affect_description(result: GenerationResult) -> None:
     if not text or text != text.strip() or "\n" in text:
         raise ValueError("Generated description must be non-empty")
     endings = _SENTENCE_END_RE.findall(text)
-    if len(endings) != 1 or text[-1] not in ".!?":
+    if (
+        len(endings) != 1
+        or _SENTENCE_TERMINAL_RE.search(text) is None
+        or not _has_balanced_delimiters(text)
+    ):
         raise ValueError("Generated description must contain exactly one sentence")
+
+
+def _has_balanced_delimiters(text: str) -> bool:
+    """Validate paired quotes and brackets without treating in-word apostrophes as quotes."""
+    stack: list[str] = []
+    for index, character in enumerate(text):
+        if character in {"'", "\u2019"} and _is_in_word_apostrophe(text, index):
+            continue
+        if character in {'"', "'"}:
+            if stack and stack[-1] == character:
+                stack.pop()
+            else:
+                stack.append(character)
+            continue
+        if character in _DELIMITER_PAIRS:
+            stack.append(character)
+            continue
+        opening = _CLOSING_DELIMITERS.get(character)
+        if opening is not None:
+            if not stack or stack[-1] != opening:
+                return False
+            stack.pop()
+    return not stack
+
+
+def _is_in_word_apostrophe(text: str, index: int) -> bool:
+    return (
+        index > 0
+        and index + 1 < len(text)
+        and text[index - 1].isalnum()
+        and text[index + 1].isalnum()
+    )
 
 
 class DiagnosticAffectDescriptionLedger:

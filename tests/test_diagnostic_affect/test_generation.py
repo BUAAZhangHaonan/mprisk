@@ -218,6 +218,88 @@ def test_result_requires_exactly_one_sentence() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        (
+            "The person appears to be in a state of mild distress or concern, possibly due to "
+            "the mention of a 'weird noise upstairs' that is causing them to feel 'freaking out.'"
+        ),
+        "The person's affect isn't calm.",
+        "The person isn\u2019t calm.",
+        'The person appears to think, "I am in danger."',
+        "The person appears to think, \u201cI am in danger.\u201d",
+        "The person appears to think, \u2018I am in danger.\u2019",
+        'The person thinks, "I feel tense (and afraid)."',
+        "\u201c[The person appears worried.]\u201d",
+        "(The person appears deeply worried.)",
+        "[The person appears deeply worried.]",
+        "{The person appears deeply worried.}",
+        "The person's distress is 3.5 times stronger.",
+    ],
+)
+def test_result_accepts_one_sentence_with_balanced_closing_delimiters(text: str) -> None:
+    request = GenerationRequest(
+        sample_id="sample",
+        model_key="subject_model",
+        protocol="vt",
+        condition="M12",
+        messages=({"role": "user", "content": ({"type": "text", "text": "x"},)},),
+        media_paths={"vision": "/tmp/sample.mp4"},
+        use_audio_in_video=False,
+        generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 32},
+    )
+    validate_diagnostic_affect_description(
+        GenerationResult(
+            request=request,
+            text=text,
+            token_ids=(1, 2),
+            eos_token_ids=(2,),
+            finish_reason="eos",
+            input_token_count=9,
+        )
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "The person appears to be 'deeply worried.",
+        "The person appears deeply worried.'",
+        '"First sentence." Second sentence.',
+        '"First sentence." "Second sentence."',
+        '"First sentence." trailing text',
+        "\u201cThe person appears worried.",
+        "The person appears worried.\u201d",
+        "Dr. Smith appears deeply worried.",
+        "The person appears worried.' trailing text",
+        "(The person appears deeply worried.]",
+    ],
+)
+def test_result_rejects_unbalanced_or_trailing_sentence_text(text: str) -> None:
+    request = GenerationRequest(
+        sample_id="sample",
+        model_key="subject_model",
+        protocol="vt",
+        condition="M12",
+        messages=({"role": "user", "content": ({"type": "text", "text": "x"},)},),
+        media_paths={"vision": "/tmp/sample.mp4"},
+        use_audio_in_video=False,
+        generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 32},
+    )
+    with pytest.raises(ValueError, match="exactly one sentence"):
+        validate_diagnostic_affect_description(
+            GenerationResult(
+                request=request,
+                text=text,
+                token_ids=(1, 2),
+                eos_token_ids=(2,),
+                finish_reason="eos",
+                input_token_count=9,
+            )
+        )
+
+
 def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Path) -> None:
     plan = _plan(tmp_path)
     ledger = DiagnosticAffectDescriptionLedger(tmp_path / "batch_state.sqlite3")
@@ -228,7 +310,10 @@ def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Pat
     task, attempt = next(ledger.pending_tasks(plan.tasks))
     result = GenerationResult(
         request=task.request,
-        text="The person appears emotionally unsettled.",
+        text=(
+            "The person appears to be in a state of mild distress or concern, possibly due to "
+            "the mention of a 'weird noise upstairs' that is causing them to feel 'freaking out.'"
+        ),
         token_ids=(1, 2),
         eos_token_ids=(2,),
         finish_reason="eos",
@@ -243,6 +328,8 @@ def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Pat
     assert row["run_id"] == "diagnostic-affect-test-v2"
     assert row["condition"] == "M12"
     assert row["DIAGNOSTIC_AFFECT_DESCRIPTION"] == result.text
+    assert row["token_ids"] == [1, 2]
+    assert row["finish_reason"] == "eos"
     assert "text" not in row
     ledger.close()
 
