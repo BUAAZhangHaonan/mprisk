@@ -509,15 +509,19 @@ def _export(config: dict[str, Any]) -> dict[str, Any]:
         checkpoint_path=paths["best_checkpoint"],
         output_dir=paths["frozen_root"],
     )
-    if result.count != config["counts"]["formal"]:
-        raise RuntimeError("Frozen export count is not formal cache-closed count")
-    read_validated_jsonl(
+    expected_relation_rows = config["counts"]["formal"] * config["counts"]["prompts"]
+    if result.count != expected_relation_rows:
+        raise RuntimeError("Frozen relation export count mismatch")
+    bundle_rows = read_validated_jsonl(
         result.bundle_manifest_path,
         required_fields=SPHERICAL_EMBEDDING_REQUIRED_FIELDS,
         identity_fields=SPHERICAL_EMBEDDING_IDENTITY_FIELDS,
     )
+    if len(bundle_rows) != config["counts"]["formal"]:
+        raise RuntimeError("Frozen bundle count is not formal cache-closed count")
     return {
-        "count": result.count,
+        "count": len(bundle_rows),
+        "relation_rows": result.count,
         "manifest_sha256": _sha256(result.bundle_manifest_path),
         "receipt_sha256": _sha256(paths["spherical_receipt"]),
     }

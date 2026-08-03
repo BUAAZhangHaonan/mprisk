@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from mprisk.recovery.pipeline import _prepare_inputs
+import mprisk.recovery.pipeline as recovery_pipeline
+from mprisk.recovery.pipeline import _export, _prepare_inputs
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> str:
@@ -98,3 +100,69 @@ def test_prepare_inputs_rejects_reused_description_policy_mismatch(
 
     with pytest.raises(ValueError, match="max_new_tokens"):
         _prepare_inputs(config)
+
+
+def _mock_frozen_export(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, relation_rows: int, bundle_rows: int
+) -> dict[str, object]:
+    frozen_root = tmp_path / "frozen_export"
+    frozen_root.mkdir(parents=True)
+    manifest = frozen_root / "spherical_embedding_manifest.jsonl"
+    receipt = frozen_root / "spherical_embedding_manifest.receipt.json"
+    manifest.write_text("{}\n" * bundle_rows, encoding="utf-8")
+    receipt.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(
+        recovery_pipeline,
+        "export_frozen_representations",
+        lambda **_: SimpleNamespace(
+            count=relation_rows,
+            bundle_manifest_path=manifest,
+        ),
+    )
+    monkeypatch.setattr(
+        recovery_pipeline,
+        "read_validated_jsonl",
+        lambda *_, **__: [{} for _ in range(bundle_rows)],
+    )
+    return {
+        "output_root": str(tmp_path),
+        "counts": {"formal": 2, "prompts": 8},
+    }
+
+
+def test_export_distinguishes_relation_rows_from_formal_bundle_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _mock_frozen_export(
+        tmp_path, monkeypatch, relation_rows=16, bundle_rows=2
+    )
+
+    result = _export(config)
+
+    assert result["count"] == 2
+    assert result["relation_rows"] == 16
+
+
+@pytest.mark.parametrize(
+    ("relation_rows", "bundle_rows", "error"),
+    [
+        (15, 2, "Frozen relation export count mismatch"),
+        (16, 1, "Frozen bundle count is not formal cache-closed count"),
+    ],
+)
+def test_export_rejects_relation_or_bundle_count_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    relation_rows: int,
+    bundle_rows: int,
+    error: str,
+) -> None:
+    config = _mock_frozen_export(
+        tmp_path,
+        monkeypatch,
+        relation_rows=relation_rows,
+        bundle_rows=bundle_rows,
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        _export(config)
