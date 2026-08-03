@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import types
 
 import torch
@@ -37,6 +38,51 @@ class Phi3VForCausalLM:
     def generate(self, **kwargs):
         self.generate_kwargs = kwargs
         return torch.tensor([[1, 2, 3, 20, 99]])
+
+
+def test_phi3_loader_uses_model_supported_torch_dtype(tmp_path, monkeypatch) -> None:
+    model_path = tmp_path / "model"
+    model_path.mkdir()
+    (model_path / "config.json").write_text(
+        json.dumps(
+            {
+                "model_type": "phi3_v",
+                "architectures": ["Phi3VForCausalLM"],
+                "num_hidden_layers": 2,
+                "hidden_size": 3,
+                "torch_dtype": "bfloat16",
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+    model = types.SimpleNamespace(eval=lambda: model)
+    processor = object()
+
+    def load_model(path, **kwargs):
+        captured.update(kwargs)
+        return model
+
+    transformers = types.ModuleType("transformers")
+    transformers.AutoModelForCausalLM = types.SimpleNamespace(from_pretrained=load_model)
+    transformers.AutoProcessor = types.SimpleNamespace(
+        from_pretrained=lambda path, **kwargs: processor
+    )
+    monkeypatch.setitem(sys.modules, "transformers", transformers)
+    wrapper = Phi3VisionWrapper(
+        model_key="phi3_5_vision",
+        model_path=model_path,
+        device="cpu",
+        dtype="bfloat16",
+        attn_implementation="eager",
+    )
+
+    loaded_model, loaded_processor = wrapper._load_dependencies()
+
+    assert loaded_model is model
+    assert loaded_processor is processor
+    assert captured["torch_dtype"] is torch.bfloat16
+    assert "dtype" not in captured
 
 
 def test_phi3_generation_reuses_prefill_prepare_inputs_and_forwards_policy(

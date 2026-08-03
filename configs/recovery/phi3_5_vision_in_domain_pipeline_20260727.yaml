@@ -3,7 +3,24 @@ model_key: phi3_5_vision
 protocol: vt
 repository_root: /home/team/zhanghaonan/TAFFC/mprisk
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision
-python_executable: /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi3-vision-4.43-cu121/bin/python
+description_python_environment: {PYTHONNOUSERSITE: "1"}
+description_retry_failed: true
+description_runtime_contract:
+  python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi3-vision-4.43-cu121/bin/python
+  python_prefix: /home/team/zhanghaonan/.venvs/mprisk-phi3-vision-4.43-cu121
+  python_version: 3.11.11
+  user_site_enabled: false
+  torch_cuda_version: "12.1"
+  package_versions:
+    Pillow: 10.3.0
+    PyYAML: 6.0.2
+    accelerate: 0.30.0
+    decord: 0.6.0
+    numpy: 1.26.4
+    torch: 2.3.0+cu121
+    torchvision: 0.18.0+cu121
+    transformers: 4.43.0
 legacy_assigned_manifest: /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/vt_merged_primary_assigned_only.jsonl
 formal_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_vt.jsonl
 source_cache_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/source/phi3_5_vision/manifest.jsonl

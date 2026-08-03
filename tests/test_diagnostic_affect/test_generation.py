@@ -247,6 +247,46 @@ def test_ledger_and_export_use_diagnostic_affect_description_field(tmp_path: Pat
     ledger.close()
 
 
+def test_retry_failed_resets_only_failed_and_preserves_completed(tmp_path: Path) -> None:
+    plan = _plan(tmp_path)
+    ledger = DiagnosticAffectDescriptionLedger(tmp_path / "batch_state.sqlite3")
+    ledger.prepare(plan.signature)
+    ledger.add_tasks(plan.tasks)
+    first, first_attempt = next(ledger.pending_tasks(plan.tasks))
+    completed = GenerationResult(
+        request=first.request,
+        text="The person appears emotionally unsettled.",
+        token_ids=(1, 2),
+        eos_token_ids=(2,),
+        finish_reason="eos",
+        input_token_count=5,
+    )
+    ledger.complete(first.task_id, first_attempt, completed, {"model_path": "model"})
+    second, second_attempt = next(ledger.pending_tasks(plan.tasks))
+    ledger.fail(second.task_id, second_attempt, RuntimeError("failed once"))
+
+    ledger.prepare(plan.signature, retry_failed=True)
+
+    rows = ledger.connection.execute(
+        "SELECT task_id,status,attempts,result_json,error_type FROM tasks ORDER BY rowid"
+    ).fetchall()
+    assert rows[0]["task_id"] == first.task_id
+    assert rows[0]["status"] == "completed"
+    assert rows[0]["attempts"] == 1
+    assert rows[0]["result_json"] is not None
+    assert rows[0]["error_type"] is None
+    assert rows[1]["task_id"] == second.task_id
+    assert rows[1]["status"] == "pending"
+    assert rows[1]["attempts"] == 1
+    assert rows[1]["result_json"] is None
+    assert rows[1]["error_type"] is None
+    pending = list(ledger.pending_tasks(plan.tasks))
+    assert [(task.task_id, attempt) for task, attempt in pending] == [
+        (second.task_id, 2)
+    ]
+    ledger.close()
+
+
 def test_runner_and_verifier_are_model_family_independent(tmp_path: Path) -> None:
     manifest = _write_manifest(tmp_path)
     model_path = _model_path(tmp_path)

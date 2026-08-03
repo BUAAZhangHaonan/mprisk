@@ -5,6 +5,8 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from mprisk.diagnostic_affect.watcher import watch_description_generation
 
 
@@ -94,6 +96,136 @@ def test_watcher_resumes_full_plan_and_requires_strict_completion(tmp_path: Path
     status = json.loads((output / "watcher_status.json").read_text(encoding="utf-8"))
     assert status["state"] == "completed"
     assert status["ledger"]["completed"] == 2
+
+
+def test_watcher_isolates_child_and_attests_exact_runtime(tmp_path: Path) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["pending"])
+    process_box: list[_FakeProcess] = []
+    clock = _Clock()
+    contract = {
+        "python_executable": "/env/bin/python",
+        "python_prefix": "/env",
+        "python_version": "3.11.11",
+        "user_site_enabled": False,
+        "torch_cuda_version": "12.1",
+        "package_versions": {"transformers": "4.43.0"},
+    }
+
+    def factory(command, **kwargs):
+        process = _FakeProcess(command, **kwargs)
+        process_box.append(process)
+        return process
+
+    def runtime_probe(*args, **kwargs):
+        assert kwargs["env"]["PYTHONNOUSERSITE"] == "1"
+        return subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout=json.dumps(contract),
+            stderr="",
+        )
+
+    def advance(_seconds: float) -> None:
+        _write_ledger(output, ["completed"])
+        process_box[0].returncode = 0
+        clock.advance(1.0)
+
+    returncode = watch_description_generation(
+        config_path=config,
+        python_executable=Path("/env/bin/python"),
+        python_environment={"PYTHONNOUSERSITE": "1"},
+        runtime_contract=contract,
+        retry_failed=True,
+        stall_timeout_seconds=60,
+        poll_interval_seconds=1,
+        terminate_grace_seconds=1,
+        popen_factory=factory,
+        run_factory=runtime_probe,
+        monotonic_fn=clock.monotonic,
+        sleep_fn=advance,
+    )
+
+    assert returncode == 0
+    assert process_box[0].kwargs["env"]["PYTHONNOUSERSITE"] == "1"
+    assert process_box[0].command[-1] == "--retry-failed"
+    receipt = json.loads(
+        (output / "runtime_contract_receipt.json").read_text(encoding="utf-8")
+    )
+    assert receipt["status"] == "PASS"
+    assert receipt["observed"] == contract
+
+
+def test_watcher_rejects_runtime_contract_mismatch_before_launch(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["pending"])
+    contract = {
+        "python_executable": "/env/bin/python",
+        "python_prefix": "/env",
+        "python_version": "3.11.11",
+        "user_site_enabled": False,
+        "torch_cuda_version": "12.1",
+        "package_versions": {"transformers": "4.43.0"},
+    }
+
+    with pytest.raises(RuntimeError, match="runtime contract mismatch"):
+        watch_description_generation(
+            config_path=config,
+            python_executable=Path("/env/bin/python"),
+            python_environment={"PYTHONNOUSERSITE": "1"},
+            runtime_contract=contract,
+            stall_timeout_seconds=60,
+            poll_interval_seconds=1,
+            terminate_grace_seconds=1,
+            popen_factory=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("child must not launch")
+            ),
+            run_factory=lambda *args, **kwargs: subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        **contract,
+                        "package_versions": {"transformers": "5.5.3"},
+                    }
+                ),
+                stderr="",
+            ),
+        )
+
+
+def test_watcher_rejects_non_boolean_user_site_contract_before_probe(
+    tmp_path: Path,
+) -> None:
+    config, output = _write_config(tmp_path)
+    _write_ledger(output, ["pending"])
+    contract = {
+        "python_executable": "/env/bin/python",
+        "python_prefix": "/env",
+        "python_version": "3.11.11",
+        "user_site_enabled": "false",
+        "torch_cuda_version": "12.1",
+        "package_versions": {"transformers": "4.43.0"},
+    }
+
+    with pytest.raises(ValueError, match="user_site_enabled must be boolean"):
+        watch_description_generation(
+            config_path=config,
+            python_executable=Path("/env/bin/python"),
+            python_environment={"PYTHONNOUSERSITE": "1"},
+            runtime_contract=contract,
+            stall_timeout_seconds=60,
+            poll_interval_seconds=1,
+            terminate_grace_seconds=1,
+            popen_factory=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("child must not launch")
+            ),
+            run_factory=lambda *args, **kwargs: (_ for _ in ()).throw(
+                AssertionError("runtime probe must not launch")
+            ),
+        )
 
 
 def test_watcher_propagates_abnormal_child_exit(tmp_path: Path) -> None:

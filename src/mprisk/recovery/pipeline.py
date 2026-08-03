@@ -104,6 +104,7 @@ def load_pipeline_config(path: Path) -> dict[str, Any]:
         not isinstance(description_config, str) or not description_config
     ):
         raise ValueError("Diagnostic recovery requires description_config")
+    _description_retry_failed(value)
     reused_description = value.get("reused_description")
     if counts["diagnostic"] == 0 and not isinstance(reused_description, dict):
         raise ValueError("Non-regenerated descriptions require a reuse contract")
@@ -309,6 +310,9 @@ def _run_description(config: dict[str, Any]) -> dict[str, Any]:
     result = watch_description_generation(
         config_path=Path(config["description_config"]),
         python_executable=Path(config["python_executable"]),
+        python_environment=config.get("description_python_environment"),
+        runtime_contract=config.get("description_runtime_contract"),
+        retry_failed=_description_retry_failed(config),
         stall_timeout_seconds=float(config.get("description_stall_timeout_seconds", 1800)),
         poll_interval_seconds=30.0,
         terminate_grace_seconds=30.0,
@@ -336,6 +340,13 @@ def _run_description(config: dict[str, Any]) -> dict[str, Any]:
         "count": config["counts"]["diagnostic"],
         "verification": verification,
     }
+
+
+def _description_retry_failed(config: dict[str, Any]) -> bool:
+    value = config.get("description_retry_failed", False)
+    if not isinstance(value, bool):
+        raise ValueError("description_retry_failed must be boolean")
+    return value
 
 
 def _run_judgment(config: dict[str, Any]) -> dict[str, Any]:

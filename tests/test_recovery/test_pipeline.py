@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 import mprisk.recovery.pipeline as recovery_pipeline
-from mprisk.recovery.pipeline import _export, _prepare_inputs
+from mprisk.recovery.pipeline import _export, _prepare_inputs, _run_description
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> str:
@@ -179,3 +179,80 @@ def test_phi3_recovery_description_uses_supported_eager_attention() -> None:
     )
 
     assert config["attn_implementation"] == "eager"
+
+    pipeline = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi3_5_vision_in_domain_pipeline_20260727.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    assert pipeline["description_python_environment"] == {
+        "PYTHONNOUSERSITE": "1"
+    }
+    assert pipeline["description_retry_failed"] is True
+    assert pipeline["description_runtime_contract"] == {
+        "python_executable": (
+            "/home/team/zhanghaonan/.venvs/mprisk-phi3-vision-4.43-cu121/bin/python"
+        ),
+        "python_prefix": (
+            "/home/team/zhanghaonan/.venvs/mprisk-phi3-vision-4.43-cu121"
+        ),
+        "python_version": "3.11.11",
+        "user_site_enabled": False,
+        "torch_cuda_version": "12.1",
+        "package_versions": {
+            "Pillow": "10.3.0",
+            "PyYAML": "6.0.2",
+            "accelerate": "0.30.0",
+            "decord": "0.6.0",
+            "numpy": "1.26.4",
+            "torch": "2.3.0+cu121",
+            "torchvision": "0.18.0+cu121",
+            "transformers": "4.43.0",
+        },
+    }
+
+
+def test_description_stage_passes_explicit_retry_failed_policy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    description_config = tmp_path / "description.yaml"
+    description_config.write_text(
+        yaml.safe_dump(
+            {
+                "run_id": "run",
+                "condition": "M12",
+                "dataset": "dataset",
+                "split": "recovery_all",
+            }
+        ),
+        encoding="utf-8",
+    )
+    captured: dict[str, object] = {}
+
+    def watcher(**kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setattr(recovery_pipeline, "watch_description_generation", watcher)
+    monkeypatch.setattr(
+        recovery_pipeline,
+        "verify_diagnostic_affect_descriptions",
+        lambda **_: {"counts": {"VT": 2}},
+    )
+    config = {
+        "counts": {"diagnostic": 2},
+        "description_config": str(description_config),
+        "description_retry_failed": True,
+        "python_executable": "/env/bin/python",
+        "model_key": "phi3_5_vision",
+        "protocol": "vt",
+        "output_root": str(tmp_path / "output"),
+    }
+
+    result = _run_description(config)
+
+    assert result["status"] == "completed"
+    assert captured["retry_failed"] is True
+    with pytest.raises(ValueError, match="description_retry_failed must be boolean"):
+        _run_description({**config, "description_retry_failed": "true"})

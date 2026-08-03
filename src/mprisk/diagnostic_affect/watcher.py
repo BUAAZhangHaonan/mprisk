@@ -10,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -46,7 +46,10 @@ def watch_description_generation(
     poll_interval_seconds: float,
     terminate_grace_seconds: float,
     retry_failed: bool = False,
+    python_environment: Mapping[str, str] | None = None,
+    runtime_contract: Mapping[str, Any] | None = None,
     popen_factory: Callable[..., Any] = subprocess.Popen,
+    run_factory: Callable[..., Any] = subprocess.run,
     monotonic_fn: Callable[[], float] = time.monotonic,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> int:
@@ -75,6 +78,24 @@ def watch_description_generation(
         )
         return 0
 
+    child_environment = _child_environment(python_environment)
+    if runtime_contract is not None:
+        runtime_evidence = _verify_runtime_contract(
+            python_executable,
+            environment=child_environment,
+            contract=runtime_contract,
+            run_factory=run_factory,
+        )
+        _write_json(
+            output_root / "runtime_contract_receipt.json",
+            {
+                "schema_name": "mprisk_description_runtime_contract_receipt_v1",
+                "status": "PASS",
+                "expected": dict(runtime_contract),
+                "observed": runtime_evidence,
+            },
+        )
+
     repository_root = Path(__file__).resolve().parents[3]
     command = [
         str(python_executable),
@@ -85,7 +106,7 @@ def watch_description_generation(
     if retry_failed:
         command.append("--retry-failed")
     try:
-        process = popen_factory(command, cwd=repository_root)
+        process = popen_factory(command, cwd=repository_root, env=child_environment)
     except OSError as error:
         _write_status(
             status_path,
@@ -179,6 +200,106 @@ def _strictly_complete(summary: dict[str, int]) -> bool:
     )
 
 
+def _child_environment(overrides: Mapping[str, str] | None) -> dict[str, str]:
+    environment = os.environ.copy()
+    if overrides is None:
+        return environment
+    for key, value in overrides.items():
+        if not isinstance(key, str) or not key:
+            raise ValueError("Description child environment keys must be non-empty text")
+        if not isinstance(value, str):
+            raise ValueError("Description child environment values must be text")
+        environment[key] = value
+    return environment
+
+
+def _verify_runtime_contract(
+    python_executable: Path,
+    *,
+    environment: Mapping[str, str],
+    contract: Mapping[str, Any],
+    run_factory: Callable[..., Any],
+) -> dict[str, Any]:
+    expected_keys = {
+        "python_executable",
+        "python_prefix",
+        "python_version",
+        "user_site_enabled",
+        "torch_cuda_version",
+        "package_versions",
+    }
+    if set(contract) != expected_keys:
+        raise ValueError("Description runtime contract fields are not exact")
+    text_fields = (
+        "python_executable",
+        "python_prefix",
+        "python_version",
+        "torch_cuda_version",
+    )
+    if any(
+        not isinstance(contract[field], str) or not contract[field]
+        for field in text_fields
+    ):
+        raise ValueError("Description runtime scalar fields must be non-empty text")
+    if not isinstance(contract["user_site_enabled"], bool):
+        raise ValueError("Description runtime user_site_enabled must be boolean")
+    package_versions = contract["package_versions"]
+    if not isinstance(package_versions, Mapping) or not package_versions:
+        raise ValueError("Description runtime package_versions must be a non-empty mapping")
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(version, str)
+        or not version
+        for name, version in package_versions.items()
+    ):
+        raise ValueError("Description runtime package versions must be non-empty text")
+    probe = (
+        "import importlib.metadata,json,site,sys,torch;"
+        "names=json.loads(sys.argv[1]);"
+        "print(json.dumps({'python_executable':sys.executable,"
+        "'python_prefix':sys.prefix,'python_version':sys.version.split()[0],"
+        "'user_site_enabled':site.ENABLE_USER_SITE,"
+        "'torch_cuda_version':torch.version.cuda,"
+        "'package_versions':{name:importlib.metadata.version(name) for name in names}},"
+        "sort_keys=True))"
+    )
+    result = run_factory(
+        [
+            str(python_executable),
+            "-c",
+            probe,
+            json.dumps(sorted(package_versions)),
+        ],
+        env=dict(environment),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Description runtime probe failed: "
+            f"{result.stderr.strip() or result.stdout.strip()}"
+        )
+    try:
+        observed = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("Description runtime probe returned invalid JSON") from exc
+    expected = {
+        "python_executable": contract["python_executable"],
+        "python_prefix": contract["python_prefix"],
+        "python_version": contract["python_version"],
+        "user_site_enabled": contract["user_site_enabled"],
+        "torch_cuda_version": contract["torch_cuda_version"],
+        "package_versions": dict(package_versions),
+    }
+    if observed != expected:
+        raise RuntimeError(
+            f"Description runtime contract mismatch: expected={expected}, observed={observed}"
+        )
+    return observed
+
+
 def _stop_child(process: Any, grace_seconds: float) -> None:
     if process.poll() is not None:
         return
@@ -218,6 +339,10 @@ def _write_status(
         "detail": detail,
         "updated_unix_seconds": time.time(),
     }
+    _write_json(path, payload)
+
+
+def _write_json(path: Path, payload: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(
         prefix=f".{path.name}.",

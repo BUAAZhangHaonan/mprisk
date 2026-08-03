@@ -47,7 +47,7 @@ class Phi3VisionWrapper(HfVisualPrefillWrapper):
         model = AutoModelForCausalLM.from_pretrained(
             self.model_path,
             trust_remote_code=True,
-            dtype=getattr(torch, self.dtype_name),
+            torch_dtype=getattr(torch, self.dtype_name),
             _attn_implementation=self.attn_implementation,
             device_map={"": self.device},
             local_files_only=True,
