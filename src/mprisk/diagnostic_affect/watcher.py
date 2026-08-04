@@ -252,7 +252,7 @@ def _verify_runtime_contract(
     contract: Mapping[str, Any],
     run_factory: Callable[..., Any],
 ) -> dict[str, Any]:
-    expected_keys = {
+    required_keys = {
         "python_executable",
         "python_prefix",
         "python_version",
@@ -260,7 +260,8 @@ def _verify_runtime_contract(
         "torch_cuda_version",
         "package_versions",
     }
-    if set(contract) != expected_keys:
+    optional_keys = {"environment", "module_files"}
+    if not required_keys.issubset(contract) or set(contract) - required_keys - optional_keys:
         raise ValueError("Description runtime contract fields are not exact")
     text_fields = (
         "python_executable",
@@ -286,15 +287,52 @@ def _verify_runtime_contract(
         for name, version in package_versions.items()
     ):
         raise ValueError("Description runtime package versions must be non-empty text")
+    runtime_environment = contract.get("environment")
+    if runtime_environment is not None:
+        if not isinstance(runtime_environment, Mapping) or not runtime_environment:
+            raise ValueError(
+                "Description runtime environment must be a non-empty mapping"
+            )
+        if any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(value, str)
+            or not value
+            for name, value in runtime_environment.items()
+        ):
+            raise ValueError(
+                "Description runtime environment entries must be non-empty text"
+            )
+    module_files = contract.get("module_files")
+    if module_files is not None:
+        if not isinstance(module_files, Mapping) or not module_files:
+            raise ValueError(
+                "Description runtime module_files must be a non-empty mapping"
+            )
+        if any(
+            not isinstance(name, str)
+            or not name
+            or not isinstance(path, str)
+            or not path
+            for name, path in module_files.items()
+        ):
+            raise ValueError(
+                "Description runtime module files must be non-empty text"
+            )
     probe = (
-        "import importlib.metadata,json,site,sys,torch;"
-        "names=json.loads(sys.argv[1]);"
-        "print(json.dumps({'python_executable':sys.executable,"
+        "import importlib,importlib.metadata,json,os,site,sys,torch;"
+        "names=json.loads(sys.argv[1]);env_names=json.loads(sys.argv[2]);"
+        "module_names=json.loads(sys.argv[3]);"
+        "payload={'python_executable':sys.executable,"
         "'python_prefix':sys.prefix,'python_version':sys.version.split()[0],"
         "'user_site_enabled':site.ENABLE_USER_SITE,"
         "'torch_cuda_version':torch.version.cuda,"
-        "'package_versions':{name:importlib.metadata.version(name) for name in names}},"
-        "sort_keys=True))"
+        "'package_versions':{name:importlib.metadata.version(name) for name in names}};"
+        "payload.update({'environment':{name:os.environ.get(name) for name in env_names}} "
+        "if env_names else {});"
+        "payload.update({'module_files':{name:os.path.realpath("
+        "importlib.import_module(name).__file__) for name in module_names}} "
+        "if module_names else {});print(json.dumps(payload,sort_keys=True))"
     )
     result = run_factory(
         [
@@ -302,6 +340,8 @@ def _verify_runtime_contract(
             "-c",
             probe,
             json.dumps(sorted(package_versions)),
+            json.dumps(sorted(runtime_environment or {})),
+            json.dumps(sorted(module_files or {})),
         ],
         env=dict(environment),
         check=False,
@@ -325,6 +365,10 @@ def _verify_runtime_contract(
         "torch_cuda_version": contract["torch_cuda_version"],
         "package_versions": dict(package_versions),
     }
+    if runtime_environment is not None:
+        expected["environment"] = dict(runtime_environment)
+    if module_files is not None:
+        expected["module_files"] = dict(module_files)
     if observed != expected:
         raise RuntimeError(
             f"Description runtime contract mismatch: expected={expected}, observed={observed}"

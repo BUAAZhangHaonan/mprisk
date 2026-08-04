@@ -98,12 +98,19 @@ def test_watcher_resumes_full_plan_and_requires_strict_completion(tmp_path: Path
     assert status["ledger"]["completed"] == 2
 
 
-def test_watcher_isolates_child_and_attests_exact_runtime(tmp_path: Path) -> None:
+def test_watcher_isolates_child_and_attests_exact_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config, output = _write_config(tmp_path)
     _write_ledger(output, ["pending"])
     process_box: list[_FakeProcess] = []
     clock = _Clock()
     contract = {
+        "environment": {
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONPATH": "/repository/src",
+        },
+        "module_files": {"mprisk": "/repository/src/mprisk/__init__.py"},
         "python_executable": "/env/bin/python",
         "python_prefix": "/env",
         "python_version": "3.11.11",
@@ -119,6 +126,9 @@ def test_watcher_isolates_child_and_attests_exact_runtime(tmp_path: Path) -> Non
 
     def runtime_probe(*args, **kwargs):
         assert kwargs["env"]["PYTHONNOUSERSITE"] == "1"
+        assert kwargs["env"]["PYTHONPATH"] == "/repository/src"
+        assert json.loads(args[0][-2]) == ["PYTHONNOUSERSITE", "PYTHONPATH"]
+        assert json.loads(args[0][-1]) == ["mprisk"]
         return subprocess.CompletedProcess(
             args=[],
             returncode=0,
@@ -131,10 +141,14 @@ def test_watcher_isolates_child_and_attests_exact_runtime(tmp_path: Path) -> Non
         process_box[0].returncode = 0
         clock.advance(1.0)
 
+    monkeypatch.delenv("PYTHONPATH", raising=False)
     returncode = watch_description_generation(
         config_path=config,
         python_executable=Path("/env/bin/python"),
-        python_environment={"PYTHONNOUSERSITE": "1"},
+        python_environment={
+            "PYTHONNOUSERSITE": "1",
+            "PYTHONPATH": "/repository/src",
+        },
         runtime_contract=contract,
         retry_failed=True,
         stall_timeout_seconds=60,
@@ -148,6 +162,7 @@ def test_watcher_isolates_child_and_attests_exact_runtime(tmp_path: Path) -> Non
 
     assert returncode == 0
     assert process_box[0].kwargs["env"]["PYTHONNOUSERSITE"] == "1"
+    assert process_box[0].kwargs["env"]["PYTHONPATH"] == "/repository/src"
     assert process_box[0].command[-1] == "--retry-failed"
     receipt = json.loads(
         (output / "runtime_contract_receipt.json").read_text(encoding="utf-8")

@@ -4,9 +4,16 @@ protocol: va
 repository_root: /home/team/zhanghaonan/TAFFC/mprisk
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal
 python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
-description_python_environment: {PYTHONNOUSERSITE: "1"}
+description_python_environment:
+  PYTHONNOUSERSITE: "1"
+  PYTHONPATH: /home/team/zhanghaonan/TAFFC/mprisk/src
 description_retry_failed: false
 description_runtime_contract:
+  environment:
+    PYTHONNOUSERSITE: "1"
+    PYTHONPATH: /home/team/zhanghaonan/TAFFC/mprisk/src
+  module_files:
+    mprisk: /home/team/zhanghaonan/TAFFC/mprisk/src/mprisk/__init__.py
   python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
   python_prefix: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310
   python_version: 3.10.18

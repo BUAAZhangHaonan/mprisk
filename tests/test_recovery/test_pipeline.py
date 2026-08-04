@@ -369,6 +369,28 @@ def test_phi4_recovery_description_uses_pinned_isolated_runtime() -> None:
     }
 
 
+def test_phi4_formal1934_description_binds_repository_in_clean_environment() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    pipeline = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    expected_environment = {
+        "PYTHONNOUSERSITE": "1",
+        "PYTHONPATH": "/home/team/zhanghaonan/TAFFC/mprisk/src",
+    }
+
+    assert pipeline["description_python_environment"] == expected_environment
+    assert pipeline["description_runtime_contract"]["environment"] == (
+        expected_environment
+    )
+    assert pipeline["description_runtime_contract"]["module_files"] == {
+        "mprisk": "/home/team/zhanghaonan/TAFFC/mprisk/src/mprisk/__init__.py"
+    }
+
+
 def test_phi4_recovery_loads_empty_started_call_binding_without_api(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
