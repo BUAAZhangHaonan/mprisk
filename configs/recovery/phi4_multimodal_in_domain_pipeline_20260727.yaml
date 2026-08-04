@@ -3,7 +3,27 @@ model_key: phi4_multimodal
 protocol: va
 repository_root: /home/team/zhanghaonan/TAFFC/mprisk
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi4_multimodal
-python_executable: /home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python
+python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
+description_python_environment: {PYTHONNOUSERSITE: "1"}
+description_retry_failed: false
+description_runtime_contract:
+  python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
+  python_prefix: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310
+  python_version: 3.10.18
+  user_site_enabled: false
+  torch_cuda_version: "12.4"
+  package_versions:
+    Pillow: 11.1.0
+    PyYAML: 6.0.3
+    accelerate: 1.3.0
+    backoff: 2.2.1
+    peft: 0.13.2
+    safetensors: 0.8.0
+    scipy: 1.15.2
+    soundfile: 0.13.1
+    torch: 2.6.0+cu124
+    torchvision: 0.21.0+cu124
+    transformers: 4.48.2
 legacy_assigned_manifest: /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/va_merged_primary_assigned_only.jsonl
 formal_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_va.jsonl
 source_cache_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/source/phi4_multimodal/manifest.jsonl

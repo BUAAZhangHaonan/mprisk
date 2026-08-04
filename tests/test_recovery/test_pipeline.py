@@ -214,7 +214,48 @@ def test_phi3_recovery_description_uses_supported_eager_attention() -> None:
     }
 
 
+def test_phi4_recovery_description_uses_pinned_isolated_runtime() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    pipeline = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi4_multimodal_in_domain_pipeline_20260727.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert pipeline["python_executable"] == (
+        "/home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python"
+    )
+    assert pipeline["description_python_environment"] == {
+        "PYTHONNOUSERSITE": "1"
+    }
+    assert pipeline["description_retry_failed"] is False
+    assert pipeline["description_runtime_contract"] == {
+        "python_executable": (
+            "/home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python"
+        ),
+        "python_prefix": "/home/team/zhanghaonan/.venvs/mprisk-phi4-py310",
+        "python_version": "3.10.18",
+        "user_site_enabled": False,
+        "torch_cuda_version": "12.4",
+        "package_versions": {
+            "Pillow": "11.1.0",
+            "PyYAML": "6.0.3",
+            "accelerate": "1.3.0",
+            "backoff": "2.2.1",
+            "peft": "0.13.2",
+            "safetensors": "0.8.0",
+            "scipy": "1.15.2",
+            "soundfile": "0.13.1",
+            "torch": "2.6.0+cu124",
+            "torchvision": "0.21.0+cu124",
+            "transformers": "4.48.2",
+        },
+    }
+
+
 def test_phi4_recovery_loads_empty_started_call_binding_without_api(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repository = Path(__file__).resolve().parents[2]
@@ -227,6 +268,7 @@ def test_phi4_recovery_loads_empty_started_call_binding_without_api(
     monkeypatch.setattr(recovery_pipeline, "load_training_config", lambda _: object())
 
     config = recovery_pipeline.load_pipeline_config(config_path)
+    config["output_root"] = str(tmp_path / "phi4_multimodal")
     preflight = recovery_pipeline.dry_run_stage(config, "judgment")
 
     assert empty.read_bytes() == b""
