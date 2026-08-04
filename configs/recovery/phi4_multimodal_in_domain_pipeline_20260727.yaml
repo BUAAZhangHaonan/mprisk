@@ -14,6 +14,9 @@ training_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi4_multi
 training_device: cuda:0
 description_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi4_multimodal_descriptions_20260727.yaml
 description_stall_timeout_seconds: 1800
+forbidden_started_calls:
+  - path: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/empty_forbidden_started_calls.jsonl
+    sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 counts: {diagnostic: 1939, formal: 1934, unmatched: 5, prompts: 8}
 sha256:
   legacy_assigned_manifest: ed649880427acf04568e2add218f21f16165120109d8deb175536441e2157fe9

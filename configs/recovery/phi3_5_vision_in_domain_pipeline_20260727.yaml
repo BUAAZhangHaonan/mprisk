@@ -31,6 +31,11 @@ training_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi3_5_vis
 training_device: cuda:0
 description_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi3_5_vision_descriptions_20260727.yaml
 description_stall_timeout_seconds: 1800
+forbidden_started_calls:
+  - path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments/frozen_v2_20260804/started_calls.jsonl
+    sha256: 952a59dfbd61a80986483fe35b9dc19f924ddc5dc640a1223ca15ec1f1a96a52
+  - path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_20260727/phi3_5_vision/judgments_v3/frozen_failed_exactly_once_20260804T042745Z/started_calls.jsonl
+    sha256: f8948052e1f357f6aa8593e53c12400dc5be6291f7c361377ef294d27e8d8104
 counts: {diagnostic: 1876, formal: 1876, unmatched: 0, prompts: 8}
 sha256:
   legacy_assigned_manifest: afcfd1d9d9ac76017ba8c4b1927d9aad285a097e971ee5f15c2acf3bdf104810

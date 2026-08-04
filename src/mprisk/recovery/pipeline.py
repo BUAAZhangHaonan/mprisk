@@ -22,11 +22,11 @@ from mprisk.experiments.downstream import (
     build_relation_dataset_from_cache,
     validate_completed_cache,
 )
-from mprisk.judge.ensemble_misread import (
+from mprisk.judge.ensemble_misread_v4 import (
     EnsembleMisreadConfig,
     run_ensemble,
 )
-from mprisk.judge.ensemble_misread import (
+from mprisk.judge.ensemble_misread_v4 import (
     dry_run as dry_run_ensemble,
 )
 from mprisk.representation.training import (
@@ -108,6 +108,23 @@ def load_pipeline_config(path: Path) -> dict[str, Any]:
     reused_description = value.get("reused_description")
     if counts["diagnostic"] == 0 and not isinstance(reused_description, dict):
         raise ValueError("Non-regenerated descriptions require a reuse contract")
+    forbidden_started_calls = value.get("forbidden_started_calls")
+    if counts["diagnostic"] > 0:
+        if not isinstance(forbidden_started_calls, list) or not forbidden_started_calls:
+            raise ValueError(
+                "Diagnostic recovery requires a forbidden-started-calls contract"
+            )
+        for index, binding in enumerate(forbidden_started_calls):
+            if not isinstance(binding, dict):
+                raise ValueError(
+                    f"Invalid forbidden-started-calls binding: {index}"
+                )
+            _text(binding, "path")
+            digest = binding.get("sha256")
+            if not isinstance(digest, str) or len(digest) != 64:
+                raise ValueError(
+                    f"Invalid SHA-256 binding: forbidden_started_calls[{index}]"
+                )
     config = dict(value)
     config["_config_path"] = path.expanduser().resolve()
     _validate_static_inputs(config)
@@ -370,8 +387,8 @@ def _build_judgment_config(
     if not isinstance(signature, dict):
         raise ValueError("Description provenance has no immutable signature")
     payload = {
-        "schema_name": "mprisk_ensemble_misread_judgment_config_v3",
-        "run_id": f"{config['model_key']}_in_domain_judgment_v3_20260804",
+        "schema_name": "mprisk_ensemble_misread_judgment_config_v4",
+        "run_id": f"{config['model_key']}_in_domain_judgment_v4_20260804",
         "status": "ready",
         "subject_model_key": config["model_key"],
         "protocol": config["protocol"].upper(),
@@ -399,8 +416,7 @@ def _build_judgment_config(
             "request_protocol_signature_sha256"
         ],
         "output_root": paths["judgment_root"],
-        "forbidden_started_calls_path": paths["v2_started_calls"],
-        "forbidden_started_calls_sha256": _sha256(paths["v2_started_calls"]),
+        "forbidden_started_call_ledgers": config["forbidden_started_calls"],
         "request_timeout_seconds": 120.0,
         "max_concurrency": 16,
         "pricing": {
@@ -642,17 +658,13 @@ def _paths(config: dict[str, Any]) -> dict[str, Path]:
         / "reused_description_receipt.json",
         "description_manifest": root / "descriptions" / "manifest.jsonl",
         "description_provenance": root / "descriptions" / "provenance.json",
-        "v2_started_calls": root
-        / "judgments"
-        / "frozen_v2_20260804"
-        / "started_calls.jsonl",
-        "judgment_root": root / "judgments_v3",
-        "judgment_config": root / "judgments_v3" / "config.yaml",
-        "judgments": root / "judgments_v3" / "judgments.jsonl",
-        "judgment_summary": root / "judgments_v3" / "summary.json",
-        "formal_judgments": root / "judgments_v3" / "formal_cache_closed.jsonl",
+        "judgment_root": root / "judgments_v4",
+        "judgment_config": root / "judgments_v4" / "config.yaml",
+        "judgments": root / "judgments_v4" / "judgments.jsonl",
+        "judgment_summary": root / "judgments_v4" / "summary.json",
+        "formal_judgments": root / "judgments_v4" / "formal_cache_closed.jsonl",
         "formal_judgment_report": root
-        / "judgments_v3"
+        / "judgments_v4"
         / "formal_intersection_report.json",
         "relation_root": root / "relation",
         "relation_dataset": root / "relation" / "relation_dataset.jsonl",
@@ -707,6 +719,34 @@ def _validate_static_inputs(config: dict[str, Any]) -> None:
                 "Reused description SHA mismatch: "
                 f"expected {expected}, got {observed}"
             )
+    forbidden = config.get("forbidden_started_calls")
+    if config["counts"]["diagnostic"] > 0:
+        if not isinstance(forbidden, list) or not forbidden:
+            raise ValueError(
+                "Diagnostic recovery requires a forbidden-started-calls contract"
+            )
+        paths: list[Path] = []
+        for binding in forbidden:
+            if not isinstance(binding, dict):
+                raise ValueError("Forbidden-started-calls binding must be a mapping")
+            path_text = binding.get("path")
+            expected = binding.get("sha256")
+            if not isinstance(path_text, str) or not isinstance(expected, str):
+                raise ValueError(
+                    "Forbidden-started-calls contract requires path and sha256"
+                )
+            path = Path(path_text).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            observed = _sha256(path)
+            if observed != expected:
+                raise ValueError(
+                    "Forbidden-started-calls SHA mismatch: "
+                    f"expected {expected}, got {observed}"
+                )
+            paths.append(path)
+        if len(paths) != len(set(paths)):
+            raise ValueError("Forbidden-started-calls paths must be unique")
 
 
 def _validate_reused_descriptions(

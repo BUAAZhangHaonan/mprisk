@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 import mprisk.recovery.pipeline as recovery_pipeline
-from mprisk.judge.ensemble_misread import EnsembleMisreadConfig
+from mprisk.judge.ensemble_misread_v4 import EnsembleMisreadConfig
 from mprisk.recovery.pipeline import _export, _prepare_inputs, _run_description
 
 
@@ -214,6 +214,36 @@ def test_phi3_recovery_description_uses_supported_eager_attention() -> None:
     }
 
 
+def test_phi4_recovery_loads_empty_started_call_binding_without_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = Path(__file__).resolve().parents[2]
+    config_path = (
+        repository
+        / "configs/recovery/phi4_multimodal_in_domain_pipeline_20260727.yaml"
+    )
+    empty = repository / "configs/recovery/empty_forbidden_started_calls.jsonl"
+    monkeypatch.setattr(recovery_pipeline, "_validate_static_inputs", lambda _: None)
+    monkeypatch.setattr(recovery_pipeline, "load_training_config", lambda _: object())
+
+    config = recovery_pipeline.load_pipeline_config(config_path)
+    preflight = recovery_pipeline.dry_run_stage(config, "judgment")
+
+    assert empty.read_bytes() == b""
+    assert hashlib.sha256(empty.read_bytes()).hexdigest() == (
+        "e3b0c44298fc1c149afbf4c8996fb924"
+        "27ae41e4649b934ca495991b7852b855"
+    )
+    assert config["forbidden_started_calls"] == [
+        {
+            "path": str(empty),
+            "sha256": hashlib.sha256(empty.read_bytes()).hexdigest(),
+        }
+    ]
+    assert preflight["status"] == "blocked_by_dependency"
+    assert preflight["would_issue_api_requests"] is False
+
+
 def test_description_stage_passes_explicit_retry_failed_policy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -281,8 +311,9 @@ def _judgment_stage_config(
         ),
         encoding="utf-8",
     )
-    _write_jsonl(
-        output_root / "judgments" / "frozen_v2_20260804" / "started_calls.jsonl",
+    forbidden_started_calls = output_root / "retired" / "started_calls.jsonl"
+    forbidden_started_calls_sha256 = _write_jsonl(
+        forbidden_started_calls,
         [{"call_id": "retired-paid-call"}],
     )
     return {
@@ -290,6 +321,12 @@ def _judgment_stage_config(
         "protocol": "vt",
         "output_root": str(output_root),
         "counts": {"diagnostic": 1},
+        "forbidden_started_calls": [
+            {
+                "path": str(forbidden_started_calls),
+                "sha256": forbidden_started_calls_sha256,
+            }
+        ],
     }
 
 
@@ -298,7 +335,7 @@ def test_judgment_config_publishes_validated_json_compatible_yaml(tmp_path: Path
 
     parsed = recovery_pipeline._build_judgment_config(config, publish=True)
 
-    published_path = Path(config["output_root"]) / "judgments_v3" / "config.yaml"
+    published_path = Path(config["output_root"]) / "judgments_v4" / "config.yaml"
     first_bytes = published_path.read_bytes()
     published = yaml.safe_load(published_path.read_text(encoding="utf-8"))
     assert published == parsed.model_dump(mode="json")
@@ -312,12 +349,11 @@ def test_judgment_config_publishes_validated_json_compatible_yaml(tmp_path: Path
         "gt_description_manifest_path",
         "diagnostic_affect_description_manifest_path",
         "output_root",
-        "forbidden_started_calls_path",
     }
     for field in path_fields:
         assert isinstance(published[field], str)
     assert EnsembleMisreadConfig.model_validate(published) == parsed
-    assert published["schema_name"] == "mprisk_ensemble_misread_judgment_config_v3"
+    assert published["schema_name"] == "mprisk_ensemble_misread_judgment_config_v4"
     assert published["api_url"] == "https://api.deepseek.com/beta/chat/completions"
     assert published["thinking"] == "disabled"
     assert published["max_tokens"] == 256
@@ -330,7 +366,7 @@ def test_judgment_config_publishes_validated_json_compatible_yaml(tmp_path: Path
 
 def test_judgment_config_dry_run_does_not_publish(tmp_path: Path) -> None:
     config = _judgment_stage_config(tmp_path)
-    judgment_root = Path(config["output_root"]) / "judgments_v3"
+    judgment_root = Path(config["output_root"]) / "judgments_v4"
 
     parsed = recovery_pipeline._build_judgment_config(config, publish=False)
 
@@ -344,4 +380,4 @@ def test_judgment_config_rejects_invalid_binding_before_publish(tmp_path: Path) 
     with pytest.raises(ValueError, match="SHA-256"):
         recovery_pipeline._build_judgment_config(config, publish=True)
 
-    assert not (Path(config["output_root"]) / "judgments_v3" / "config.yaml").exists()
+    assert not (Path(config["output_root"]) / "judgments_v4" / "config.yaml").exists()
