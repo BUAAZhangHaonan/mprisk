@@ -1,6 +1,8 @@
 schema_name: mprisk_in_domain_recovery_queue_v1
 repository_root: /home/team/zhanghaonan/TAFFC/mprisk
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804
+required_environment:
+  - {name: DEEPSEEK_API_KEY, source: tmux_global}
 gate:
   controller_status_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/run_records/cache_stage_controller_20260723/status.json
   target_tmux_sessions: [mprisk-cache-target-gpu0, mprisk-cache-target-gpu1]

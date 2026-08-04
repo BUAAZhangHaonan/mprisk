@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import re
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Sequence
@@ -16,6 +19,8 @@ import yaml
 
 SCHEMA = "mprisk_in_domain_recovery_queue_v1"
 STATE_SCHEMA = "mprisk_in_domain_recovery_state_v1"
+RUNTIME_SCHEMA = "mprisk_in_domain_recovery_queue_runtime_v1"
+ENVIRONMENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def load_queue(path: Path) -> dict[str, Any]:
@@ -38,6 +43,23 @@ def load_queue(path: Path) -> dict[str, Any]:
         isinstance(item, str) and item for item in workers
     ):
         raise ValueError("forbidden_cuda_worker_patterns must be non-empty")
+    required_environment = value.get("required_environment", [])
+    if not isinstance(required_environment, list):
+        raise ValueError("required_environment must be a list")
+    environment_bindings: list[dict[str, str]] = []
+    for binding in required_environment:
+        if not isinstance(binding, dict):
+            raise ValueError("required_environment entries must be mappings")
+        name = binding.get("name")
+        source = binding.get("source")
+        if not isinstance(name, str) or not ENVIRONMENT_NAME.fullmatch(name):
+            raise ValueError("required_environment contains an invalid name")
+        if not isinstance(source, str) or not source:
+            raise ValueError("required_environment contains an invalid source")
+        environment_bindings.append({"name": name, "source": source})
+    names = [binding["name"] for binding in environment_bindings]
+    if len(names) != len(set(names)):
+        raise ValueError("required_environment names must be unique")
     steps = value.get("steps")
     if not isinstance(steps, list) or not steps:
         raise ValueError("Recovery queue must contain steps")
@@ -74,7 +96,56 @@ def load_queue(path: Path) -> dict[str, Any]:
     value["_resolved_repository_root"] = root
     value["_resolved_output_root"] = output_root
     value["_resolved_status_path"] = status_path
+    value["_config_path"] = path.expanduser().resolve()
+    value["_environment_bindings"] = environment_bindings
     return value
+
+
+def environment_contract(config: dict[str, Any]) -> dict[str, Any]:
+    """Return a non-secret receipt for required inherited environment variables."""
+    bindings = list(config.get("_environment_bindings", []))
+    entries = [
+        {
+            "name": binding["name"],
+            "source": binding["source"],
+            "present": bool(os.environ.get(binding["name"])),
+        }
+        for binding in bindings
+    ]
+    missing = [entry["name"] for entry in entries if not entry["present"]]
+    return {
+        "required": entries,
+        "missing_names": missing,
+        "secret_values_recorded": False,
+    }
+
+
+def write_runtime_receipt(
+    config: dict[str, Any], contract: dict[str, Any]
+) -> Path:
+    """Bind an execution to code/config while recording no environment values."""
+    completed = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=config["_resolved_repository_root"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(f"Unable to bind recovery runtime: {completed.stderr.strip()}")
+    config_path = config["_config_path"]
+    receipt = {
+        "schema_name": RUNTIME_SCHEMA,
+        "repository_root": str(config["_resolved_repository_root"]),
+        "config_path": str(config_path),
+        "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        "git_commit": completed.stdout.strip(),
+        "python_executable": sys.executable,
+        "environment_contract": contract,
+    }
+    path = config["_resolved_output_root"] / "queue_runtime_receipt.json"
+    _write_json_atomic(path, receipt)
+    return path
 
 
 def dry_run_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -305,6 +376,11 @@ def _write_state(
         "steps": steps,
         "updated_unix_seconds": time.time(),
     }
+    _write_json_atomic(path, payload)
+
+
+def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -337,10 +413,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "mode": "execute" if args.execute else "dry_run",
         "gate": evidence,
         "steps": [step["id"] for step in config["steps"]],
+        "required_environment": list(config.get("_environment_bindings", [])),
     }
     if not args.execute:
         summary["stage_preflights"] = dry_run_commands(config)
+    else:
+        contract = environment_contract(config)
+        summary["environment_contract"] = contract
+        summary["runtime_receipt_path"] = str(write_runtime_receipt(config, contract))
     print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
     if not args.execute:
         return 0
+    if contract["missing_names"]:
+        return 2
     return run_queue(config, poll_interval_seconds=args.poll_interval_seconds)
