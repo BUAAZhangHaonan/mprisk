@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -205,7 +206,7 @@ def test_result_requires_exactly_one_sentence() -> None:
         input_token_count=9,
     )
     validate_diagnostic_affect_description(good)
-    with pytest.raises(ValueError, match="exactly one sentence"):
+    with pytest.raises(ValueError, match="terminator count must equal one"):
         validate_diagnostic_affect_description(
             GenerationResult(
                 request=request,
@@ -236,6 +237,10 @@ def test_result_requires_exactly_one_sentence() -> None:
         "[The person appears deeply worried.]",
         "{The person appears deeply worried.}",
         "The person's distress is 3.5 times stronger.",
+        "The individual is pleased with their plants' appearance after watering them.",
+        "The individual is pleased with their plants\u2019 appearance after watering them.",
+        "The person describes 'plants' as calming.",
+        "The person describes \u2018plants\u2019 as calming.",
     ],
 )
 def test_result_accepts_one_sentence_with_balanced_closing_delimiters(text: str) -> None:
@@ -262,21 +267,25 @@ def test_result_accepts_one_sentence_with_balanced_closing_delimiters(text: str)
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "error"),
     [
-        "The person appears to be 'deeply worried.",
-        "The person appears deeply worried.'",
-        '"First sentence." Second sentence.',
-        '"First sentence." "Second sentence."',
-        '"First sentence." trailing text',
-        "\u201cThe person appears worried.",
-        "The person appears worried.\u201d",
-        "Dr. Smith appears deeply worried.",
-        "The person appears worried.' trailing text",
-        "(The person appears deeply worried.]",
+        ("The person appears to be 'deeply worried.", "unbalanced delimiters"),
+        ("The person appears deeply worried.'", "unbalanced delimiters"),
+        ('"First sentence." Second sentence.', "terminator count must equal one"),
+        ('"First sentence." "Second sentence."', "terminator count must equal one"),
+        ('"First sentence." trailing text', "must end with a sentence terminal"),
+        ("\u201cThe person appears worried.", "unbalanced delimiters"),
+        ("The person appears worried.\u201d", "unbalanced delimiters"),
+        ("Dr. Smith appears deeply worried.", "terminator count must equal one"),
+        ("The person appears worried.' trailing text", "must end with a sentence terminal"),
+        ("(The person appears deeply worried.]", "unbalanced delimiters"),
+        ("The person describes 'plants as calming.", "unbalanced delimiters"),
+        ("The person describes \u2018plants as calming.", "unbalanced delimiters"),
     ],
 )
-def test_result_rejects_unbalanced_or_trailing_sentence_text(text: str) -> None:
+def test_result_rejects_unbalanced_or_trailing_sentence_text(
+    text: str, error: str
+) -> None:
     request = GenerationRequest(
         sample_id="sample",
         model_key="subject_model",
@@ -287,7 +296,7 @@ def test_result_rejects_unbalanced_or_trailing_sentence_text(text: str) -> None:
         use_audio_in_video=False,
         generation_kwargs={"do_sample": False, "num_beams": 1, "max_new_tokens": 32},
     )
-    with pytest.raises(ValueError, match="exactly one sentence"):
+    with pytest.raises(ValueError, match=error):
         validate_diagnostic_affect_description(
             GenerationResult(
                 request=request,
@@ -374,6 +383,86 @@ def test_retry_failed_resets_only_failed_and_preserves_completed(tmp_path: Path)
     ledger.close()
 
 
+def test_invalid_result_is_persisted_without_polluting_completed_records(
+    tmp_path: Path,
+) -> None:
+    plan = _plan(tmp_path)
+    ledger = DiagnosticAffectDescriptionLedger(tmp_path / "batch_state.sqlite3")
+    ledger.prepare(plan.signature)
+    ledger.add_tasks(plan.tasks)
+    task, attempt = next(ledger.pending_tasks(plan.tasks))
+    result = GenerationResult(
+        request=task.request,
+        text="First sentence. Second sentence.",
+        token_ids=(11, 12, 13),
+        eos_token_ids=(13,),
+        finish_reason="eos",
+        input_token_count=7,
+    )
+    provenance = {"model_path": "model", "elapsed_seconds": 1.25}
+
+    with pytest.raises(ValueError, match="terminator count must equal one"):
+        ledger.complete(task.task_id, attempt, result, provenance)
+
+    task_row = ledger.connection.execute(
+        "SELECT status,result_json,provenance_json,error_type,error_message "
+        "FROM tasks WHERE task_id=?",
+        (task.task_id,),
+    ).fetchone()
+    attempt_row = ledger.connection.execute(
+        "SELECT outcome,result_json,provenance_json,error_type,error_message "
+        "FROM attempts WHERE task_id=? AND attempt=?",
+        (task.task_id, attempt),
+    ).fetchone()
+    assert task_row["status"] == "failed"
+    assert json.loads(task_row["result_json"])["text"] == result.text
+    assert json.loads(task_row["provenance_json"]) == provenance
+    assert task_row["error_type"] == "ValueError"
+    assert "terminator count" in task_row["error_message"]
+    assert attempt_row["outcome"] == "failed"
+    assert json.loads(attempt_row["result_json"])["token_ids"] == [11, 12, 13]
+    assert json.loads(attempt_row["provenance_json"]) == provenance
+    assert attempt_row["error_type"] == "ValueError"
+    assert ledger.completed_records() == []
+    assert json.loads(ledger.failures()[0]["result_json"])["finish_reason"] == "eos"
+    ledger.prepare(plan.signature, retry_failed=True)
+    reset_task = ledger.connection.execute(
+        "SELECT status,result_json,provenance_json FROM tasks WHERE task_id=?",
+        (task.task_id,),
+    ).fetchone()
+    retained_attempt = ledger.connection.execute(
+        "SELECT outcome,result_json,provenance_json FROM attempts "
+        "WHERE task_id=? AND attempt=?",
+        (task.task_id, attempt),
+    ).fetchone()
+    assert tuple(reset_task) == ("pending", None, None)
+    assert retained_attempt["outcome"] == "failed"
+    assert json.loads(retained_attempt["result_json"])["text"] == result.text
+    assert json.loads(retained_attempt["provenance_json"]) == provenance
+    ledger.close()
+
+
+def test_existing_attempt_ledger_adds_provenance_column(tmp_path: Path) -> None:
+    path = tmp_path / "batch_state.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            """CREATE TABLE attempts (
+            task_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
+            finished_at TEXT, outcome TEXT NOT NULL, result_json TEXT,
+            error_type TEXT, error_message TEXT, traceback TEXT,
+            PRIMARY KEY(task_id,attempt))"""
+        )
+
+    ledger = DiagnosticAffectDescriptionLedger(path)
+
+    columns = {
+        str(row[1])
+        for row in ledger.connection.execute("PRAGMA table_info(attempts)").fetchall()
+    }
+    assert "provenance_json" in columns
+    ledger.close()
+
+
 def test_prepare_recovers_stale_running_attempt_without_repeating_completed(
     tmp_path: Path,
 ) -> None:
@@ -392,21 +481,44 @@ def test_prepare_recovers_stale_running_attempt_without_repeating_completed(
     )
     ledger.complete(first.task_id, first_attempt, completed, {"model_path": "model"})
     second, second_attempt = next(ledger.pending_tasks(plan.tasks))
+    raw_result = json.dumps({"text": "raw interrupted generation"})
+    raw_provenance = json.dumps({"model_path": "model", "elapsed_seconds": 0.5})
+    with ledger.connection:
+        ledger.connection.execute(
+            "UPDATE tasks SET result_json=?,provenance_json=?,elapsed_seconds=? "
+            "WHERE task_id=?",
+            (raw_result, raw_provenance, 0.5, second.task_id),
+        )
+        ledger.connection.execute(
+            "UPDATE attempts SET result_json=?,provenance_json=? "
+            "WHERE task_id=? AND attempt=?",
+            (raw_result, raw_provenance, second.task_id, second_attempt),
+        )
 
     ledger.prepare(plan.signature, retry_failed=True)
 
     tasks = ledger.connection.execute(
-        "SELECT task_id,status,attempts,result_json FROM tasks ORDER BY rowid"
+        "SELECT task_id,status,attempts,result_json,provenance_json "
+        "FROM tasks ORDER BY rowid"
     ).fetchall()
-    assert tuple(tasks[0]) == (first.task_id, "completed", 1, tasks[0]["result_json"])
+    assert tuple(tasks[0]) == (
+        first.task_id,
+        "completed",
+        1,
+        tasks[0]["result_json"],
+        tasks[0]["provenance_json"],
+    )
     assert tasks[0]["result_json"] is not None
-    assert tuple(tasks[1]) == (second.task_id, "pending", 1, None)
+    assert tuple(tasks[1]) == (second.task_id, "pending", 1, None, None)
     attempt = ledger.connection.execute(
-        "SELECT outcome,finished_at FROM attempts WHERE task_id=? AND attempt=?",
+        "SELECT outcome,finished_at,result_json,provenance_json FROM attempts "
+        "WHERE task_id=? AND attempt=?",
         (second.task_id, second_attempt),
     ).fetchone()
     assert attempt["outcome"] == "interrupted"
     assert attempt["finished_at"] is not None
+    assert attempt["result_json"] == raw_result
+    assert attempt["provenance_json"] == raw_provenance
     pending = list(ledger.pending_tasks(plan.tasks))
     assert [(task.task_id, number) for task, number in pending] == [
         (second.task_id, 2)

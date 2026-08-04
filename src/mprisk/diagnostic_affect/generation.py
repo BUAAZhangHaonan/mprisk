@@ -278,21 +278,35 @@ def validate_diagnostic_affect_description(result: GenerationResult) -> None:
     if not text or text != text.strip() or "\n" in text:
         raise ValueError("Generated description must be non-empty")
     endings = _SENTENCE_END_RE.findall(text)
-    if (
-        len(endings) != 1
-        or _SENTENCE_TERMINAL_RE.search(text) is None
-        or not _has_balanced_delimiters(text)
-    ):
-        raise ValueError("Generated description must contain exactly one sentence")
+    if len(endings) != 1:
+        raise ValueError(
+            "Generated description sentence terminator count must equal one: "
+            f"found {len(endings)}"
+        )
+    if _SENTENCE_TERMINAL_RE.search(text) is None:
+        raise ValueError("Generated description must end with a sentence terminal")
+    if not _has_balanced_delimiters(text):
+        raise ValueError("Generated description contains unbalanced delimiters")
 
 
 def _has_balanced_delimiters(text: str) -> bool:
     """Validate paired quotes and brackets without treating in-word apostrophes as quotes."""
     stack: list[str] = []
     for index, character in enumerate(text):
-        if character in {"'", "\u2019"} and _is_in_word_apostrophe(text, index):
+        if character in {"'", "\u2019"}:
+            if _is_in_word_apostrophe(text, index):
+                continue
+            opening = "'" if character == "'" else "\u2018"
+            if stack and stack[-1] == opening:
+                stack.pop()
+                continue
+            if _is_plural_possessive_apostrophe(text, index):
+                continue
+            if character == "\u2019":
+                return False
+            stack.append(character)
             continue
-        if character in {'"', "'"}:
+        if character == '"':
             if stack and stack[-1] == character:
                 stack.pop()
             else:
@@ -315,6 +329,16 @@ def _is_in_word_apostrophe(text: str, index: int) -> bool:
         and index + 1 < len(text)
         and text[index - 1].isalnum()
         and text[index + 1].isalnum()
+    )
+
+
+def _is_plural_possessive_apostrophe(text: str, index: int) -> bool:
+    """Recognize a word-final plural possessive when no quote is open."""
+    return (
+        index > 0
+        and index + 1 < len(text)
+        and text[index - 1] in {"s", "S"}
+        and text[index + 1].isspace()
     )
 
 
@@ -341,11 +365,21 @@ class DiagnosticAffectDescriptionLedger:
             CREATE TABLE IF NOT EXISTS attempts (
               task_id TEXT NOT NULL, attempt INTEGER NOT NULL, started_at TEXT NOT NULL,
               finished_at TEXT, outcome TEXT NOT NULL, result_json TEXT,
+              provenance_json TEXT,
               error_type TEXT, error_message TEXT, traceback TEXT,
               PRIMARY KEY(task_id,attempt)
             );
             """
         )
+        attempt_columns = {
+            str(row[1])
+            for row in self.connection.execute("PRAGMA table_info(attempts)").fetchall()
+        }
+        if "provenance_json" not in attempt_columns:
+            with self.connection:
+                self.connection.execute(
+                    "ALTER TABLE attempts ADD COLUMN provenance_json TEXT"
+                )
 
     def prepare(self, signature: dict[str, Any], *, retry_failed: bool = False) -> None:
         encoded = _canonical_json(signature)
@@ -362,11 +396,15 @@ class DiagnosticAffectDescriptionLedger:
                 "UPDATE attempts SET outcome='interrupted',finished_at=? WHERE outcome='running'",
                 (_now(),),
             )
-            self.connection.execute("UPDATE tasks SET status='pending' WHERE status='running'")
+            self.connection.execute(
+                "UPDATE tasks SET status='pending',result_json=NULL,provenance_json=NULL,"
+                "elapsed_seconds=NULL WHERE status='running'"
+            )
             if retry_failed:
                 self.connection.execute(
-                    "UPDATE tasks SET status='pending',error_type=NULL,error_message=NULL,"
-                    "traceback=NULL WHERE status='failed'"
+                    "UPDATE tasks SET status='pending',result_json=NULL,provenance_json=NULL,"
+                    "elapsed_seconds=NULL,error_type=NULL,error_message=NULL,traceback=NULL "
+                    "WHERE status='failed'"
                 )
 
     def add_tasks(self, tasks: Sequence[DiagnosticAffectDescriptionTask]) -> None:
@@ -453,23 +491,48 @@ class DiagnosticAffectDescriptionLedger:
         result: GenerationResult,
         provenance: dict[str, Any],
     ) -> None:
-        validate_diagnostic_affect_description(result)
+        encoded_result = _canonical_json(_result_payload(result))
+        encoded_provenance = _canonical_json(provenance)
+        with self.connection:
+            task_changed = self.connection.execute(
+                "UPDATE tasks SET result_json=?,provenance_json=?,elapsed_seconds=? "
+                "WHERE task_id=? AND status='running'",
+                (
+                    encoded_result,
+                    encoded_provenance,
+                    provenance.get("elapsed_seconds"),
+                    task_id,
+                ),
+            ).rowcount
+            attempt_changed = self.connection.execute(
+                "UPDATE attempts SET result_json=?,provenance_json=? "
+                "WHERE task_id=? AND attempt=? AND outcome='running'",
+                (encoded_result, encoded_provenance, task_id, attempt),
+            ).rowcount
+            if task_changed != 1 or attempt_changed != 1:
+                raise RuntimeError("Generation result does not match one running attempt")
+        try:
+            validate_diagnostic_affect_description(result)
+        except Exception as error:
+            self.fail(task_id, attempt, error)
+            raise
         with self.connection:
             self.connection.execute(
                 """UPDATE tasks SET status='completed',result_json=?,provenance_json=?,
                 elapsed_seconds=?,error_type=NULL,error_message=NULL,traceback=NULL
                 WHERE task_id=?""",
                 (
-                    _canonical_json(_result_payload(result)),
-                    _canonical_json(provenance),
+                    encoded_result,
+                    encoded_provenance,
                     provenance.get("elapsed_seconds"),
                     task_id,
                 ),
             )
             self.connection.execute(
-                "UPDATE attempts SET finished_at=?,outcome='completed',result_json=? "
+                "UPDATE attempts SET finished_at=?,outcome='completed',result_json=?,"
+                "provenance_json=? "
                 "WHERE task_id=? AND attempt=?",
-                (_now(), _canonical_json(_result_payload(result)), task_id, attempt),
+                (_now(), encoded_result, encoded_provenance, task_id, attempt),
             )
 
     def fail(self, task_id: str, attempt: int, error: Exception) -> None:
@@ -538,7 +601,8 @@ class DiagnosticAffectDescriptionLedger:
         return [
             dict(row)
             for row in self.connection.execute(
-                """SELECT task_id,sample_id,protocol,attempts,error_type,error_message,traceback
+                """SELECT task_id,sample_id,protocol,attempts,result_json,provenance_json,
+                elapsed_seconds,error_type,error_message,traceback
                 FROM tasks WHERE status='failed' ORDER BY rowid"""
             )
         ]
