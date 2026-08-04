@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import hmac
 import json
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -54,12 +56,15 @@ def load_queue(path: Path) -> dict[str, Any]:
         source = binding.get("source")
         if not isinstance(name, str) or not ENVIRONMENT_NAME.fullmatch(name):
             raise ValueError("required_environment contains an invalid name")
-        if not isinstance(source, str) or not source:
+        if source != "tmux_global":
             raise ValueError("required_environment contains an invalid source")
         environment_bindings.append({"name": name, "source": source})
     names = [binding["name"] for binding in environment_bindings]
     if len(names) != len(set(names)):
         raise ValueError("required_environment names must be unique")
+    resume = value.get("resume_contract")
+    if resume is not None:
+        _validate_resume_contract(resume, output_root)
     steps = value.get("steps")
     if not isinstance(steps, list) or not steps:
         raise ValueError("Recovery queue must contain steps")
@@ -104,15 +109,30 @@ def load_queue(path: Path) -> dict[str, Any]:
 def environment_contract(config: dict[str, Any]) -> dict[str, Any]:
     """Return a non-secret receipt for required inherited environment variables."""
     bindings = list(config.get("_environment_bindings", []))
-    entries = [
-        {
-            "name": binding["name"],
-            "source": binding["source"],
-            "present": bool(os.environ.get(binding["name"])),
-        }
-        for binding in bindings
-    ]
-    missing = [entry["name"] for entry in entries if not entry["present"]]
+    entries: list[dict[str, Any]] = []
+    for binding in bindings:
+        name = binding["name"]
+        process_value = os.environ.get(name)
+        source_value = _read_tmux_global_environment(name)
+        process_valid = bool(process_value) and process_value == process_value.strip()
+        source_valid = bool(source_value) and source_value == source_value.strip()
+        matches = bool(
+            process_valid
+            and source_valid
+            and hmac.compare_digest(process_value, source_value)
+        )
+        entries.append(
+            {
+                "name": name,
+                "source": binding["source"],
+                "present": bool(process_value),
+                "value_format_valid": process_valid,
+                "source_present": bool(source_value),
+                "source_value_format_valid": source_valid,
+                "source_matches_process": matches,
+            }
+        )
+    missing = [entry["name"] for entry in entries if not entry["source_matches_process"]]
     return {
         "required": entries,
         "missing_names": missing,
@@ -121,7 +141,7 @@ def environment_contract(config: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_runtime_receipt(
-    config: dict[str, Any], contract: dict[str, Any]
+    config: dict[str, Any], contract: dict[str, Any], resume: dict[str, Any] | None
 ) -> Path:
     """Bind an execution to code/config while recording no environment values."""
     completed = subprocess.run(
@@ -142,10 +162,137 @@ def write_runtime_receipt(
         "git_commit": completed.stdout.strip(),
         "python_executable": sys.executable,
         "environment_contract": contract,
+        "resume_contract": resume,
     }
     path = config["_resolved_output_root"] / "queue_runtime_receipt.json"
     _write_json_atomic(path, receipt)
     return path
+
+
+def resume_contract(config: dict[str, Any]) -> dict[str, Any] | None:
+    """Audit an immutable paid-stage resume point before starting any queue step."""
+    expected = config.get("resume_contract")
+    if expected is None:
+        return None
+    ledger_path = Path(expected["ledger_path"]).expanduser().resolve()
+    sums_path = Path(expected["frozen_sha256s_path"]).expanduser().resolve()
+    observed_ledger_sha = hashlib.sha256(ledger_path.read_bytes()).hexdigest()
+    observed_sums_sha = hashlib.sha256(sums_path.read_bytes()).hexdigest()
+    with sqlite3.connect(f"file:{ledger_path}?mode=ro", uri=True) as database:
+        columns = {row[1] for row in database.execute("pragma table_info(calls)")}
+        zero_fields = list(expected["prestate"]["zero_nonnull_fields"])
+        missing_columns = sorted(set(zero_fields) - columns)
+        nonnull = {
+            field: database.execute(
+                f"select count(*) from calls where {field} is not null"
+            ).fetchone()[0]
+            for field in zero_fields
+            if field in columns
+        }
+        attempts_total, attempts_max = database.execute(
+            "select coalesce(sum(attempts),0),coalesce(max(attempts),0) from calls"
+        ).fetchone()
+        observed_prestate = {
+            "calls": database.execute("select count(*) from calls").fetchone()[0],
+            "distinct_call_ids": database.execute(
+                "select count(distinct call_id) from calls"
+            ).fetchone()[0],
+            "distinct_sample_ids": database.execute(
+                "select count(distinct sample_id) from calls"
+            ).fetchone()[0],
+            "statuses": dict(
+                database.execute("select status,count(*) from calls group by status")
+            ),
+            "attempts_total": attempts_total,
+            "attempts_max": attempts_max,
+            "final_rows": database.execute("select count(*) from final").fetchone()[0],
+            "nonnull_fields": nonnull,
+            "missing_columns": missing_columns,
+        }
+    expected_prestate = expected["prestate"]
+    prestate_matches = (
+        observed_prestate["calls"] == expected_prestate["calls"]
+        and observed_prestate["distinct_call_ids"]
+        == expected_prestate["distinct_call_ids"]
+        and observed_prestate["distinct_sample_ids"]
+        == expected_prestate["distinct_sample_ids"]
+        and observed_prestate["statuses"] == expected_prestate["statuses"]
+        and observed_prestate["attempts_total"] == expected_prestate["attempts_total"]
+        and observed_prestate["attempts_max"] == expected_prestate["attempts_max"]
+        and observed_prestate["final_rows"] == expected_prestate["final_rows"]
+        and not missing_columns
+        and all(value == 0 for value in nonnull.values())
+    )
+    matches = bool(
+        observed_ledger_sha == expected["ledger_sha256"]
+        and observed_sums_sha == expected["frozen_sha256s_sha256"]
+        and prestate_matches
+    )
+    return {
+        "ledger_path": str(ledger_path),
+        "expected_ledger_sha256": expected["ledger_sha256"],
+        "observed_ledger_sha256": observed_ledger_sha,
+        "frozen_sha256s_path": str(sums_path),
+        "expected_frozen_sha256s_sha256": expected["frozen_sha256s_sha256"],
+        "observed_frozen_sha256s_sha256": observed_sums_sha,
+        "expected_prestate": expected_prestate,
+        "observed_prestate": observed_prestate,
+        "matches": matches,
+    }
+
+
+def _read_tmux_global_environment(name: str) -> str | None:
+    completed = subprocess.run(
+        ["tmux", "show-environment", "-g", name],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        return None
+    prefix = f"{name}="
+    output = completed.stdout.removesuffix("\n")
+    if not output.startswith(prefix):
+        return None
+    return output[len(prefix) :]
+
+
+def _validate_resume_contract(value: Any, output_root: Path) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("resume_contract must be a mapping")
+    for field in ("ledger_path", "frozen_sha256s_path"):
+        path = Path(_text(value, field)).expanduser().resolve()
+        if output_root != path and output_root not in path.parents:
+            raise ValueError(f"resume_contract {field} escapes output root")
+    for field in ("ledger_sha256", "frozen_sha256s_sha256"):
+        digest = value.get(field)
+        if not isinstance(digest, str) or not re.fullmatch(r"[0-9a-f]{64}", digest):
+            raise ValueError(f"resume_contract has invalid {field}")
+    prestate = value.get("prestate")
+    if not isinstance(prestate, dict):
+        raise ValueError("resume_contract prestate must be a mapping")
+    for field in (
+        "calls",
+        "distinct_call_ids",
+        "distinct_sample_ids",
+        "attempts_total",
+        "attempts_max",
+        "final_rows",
+    ):
+        if not isinstance(prestate.get(field), int) or prestate[field] < 0:
+            raise ValueError(f"resume_contract prestate has invalid {field}")
+    statuses = prestate.get("statuses")
+    if not isinstance(statuses, dict) or not statuses or not all(
+        isinstance(key, str) and key and isinstance(count, int) and count >= 0
+        for key, count in statuses.items()
+    ):
+        raise ValueError("resume_contract prestate has invalid statuses")
+    zero_fields = prestate.get("zero_nonnull_fields")
+    if not isinstance(zero_fields, list) or not zero_fields or not all(
+        isinstance(field, str) and ENVIRONMENT_NAME.fullmatch(field)
+        for field in zero_fields
+    ):
+        raise ValueError("resume_contract prestate has invalid zero_nonnull_fields")
 
 
 def dry_run_commands(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -419,11 +566,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary["stage_preflights"] = dry_run_commands(config)
     else:
         contract = environment_contract(config)
+        resume = resume_contract(config)
         summary["environment_contract"] = contract
-        summary["runtime_receipt_path"] = str(write_runtime_receipt(config, contract))
+        summary["resume_contract"] = resume
+        summary["runtime_receipt_path"] = str(
+            write_runtime_receipt(config, contract, resume)
+        )
     print(json.dumps(summary, ensure_ascii=True, sort_keys=True))
     if not args.execute:
         return 0
-    if contract["missing_names"]:
+    if contract["missing_names"] or (resume is not None and not resume["matches"]):
         return 2
     return run_queue(config, poll_interval_seconds=args.poll_interval_seconds)

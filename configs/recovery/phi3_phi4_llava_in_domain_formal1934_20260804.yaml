@@ -3,6 +3,20 @@ repository_root: /home/team/zhanghaonan/TAFFC/mprisk
 output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804
 required_environment:
   - {name: DEEPSEEK_API_KEY, source: tmux_global}
+resume_contract:
+  ledger_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/request_ledger.sqlite3
+  ledger_sha256: 8ba5067333d95ff0e38ef85809d12ce5def690a0c18cdee788acd6a2972f0667
+  frozen_sha256s_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4.failed_missing_api_key_20260804T174155Z/SHA256SUMS
+  frozen_sha256s_sha256: ce11df0855a53523a3877a311fe6020d5458ebfc44178d51b79e67aa5bcfdafe
+  prestate:
+    calls: 5802
+    distinct_call_ids: 5802
+    distinct_sample_ids: 1934
+    statuses: {pending: 5802}
+    attempts_total: 0
+    attempts_max: 0
+    final_rows: 0
+    zero_nonnull_fields: [request_id, tool_call_id, response_status_code, response_sha256, response_body_base64, raw_response, result_json, usage_json, estimated_cost_usd, error_type, error_message, started_at, response_received_at, validated_at, terminal_at]
 gate:
   controller_status_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/run_records/cache_stage_controller_20260723/status.json
   target_tmux_sessions: [mprisk-cache-target-gpu0, mprisk-cache-target-gpu1]
