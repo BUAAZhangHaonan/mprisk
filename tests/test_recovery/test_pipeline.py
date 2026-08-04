@@ -10,7 +10,12 @@ import yaml
 
 import mprisk.recovery.pipeline as recovery_pipeline
 from mprisk.judge.ensemble_misread_v4 import EnsembleMisreadConfig
-from mprisk.recovery.pipeline import _export, _prepare_inputs, _run_description
+from mprisk.recovery.pipeline import (
+    _export,
+    _formal_judgment_intersection,
+    _prepare_inputs,
+    _run_description,
+)
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> str:
@@ -102,6 +107,116 @@ def test_prepare_inputs_rejects_reused_description_policy_mismatch(
 
     with pytest.raises(ValueError, match="max_new_tokens"):
         _prepare_inputs(config)
+
+
+def _formal_diagnostic_config(tmp_path: Path) -> dict[str, object]:
+    legacy = tmp_path / "legacy.jsonl"
+    formal = tmp_path / "formal.jsonl"
+    media = tmp_path / "media.mp4"
+    media.write_bytes(b"media")
+    legacy_rows = [
+        {
+            "sample_id": sample_id,
+            "gt_describe": f"GT {sample_id}",
+            "media_paths": {"vision": str(media), "audio": str(media)},
+        }
+        for sample_id in ("formal-1", "excluded-1", "formal-2")
+    ]
+    formal_rows = [{"sample_id": sample_id} for sample_id in ("formal-1", "formal-2")]
+    return {
+        "model_key": "phi4_multimodal",
+        "protocol": "va",
+        "output_root": str(tmp_path / "output"),
+        "legacy_assigned_manifest": str(legacy),
+        "formal_manifest": str(formal),
+        "diagnostic_scope": "formal_intersection",
+        "diagnostic_dataset": "formal-dataset",
+        "diagnostic_split": "formal_intersection",
+        "counts": {
+            "legacy": 3,
+            "diagnostic": 2,
+            "formal": 2,
+            "unmatched": 1,
+            "prompts": 8,
+        },
+        "sha256": {
+            "legacy_assigned_manifest": _write_jsonl(legacy, legacy_rows),
+            "formal_manifest": _write_jsonl(formal, formal_rows),
+        },
+    }
+
+
+def test_prepare_inputs_formal_scope_excludes_unmatched_before_inference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _formal_diagnostic_config(tmp_path)
+    monkeypatch.setattr(
+        recovery_pipeline,
+        "_probe_media_stream_types",
+        lambda _: {"video", "audio"},
+    )
+
+    result = _prepare_inputs(config)
+
+    output = Path(config["output_root"])
+    diagnostic = recovery_pipeline._read_jsonl(
+        output / "inputs" / "diagnostic_manifest.jsonl"
+    )
+    gt_rows = recovery_pipeline._read_jsonl(
+        output / "inputs" / "gt_descriptions.jsonl"
+    )
+    report = json.loads(
+        (output / "inputs" / "formal_intersection_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result == {"diagnostic_rows": 2, "formal_rows": 2, "unmatched_count": 1}
+    assert [row["sample_id"] for row in diagnostic] == ["formal-1", "formal-2"]
+    assert [row["sample_id"] for row in gt_rows] == ["formal-1", "formal-2"]
+    assert all(row["split"] == "formal_intersection" for row in diagnostic)
+    assert report["diagnostic_scope"] == "formal_intersection"
+    assert report["unmatched_ids"] == ["excluded-1"]
+
+
+def test_prepare_inputs_rejects_formal_va_media_without_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = _formal_diagnostic_config(tmp_path)
+    monkeypatch.setattr(
+        recovery_pipeline,
+        "_probe_media_stream_types",
+        lambda _: {"video"},
+    )
+
+    with pytest.raises(ValueError, match="audio media has no audio stream"):
+        _prepare_inputs(config)
+
+
+def test_formal_scoped_judgments_attest_excluded_unmatched_ids(
+    tmp_path: Path,
+) -> None:
+    config = _formal_diagnostic_config(tmp_path)
+    root = Path(config["output_root"])
+    _write_jsonl(
+        root / "judgments_v4" / "judgments.jsonl",
+        [{"sample_id": "formal-1"}, {"sample_id": "formal-2"}],
+    )
+    (root / "inputs").mkdir(parents=True, exist_ok=True)
+    (root / "inputs" / "formal_intersection_report.json").write_text(
+        json.dumps({"unmatched_ids": ["excluded-1"]}), encoding="utf-8"
+    )
+
+    result = _formal_judgment_intersection(config)
+
+    report = json.loads(
+        (root / "judgments_v4" / "formal_intersection_report.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert result == {"formal_rows": 2, "unmatched_count": 1}
+    assert report["input_rows"] == 2
+    assert report["judgment_extra_ids"] == []
+    assert report["unmatched_ids"] == ["excluded-1"]
 
 
 def _mock_frozen_export(
@@ -423,3 +538,60 @@ def test_judgment_config_rejects_invalid_binding_before_publish(tmp_path: Path) 
         recovery_pipeline._build_judgment_config(config, publish=True)
 
     assert not (Path(config["output_root"]) / "judgments_v4" / "config.yaml").exists()
+
+
+def test_phi4_formal1934_queue_has_isolated_end_to_end_contract() -> None:
+    repository = Path(__file__).resolve().parents[2]
+    queue = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi3_phi4_llava_in_domain_formal1934_20260804.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    pipeline = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    descriptions = yaml.safe_load(
+        (
+            repository
+            / "configs/recovery/phi4_multimodal_descriptions_formal1934_20260804.yaml"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert pipeline["diagnostic_scope"] == "formal_intersection"
+    assert pipeline["counts"] == {
+        "legacy": 1939,
+        "diagnostic": 1934,
+        "formal": 1934,
+        "unmatched": 5,
+        "prompts": 8,
+    }
+    assert descriptions["run_id"] == "phi4_multimodal_in_domain_formal1934_20260804"
+    assert descriptions["split"] == "formal_intersection"
+    assert descriptions["manifest_path"].endswith(
+        "/in_domain_recovery_formal1934_20260804/phi4_multimodal/inputs/diagnostic_manifest.jsonl"
+    )
+    phi4_steps = [step for step in queue["steps"] if step["id"].startswith("phi4_")]
+    assert {step["id"] for step in phi4_steps} >= {
+        "phi4_descriptions_1934",
+        "phi4_judgments_1934",
+        "phi4_formal_1934_and_5_unmatched",
+    }
+    assert all("1939" not in step["id"] for step in phi4_steps)
+    assert all(
+        any(
+            value.endswith(
+                "phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml"
+            )
+            for value in step["command"]
+        )
+        for step in phi4_steps
+    )
+    completion_text = json.dumps(
+        [step["completion"] for step in phi4_steps], sort_keys=True
+    )
+    assert "in_domain_recovery_formal1934_20260804" in completion_text
+    assert "expected_rows\": 1939" not in completion_text

@@ -1,0 +1,50 @@
+schema_name: mprisk_in_domain_recovery_model_v1
+model_key: phi4_multimodal
+protocol: va
+repository_root: /home/team/zhanghaonan/TAFFC/mprisk
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal
+python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
+description_python_environment: {PYTHONNOUSERSITE: "1"}
+description_retry_failed: false
+description_runtime_contract:
+  python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
+  python_prefix: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310
+  python_version: 3.10.18
+  user_site_enabled: false
+  torch_cuda_version: "12.4"
+  package_versions:
+    Pillow: 11.1.0
+    PyYAML: 6.0.3
+    accelerate: 1.3.0
+    backoff: 2.2.1
+    peft: 0.13.2
+    safetensors: 0.8.0
+    scipy: 1.15.2
+    soundfile: 0.13.1
+    torch: 2.6.0+cu124
+    torchvision: 0.21.0+cu124
+    transformers: 4.48.2
+legacy_assigned_manifest: /home/team/zhanghaonan/TAFFC/mprisk-v2/data/processed/manifests/protocol_manifests_merged/va_merged_primary_assigned_only.jsonl
+formal_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/manifests/source_va.jsonl
+source_cache_manifest: /home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/source/phi4_multimodal/manifest.jsonl
+split_assignment: /home/team/zhanghaonan/TAFFC/mprisk/data/processed/manifests/splits/representation_v1/representation_split_assignment_v1_va.jsonl
+prompt_set: /home/team/zhanghaonan/TAFFC/mprisk/configs/prompts/equiv_sets/va_main_p8_seed20260717.yaml
+prompt_set_key: va_main_p8_seed20260717
+training_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi4_multimodal_tme_seed20260717.yaml
+training_device: cuda:0
+description_config: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/phi4_multimodal_descriptions_formal1934_20260804.yaml
+description_stall_timeout_seconds: 1800
+diagnostic_scope: formal_intersection
+diagnostic_dataset: in_domain_recovery_formal1934_20260804
+diagnostic_split: formal_intersection
+judgment_run_id: phi4_multimodal_formal1934_judgment_v4_20260804
+forbidden_started_calls:
+  - path: /home/team/zhanghaonan/TAFFC/mprisk/configs/recovery/empty_forbidden_started_calls.jsonl
+    sha256: e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+counts: {legacy: 1939, diagnostic: 1934, formal: 1934, unmatched: 5, prompts: 8}
+sha256:
+  legacy_assigned_manifest: ed649880427acf04568e2add218f21f16165120109d8deb175536441e2157fe9
+  formal_manifest: e99afc42d1f5843e0e524045dc0689ba72d02b20fa94d7fcfc2f4434c54296e9
+  source_cache_manifest: 61db6779b1a72b807ef0fe043f50e65f7b18dffb0939e060d1482146d1ae4652
+  split_assignment: 22b2b685f1ff3bbfa301dc4c0bcd2ec6d3aac99ea29753e5d1d3580c34ffe660
+  prompt_set: 23f99a4f646e45e6daebd97ad61ac0002eb35d2b0edc84f1ddc3cc3817ec923c

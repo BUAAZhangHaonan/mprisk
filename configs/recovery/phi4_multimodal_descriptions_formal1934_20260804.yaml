@@ -1,0 +1,25 @@
+schema_name: mprisk_diagnostic_affect_description_config_v3
+run_id: phi4_multimodal_in_domain_formal1934_20260804
+asset_config: configs/assets/model_assets.yaml
+manifest_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/inputs/diagnostic_manifest.jsonl
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/descriptions
+subject_model_key: phi4_multimodal
+model_path: /home/team/lvshuyang/Models/Phi-4-multimodal-instruct
+protocol: VA
+condition: M12
+dataset: in_domain_recovery_formal1934_20260804
+split: formal_intersection
+device: cuda:0
+dtype: bfloat16
+generation_policy_id: phi4_multimodal_antirepetition_v1
+generation_policy_sha256: 912d04e0f6c63d33def91b8316f41b1e5b40d06064e3be0c83a2ecff866da237
+request_protocol_signature_sha256: a3f5561f045e4c39226820d183fd76fbe057fa50dc23d2e2d0751b2ceeae43c6
+prompt_suffix: ""
+generation_kwargs:
+  do_sample: false
+  num_beams: 1
+  max_new_tokens: 512
+  repetition_penalty: 1.1
+  no_repeat_ngram_size: 3
+video_fps: 1.0
+attn_implementation: sdpa

@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import json
 import os
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -84,8 +85,25 @@ def load_pipeline_config(path: Path) -> dict[str, Any]:
     for field in ("diagnostic", "formal", "unmatched", "prompts"):
         if not isinstance(counts.get(field), int) or counts[field] < 0:
             raise ValueError(f"Recovery count must be nonnegative: {field}")
+    if "legacy" in counts and (
+        not isinstance(counts["legacy"], int) or counts["legacy"] <= 0
+    ):
+        raise ValueError("Recovery count must be positive: legacy")
     if counts["formal"] <= 0 or counts["prompts"] <= 0:
         raise ValueError("Formal and prompt counts must be positive")
+    diagnostic_scope = value.get("diagnostic_scope", "legacy")
+    if diagnostic_scope not in {"legacy", "formal_intersection"}:
+        raise ValueError("diagnostic_scope must be legacy or formal_intersection")
+    if diagnostic_scope == "formal_intersection":
+        if counts["diagnostic"] != counts["formal"]:
+            raise ValueError(
+                "Formal-intersection diagnostics must equal the formal count"
+            )
+        expected_legacy = counts["formal"] + counts["unmatched"]
+        if counts.get("legacy", expected_legacy) != expected_legacy:
+            raise ValueError(
+                "Formal-intersection legacy count must equal formal plus unmatched"
+            )
     hashes = value.get("sha256")
     if not isinstance(hashes, dict):
         raise ValueError("Recovery SHA bindings must be a mapping")
@@ -202,7 +220,9 @@ def _prepare_inputs(config: dict[str, Any]) -> dict[str, Any]:
     legacy = _read_jsonl(Path(config["legacy_assigned_manifest"]))
     formal = _read_jsonl(Path(config["formal_manifest"]))
     counts = config["counts"]
-    expected_input_count = counts["diagnostic"] or counts["formal"]
+    expected_input_count = counts.get(
+        "legacy", counts["diagnostic"] or counts["formal"]
+    )
     if len(legacy) != expected_input_count or len(formal) != counts["formal"]:
         raise ValueError("Frozen recovery manifest row counts do not match")
     legacy_by_id = _index(legacy)
@@ -216,19 +236,38 @@ def _prepare_inputs(config: dict[str, Any]) -> dict[str, Any]:
             f"Formal intersection mismatch: missing={missing}, unmatched={unmatched}"
         )
     paths = _paths(config)
+    formal_rows = [legacy_by_id[sample_id] for sample_id in formal_ids]
+    diagnostic_scope = config.get("diagnostic_scope", "legacy")
+    diagnostic_source_rows = (
+        formal_rows if diagnostic_scope == "formal_intersection" else legacy
+    )
+    diagnostic_ids = [str(row["sample_id"]) for row in diagnostic_source_rows]
+    if counts["diagnostic"] > 0 and len(diagnostic_source_rows) != counts["diagnostic"]:
+        raise ValueError("Diagnostic recovery manifest row count does not match")
+    if len(diagnostic_ids) != len(set(diagnostic_ids)):
+        raise ValueError("Diagnostic recovery manifest contains duplicate sample IDs")
+    if diagnostic_scope == "formal_intersection" and diagnostic_ids != formal_ids:
+        raise ValueError("Formal diagnostic sample IDs do not equal formal manifest IDs")
+    if diagnostic_scope == "formal_intersection" and set(unmatched) & set(diagnostic_ids):
+        raise ValueError("Unmatched sample IDs entered the diagnostic recovery manifest")
+    if counts["diagnostic"] > 0:
+        _validate_diagnostic_media(diagnostic_source_rows, config["protocol"])
+    diagnostic_dataset = str(
+        config.get("diagnostic_dataset", "in_domain_recovery_20260727")
+    )
+    diagnostic_split = str(config.get("diagnostic_split", "recovery_all"))
     diagnostic_rows = (
         [
             dict(
                 row,
-                source_dataset="in_domain_recovery_20260727",
-                split="recovery_all",
+                source_dataset=diagnostic_dataset,
+                split=diagnostic_split,
             )
-            for row in legacy
+            for row in diagnostic_source_rows
         ]
         if counts["diagnostic"] > 0
         else []
     )
-    formal_rows = [legacy_by_id[sample_id] for sample_id in formal_ids]
     gt_rows = (
         [
             {
@@ -238,7 +277,7 @@ def _prepare_inputs(config: dict[str, Any]) -> dict[str, Any]:
                 "protocol": config["protocol"].upper(),
                 "GT_DESCRIPTION": _required_row_text(row, "gt_describe"),
             }
-            for row in legacy
+            for row in diagnostic_source_rows
         ]
         if counts["diagnostic"] > 0
         else []
@@ -284,9 +323,14 @@ def _prepare_inputs(config: dict[str, Any]) -> dict[str, Any]:
         "formal_manifest": str(Path(config["formal_manifest"]).resolve()),
         "formal_manifest_sha256": config["sha256"]["formal_manifest"],
         "formal_rows": len(formal_rows),
+        "diagnostic_scope": diagnostic_scope,
+        "diagnostic_rows": len(diagnostic_rows),
+        "diagnostic_sample_id_set_sha256": _hash_json(sorted(diagnostic_ids)),
+        "formal_sample_id_set_sha256": _hash_json(sorted(formal_ids)),
         "missing_formal_ids": missing,
         "unmatched_ids": unmatched,
         "unmatched_count": len(unmatched),
+        "unmatched_sample_id_set_sha256": _hash_json(unmatched),
         "formal_labels": str(paths["formal_labels"]),
         "formal_labels_sha256": _sha256(paths["formal_labels"]),
         "reused_description_receipt": (
@@ -298,6 +342,60 @@ def _prepare_inputs(config: dict[str, Any]) -> dict[str, Any]:
         "diagnostic_rows": len(diagnostic_rows),
         "formal_rows": len(formal_rows),
         "unmatched_count": len(unmatched),
+    }
+
+
+def _validate_diagnostic_media(
+    rows: list[dict[str, Any]], protocol: str
+) -> None:
+    if protocol.lower() != "va":
+        return
+    observed_streams: dict[Path, set[str]] = {}
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        media_paths = row.get("media_paths")
+        if not isinstance(media_paths, dict):
+            raise ValueError(f"VA sample has no media_paths mapping: {sample_id}")
+        for field, required_stream in (("vision", "video"), ("audio", "audio")):
+            value = media_paths.get(field)
+            if not isinstance(value, str) or not value:
+                raise ValueError(f"VA sample has no {field} path: {sample_id}")
+            path = Path(value).expanduser().resolve()
+            if not path.is_file():
+                raise FileNotFoundError(path)
+            if path not in observed_streams:
+                observed_streams[path] = _probe_media_stream_types(path)
+            if required_stream not in observed_streams[path]:
+                raise ValueError(
+                    f"VA sample {sample_id} {field} media has no "
+                    f"{required_stream} stream: {path}"
+                )
+
+
+def _probe_media_stream_types(path: Path) -> set[str]:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "json",
+            str(path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+    streams = payload.get("streams")
+    if not isinstance(streams, list):
+        raise ValueError(f"ffprobe returned no stream list: {path}")
+    return {
+        str(stream["codec_type"])
+        for stream in streams
+        if isinstance(stream, dict) and isinstance(stream.get("codec_type"), str)
     }
 
 
@@ -315,6 +413,14 @@ def _description_preflight(config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Description config subject model mismatch")
     if value.get("protocol", "").lower() != config["protocol"].lower():
         raise ValueError("Description config protocol mismatch")
+    expected_dataset = str(
+        config.get("diagnostic_dataset", "in_domain_recovery_20260727")
+    )
+    expected_split = str(config.get("diagnostic_split", "recovery_all"))
+    if value.get("dataset") != expected_dataset:
+        raise ValueError("Description config diagnostic dataset mismatch")
+    if value.get("split") != expected_split:
+        raise ValueError("Description config diagnostic split mismatch")
     return {
         "description_config": str(path.resolve()),
         "sample_count": config["counts"]["diagnostic"],
@@ -388,11 +494,16 @@ def _build_judgment_config(
         raise ValueError("Description provenance has no immutable signature")
     payload = {
         "schema_name": "mprisk_ensemble_misread_judgment_config_v4",
-        "run_id": f"{config['model_key']}_in_domain_judgment_v4_20260804",
+        "run_id": str(
+            config.get(
+                "judgment_run_id",
+                f"{config['model_key']}_in_domain_judgment_v4_20260804",
+            )
+        ),
         "status": "ready",
         "subject_model_key": config["model_key"],
         "protocol": config["protocol"].upper(),
-        "split": "recovery_all",
+        "split": str(config.get("diagnostic_split", "recovery_all")),
         "api_url": "https://api.deepseek.com/beta/chat/completions",
         "temperature": 0,
         "thinking": "disabled",
@@ -445,11 +556,39 @@ def _formal_judgment_intersection(config: dict[str, Any]) -> dict[str, Any]:
     by_id = _index(rows)
     formal_ids = [str(row["sample_id"]) for row in formal]
     missing = sorted(set(formal_ids) - set(by_id))
-    unmatched = sorted(set(by_id) - set(formal_ids))
-    if missing or len(unmatched) != config["counts"]["unmatched"]:
-        raise ValueError(
-            f"Formal judgment intersection mismatch: missing={missing}, unmatched={unmatched}"
+    judgment_extra = sorted(set(by_id) - set(formal_ids))
+    diagnostic_scope = config.get("diagnostic_scope", "legacy")
+    if diagnostic_scope == "formal_intersection":
+        intersection = json.loads(
+            paths["intersection_report"].read_text(encoding="utf-8")
         )
+        unmatched = intersection.get("unmatched_ids")
+        if not isinstance(unmatched, list) or not all(
+            isinstance(sample_id, str) for sample_id in unmatched
+        ):
+            raise ValueError("Input intersection report has invalid unmatched IDs")
+        unmatched = sorted(unmatched)
+        legacy_ids = {
+            str(row["sample_id"])
+            for row in _read_jsonl(Path(config["legacy_assigned_manifest"]))
+        }
+        expected_unmatched = sorted(legacy_ids - set(formal_ids))
+        if unmatched != expected_unmatched:
+            raise ValueError(
+                "Input intersection unmatched IDs do not equal frozen manifests"
+            )
+        invalid = bool(missing or judgment_extra)
+    else:
+        unmatched = judgment_extra
+        invalid = bool(missing)
+    if invalid or len(unmatched) != config["counts"]["unmatched"]:
+        raise ValueError(
+            "Formal judgment intersection mismatch: "
+            f"missing={missing}, judgment_extra={judgment_extra}, "
+            f"unmatched={unmatched}"
+        )
+    if diagnostic_scope == "formal_intersection" and set(unmatched) & set(by_id):
+        raise ValueError("Excluded unmatched sample IDs entered the judgment ledger")
     selected = [by_id[sample_id] for sample_id in formal_ids]
     _publish_jsonl(paths["formal_judgments"], selected)
     _publish_json(
@@ -465,6 +604,7 @@ def _formal_judgment_intersection(config: dict[str, Any]) -> dict[str, Any]:
             "formal_rows": len(formal),
             "intersection_rows": len(selected),
             "missing_formal_ids": missing,
+            "judgment_extra_ids": judgment_extra,
             "unmatched_ids": unmatched,
             "unmatched_count": len(unmatched),
             "output_path": str(paths["formal_judgments"]),
@@ -641,6 +781,13 @@ def _stage_dependencies(config: dict[str, Any], stage: str) -> list[Path]:
             mapping[stage].extend(
                 [paths["formal_judgments"], paths["formal_judgment_report"]]
             )
+    if (
+        stage == "formal_judgment_intersection"
+        and config.get("diagnostic_scope", "legacy") == "formal_intersection"
+    ):
+        mapping[stage].extend(
+            [paths["intersection_report"], Path(config["legacy_assigned_manifest"])]
+        )
     return mapping[stage]
 
 

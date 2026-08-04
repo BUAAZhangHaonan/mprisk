@@ -1,0 +1,90 @@
+schema_name: mprisk_in_domain_recovery_queue_v1
+repository_root: /home/team/zhanghaonan/TAFFC/mprisk
+output_root: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804
+gate:
+  controller_status_path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/run_records/cache_stage_controller_20260723/status.json
+  target_tmux_sessions: [mprisk-cache-target-gpu0, mprisk-cache-target-gpu1]
+  forbidden_cuda_worker_patterns:
+    - run_cache_matrix_queue.py
+    - extract_prefill_cache.py
+    - extract_prefill_batch.py
+steps:
+  - id: phi4_prepare_inputs
+    requires: []
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, prepare_inputs]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, prepare_inputs, --dry-run]
+    completion:
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/inputs/formal_intersection_report.json, field: unmatched_count, equals: 5}
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/inputs/formal_labels.jsonl, expected_rows: 1934}
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/inputs/diagnostic_manifest.jsonl, expected_rows: 1934}
+
+  - id: phi4_descriptions_1934
+    requires: [phi4_prepare_inputs]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, description]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, description, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/descriptions/manifest.jsonl, expected_rows: 1934}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/descriptions/provenance.json, field: schema_name, equals: mprisk_diagnostic_affect_description_provenance_v3}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/descriptions/watcher_status.json, field: state, equals: completed}
+
+  - id: phi4_judgments_1934
+    requires: [phi4_descriptions_1934]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, judgment]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, judgment, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/judgments.jsonl, expected_rows: 1934}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/summary.json, field: unresolved, equals: 0}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/summary.json, field: calls_failed, equals: 0}
+
+  - id: phi4_formal_1934_and_5_unmatched
+    requires: [phi4_judgments_1934]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, formal_judgment_intersection]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, formal_judgment_intersection, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/formal_cache_closed.jsonl, expected_rows: 1934}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/judgments_v4/formal_intersection_report.json, field: unmatched_count, equals: 5}
+
+  - id: phi4_prepare_relation
+    requires: [phi4_formal_1934_and_5_unmatched]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, prepare_relation]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, prepare_relation, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/relation/relation_dataset.jsonl, expected_rows: 15472, identity_fields: [row_id]}
+
+  - id: phi4_train_tme
+    requires: [phi4_prepare_relation]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, train]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, train, --dry-run]
+    completion:
+      - {kind: file, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/training/best_checkpoint.pt}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/training/train_metrics.json, field: model_key, equals: phi4_multimodal}
+
+  - id: phi4_export_receipt
+    requires: [phi4_train_tme]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, export]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, export, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/frozen_export/spherical_embedding_manifest.jsonl, expected_rows: 1934}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/frozen_export/spherical_embedding_manifest.receipt.json, field: schema_name, equals: mprisk_jsonl_validation_receipt_v1}
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/frozen_export/spherical_embedding_manifest.receipt.json, field: row_count, equals: 1934}
+
+  - id: phi4_sdr
+    requires: [phi4_export_receipt]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, sdr]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, sdr, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/sdr/sdr_scores.jsonl, expected_rows: 1934}
+
+  - id: phi4_calibrate
+    requires: [phi4_sdr]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, calibrate]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, calibrate, --dry-run]
+    completion:
+      - {kind: json_field, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/calibration/thresholds.json, field: schema, equals: mprisk_spherical_calibration_v2}
+
+  - id: phi4_patterns
+    requires: [phi4_calibrate]
+    command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, patterns]
+    dry_run_command: [/home/team/zhanghaonan/miniconda3/envs/mprisk/bin/python, scripts/run_in_domain_recovery_stage.py, --config, configs/recovery/phi4_multimodal_in_domain_pipeline_formal1934_20260804.yaml, --stage, patterns, --dry-run]
+    completion:
+      - {kind: jsonl_count, path: /home/team/zhanghaonan/TAFFC/mprisk/outputs/in_domain_recovery_formal1934_20260804/phi4_multimodal/states/state_patterns.jsonl, expected_rows: 1934}
