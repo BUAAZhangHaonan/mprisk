@@ -383,6 +383,7 @@ def test_phi4_formal1934_description_binds_repository_in_clean_environment() -> 
     }
 
     assert pipeline["description_python_environment"] == expected_environment
+    assert pipeline["description_retry_failed"] is True
     assert pipeline["description_runtime_contract"]["environment"] == (
         expected_environment
     )

@@ -7,7 +7,7 @@ python_executable: /home/team/zhanghaonan/.venvs/mprisk-phi4-py310/bin/python
 description_python_environment:
   PYTHONNOUSERSITE: "1"
   PYTHONPATH: /home/team/zhanghaonan/TAFFC/mprisk/src
-description_retry_failed: false
+description_retry_failed: true
 description_runtime_contract:
   environment:
     PYTHONNOUSERSITE: "1"
