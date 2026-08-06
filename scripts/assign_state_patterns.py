@@ -16,6 +16,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sdr-scores", required=True)
     parser.add_argument("--thresholds", required=True, help="JSON string or path to JSON config.")
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--cache-root",
+        default=None,
+        help=(
+            "Optional informational flag naming the cache family "
+            "(e.g. Source vs Target) the SDR scores come from. Not consumed "
+            "by assign_state_patterns; accepted for driver-script self-documentation."
+        ),
+    )
     return parser.parse_args()
 
 

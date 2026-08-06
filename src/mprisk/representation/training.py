@@ -539,6 +539,104 @@ def train_trajectory_encoder(
     )
 
 
+def evaluate_target_dataset(
+    *,
+    checkpoint_path: str | Path,
+    eval_dataset_path: str | Path,
+    output_dir: str | Path,
+    device: str = "cpu",
+) -> Path:
+    """Evaluate a Source-trained encoder on a Target cross-domain dataset.
+
+    Loads the checkpoint, builds the encoder + ProxyAnchor objective from
+    the stored training config, reads the Target relation_dataset_target.jsonl
+    (bypassing the rigid 4-split contract enforced by train_trajectory_encoder),
+    and computes val_balanced_accuracy_ac over all Target rows.
+
+    Writes target_metrics.json next to the Source-trained train_metrics.json
+    so the cross-domain driver can pick it up alongside the Source results.
+    """
+    checkpoint_file = Path(checkpoint_path)
+    checkpoint = torch.load(checkpoint_file, map_location="cpu")
+    _validate_checkpoint_architecture(checkpoint)
+    if checkpoint.get("repr_key") != TME_PROXY_ANCHOR_V1:
+        raise ValueError(
+            "evaluate_target_dataset requires a tme_proxy_anchor_v1 checkpoint"
+        )
+    config = TrainingConfig(**checkpoint["training_config"])
+    _validate_config(config)
+    rows = _read_relation_rows(
+        eval_dataset_path,
+        expected_model_key=config.model_key,
+        expected_protocol=config.protocol,
+        expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
+    )
+    samples = _rows_to_sample_refs(rows)
+    _validate_prompt_contract(samples, config=config)
+    layer_count = int(checkpoint["model_config"]["layer_count"])
+    input_dim = int(checkpoint["model_config"]["input_dim"])
+    if (layer_count, input_dim) != _trajectory_shape(samples):
+        raise ValueError(
+            "target dataset trajectories do not match checkpoint layer/hidden shape"
+        )
+    torch_device = _resolve_device(device)
+    model = build_representation_model(
+        config.repr_key,
+        input_dim=input_dim,
+        layer_count=layer_count,
+        hidden_dim=config.hidden_dim,
+        condition_dim=config.condition_dim,
+        relation_dim=config.relation_dim,
+        dropout=config.dropout,
+        encoder_type=getattr(config, "encoder_type", "gru"),
+    ).to(torch_device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    objective = ProxyAnchorLoss(
+        embed_dim=config.relation_dim,
+        num_classes=2,
+        alpha=config.proxy_alpha,
+        margin=config.proxy_margin,
+    ).to(torch_device)
+    if checkpoint.get("proxy_state_dict") is not None:
+        objective.load_state_dict(checkpoint["proxy_state_dict"])
+    d_objective: ModalitySplitRankingLoss | None = None
+    if config.enable_state_supervision:
+        d_objective = ModalitySplitRankingLoss(
+            d_margin=config.d_ranking_margin,
+            angular_margin_rad=config.angular_ranking_margin_rad,
+        ).to(torch_device)
+    val_loss, val_score, val_state_separation = _evaluate(
+        model,
+        objective,
+        d_objective,
+        samples,
+        config=config,
+        class_weights=None,
+    )
+    label_counts = _sample_label_counts(samples)
+    output_root = Path(output_dir)
+    output_root.mkdir(parents=True, exist_ok=True)
+    metrics = {
+        "schema": "mprisk_representation_target_eval_metrics_v1",
+        "repr_key": config.repr_key,
+        "model_key": config.model_key,
+        "checkpoint": str(checkpoint_file),
+        "eval_dataset": str(eval_dataset_path),
+        "selection_metric": _selection_metric_name(config),
+        "selection_unit": "sample_id",
+        "val_balanced_accuracy_ac": val_score,
+        "val_loss": val_loss,
+        "val_state_separation": val_state_separation,
+        "eval_rows": len(samples),
+        "eval_sample_count": len({sample.sample_id for sample in samples}),
+        "eval_sample_label_counts": label_counts,
+        "device": str(torch_device),
+    }
+    metrics_path = output_root / "target_metrics.json"
+    write_json(metrics_path, metrics)
+    return metrics_path
+
+
 def export_frozen_representations(
     *,
     dataset_path: str | Path,

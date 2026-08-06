@@ -15,6 +15,15 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Compute S/D/R scores from embedding manifests.")
     parser.add_argument("--embedding-manifest", required=True)
     parser.add_argument("--output-dir", required=True)
+    parser.add_argument(
+        "--cache-root",
+        default=None,
+        help=(
+            "Optional informational flag naming the cache family "
+            "(e.g. Source vs Target) the embeddings come from. Not consumed "
+            "by compute_sdr_scores; accepted for driver-script self-documentation."
+        ),
+    )
     return parser.parse_args()
 
 

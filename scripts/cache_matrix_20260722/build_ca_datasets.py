@@ -89,11 +89,24 @@ SPLIT_BASE = REPO / "data/processed/manifests/splits/representation_v1"
 MANIFEST_BASE = REPO / "data/processed/manifests/protocol_manifests_merged"
 PROMPT_SET_BASE = REPO / "configs/prompts/equiv_sets"
 
+# Target cache root (ch_sims_v2 cross-domain natural samples).
+TARGET_BASE = Path(
+    "/home/team/zhanghaonan/TAFFC/mprisk/outputs/cache_matrix_20260722/target"
+)
+
 
 def source_cache_root(model: str) -> Path:
     if model == "internvl3_5_8b":
         return INTERNVL_CACHE
     return SOURCE_BASE / model
+
+def target_cache_root(model: str) -> Path:
+    """Target cache (ch_sims_v2 cross-domain natural samples).
+
+    All backbones use TARGET_BASE/<model>. InternVL's Target cache lives
+    under the same layout (canonical-prompt filter handles it transparently).
+    """
+    return TARGET_BASE / model
 
 
 def filter_manifest_to_assigned(manifest_path: Path, split_assignment: Path) -> Path:
@@ -139,7 +152,164 @@ def filter_manifest_to_assigned(manifest_path: Path, split_assignment: Path) -> 
     return filtered_path
 
 
-def build_one(model: str, proto: str, *, force: bool = False) -> int:
+
+
+# Canonical 8-prompt contract (must match run_sdr.sh / run_ca_tme.sh).
+TARGET_PROMPT_IDS = [
+    "pregen_risk_v1_p001", "pregen_risk_v1_p008", "pregen_risk_v1_p012",
+    "pregen_risk_v1_p018", "pregen_risk_v1_p022", "pregen_risk_v1_p054",
+    "pregen_risk_v1_p056", "pregen_risk_v1_p067",
+]
+
+
+def _build_target_relation_dataset(
+    model: str,
+    proto: str,
+    *,
+    force: bool = False,
+) -> int:
+    """Build relation_dataset_target.jsonl for cross-domain Target eval.
+
+    Target cache rows carry Target-only (ch_sims_v2 natural-domain) samples
+    that are absent from the Source split assignment's train/val/test pools
+    but present in the Source split assignment under master_split=cross_domain_test.
+    Those samples are out-of-contract for build_state_dataset /
+    build_relation_dataset (rigid 4-split contract), so this builder reads
+    the Target cache manifest and emits relation_dataset_target.jsonl rows
+    directly.
+
+    Output schema matches relation_dataset.jsonl. Every row carries
+    representation_split="cross_domain_test", master_split="cross_domain_test",
+    calibration_split="", split_assignment_key="cross_domain_target",
+    split_assignment_sha256 = sha256(b"cross_domain_target").
+    """
+    import hashlib
+
+    proto_norm = normalize_protocol(proto)  # uppercase
+    proto_lower = proto.lower()
+    prompt_set_key = f"{proto_lower}_main_p8_seed20260717"
+
+    dst_dir = RELATION_BASE / model / proto_norm / prompt_set_key
+    dst = dst_dir / "relation_dataset_target.jsonl"
+    if dst.exists() and not force:
+        n = sum(1 for _ in dst.open())
+        print(f"[SKIP-TARGET] {model}: target dataset exists ({n} rows) at {dst}")
+        return n
+
+    target_manifest = target_cache_root(model) / "manifest.jsonl"
+    if not target_manifest.exists():
+        print(f"[FAIL-TARGET] {model}: target manifest missing {target_manifest}", flush=True)
+        return 0
+
+    # 1. Resolve A/C label per sample_id from Source primary label manifest.
+    # ch_sims_v2 cross-domain samples carry their natural Conflict/Aligned
+    # label in the root-level `sample_type` field (mirroring the rest of the
+    # Source primary manifest; views.M12.label holds sentiment polarity for
+    # these samples, not the A/C label).
+    label_manifest = MANIFEST_BASE / f"{proto_lower}_merged_primary.jsonl"
+    sample_to_label: dict[str, str] = {}
+    with label_manifest.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            sid = str(row.get("sample_id", ""))
+            label = row.get("sample_type")
+            if not sid or label not in {"Conflict", "Aligned"}:
+                continue
+            sample_to_label[sid] = label
+
+    # 2. Walk Target cache entries; bucket by (sample_id, prompt_id).
+    bucket: dict[tuple[str, str], dict[str, dict]] = {}
+    canonical_prompts = set(TARGET_PROMPT_IDS)
+    with target_manifest.open() as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            row = json.loads(line)
+            prompt_id = row.get("prompt_id")
+            if prompt_id not in canonical_prompts:
+                continue
+            sid = str(row.get("sample_id", ""))
+            cond = row.get("condition")
+            key = (sid, prompt_id)
+            bucket.setdefault(key, {})[cond] = row
+
+    split_assignment_sha256 = hashlib.sha256(b"cross_domain_target").hexdigest()
+    split_assignment_key = "cross_domain_target"
+    label_counts = {"Conflict": 0, "Aligned": 0}
+    out_rows: list[dict] = []
+    prompt_order = {pid: i for i, pid in enumerate(TARGET_PROMPT_IDS)}
+    sorted_keys = sorted(
+        bucket.keys(),
+        key=lambda k: (k[0], prompt_order.get(k[1], 999)),
+    )
+    prompt_set_sha = hashlib.sha256(
+        (PROMPT_SET_BASE / f"{proto_lower}_main_p8_seed20260717.yaml").read_bytes()
+    ).hexdigest()
+    for sid, prompt_id in sorted_keys:
+        views = bucket[(sid, prompt_id)]
+        if set(views) != {"M1", "M2", "M12"}:
+            continue
+        label = sample_to_label.get(sid)
+        if label not in {"Conflict", "Aligned"}:
+            continue
+        conditions_payload = {}
+        for cond in ("M1", "M2", "M12"):
+            entry = views[cond]
+            conditions_payload[cond] = {
+                "sample_id": str(entry["sample_id"]),
+                "model_key": str(entry["model_key"]),
+                "protocol": str(entry["protocol"]),
+                "condition": str(entry["condition"]),
+                "prompt_set_key": str(entry["prompt_set_key"]),
+                "prompt_id": str(entry["prompt_id"]),
+                "shard_path": str(entry["shard_path"]),
+                "index_in_shard": int(entry["index_in_shard"]),
+                "layer_count": int(entry["layer_count"]),
+                "hidden_dim": int(entry["hidden_dim"]),
+                "token_count": int(entry["token_count"]),
+                "t0_token_index": int(entry["t0_token_index"]),
+                "cache_root": str(entry["cache_root"]),
+                "checksum": str(entry.get("checksum", "")),
+                "metadata": dict(entry.get("metadata") or {}),
+            }
+        out_rows.append({
+            "schema": "mprisk_relation_sample_v1",
+            "row_id": f"{sid}:{prompt_id}",
+            "sample_id": sid,
+            "sample_type": label,
+            "label_id": int(label == "Conflict"),
+            "model_key": model,
+            "protocol": proto_norm,
+            "prompt_set_key": prompt_set_key,
+            "prompt_set_artifact_sha256": prompt_set_sha,
+            "prompt_id": prompt_id,
+            "split_group_id": f"cross_domain:{sid}",
+            "master_split": "cross_domain_test",
+            "representation_split": "cross_domain_test",
+            "calibration_split": "",
+            "split_assignment_key": split_assignment_key,
+            "split_assignment_sha256": split_assignment_sha256,
+            "conditions": conditions_payload,
+        })
+        label_counts[label] += 1
+
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    with dst.open("w") as fh:
+        for row in out_rows:
+            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    print(
+        f"[OK-TARGET] {model}: {len(out_rows)} rows -> {dst} "
+        f"(A={label_counts['Aligned']}, C={label_counts['Conflict']})",
+        flush=True,
+    )
+    return len(out_rows)
+
+
+def build_one(model: str, proto: str, *, force: bool = False, keep_cross_domain: bool = False) -> int:
     """Build relation_dataset for one (model, proto). Returns row count.
 
     proto is lowercase ("vt"/"va"). normalize_protocol() returns UPPERCASE
@@ -266,6 +436,12 @@ def build_one(model: str, proto: str, *, force: bool = False) -> int:
 
     n = relation_result.row_count
     print(f"[OK] {model}: {n} rows -> {dst}", flush=True)
+
+    if keep_cross_domain:
+        try:
+            _build_target_relation_dataset(model, proto, force=force)
+        except Exception as e:
+            print(f"[WARN-TARGET] {model}: target dataset build failed: {type(e).__name__}: {e}", flush=True)
     return n
 
 
@@ -274,6 +450,11 @@ def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--model", default=None, help="Specific model; default all 13")
     p.add_argument("--force", action="store_true", help="Rebuild even if dst exists")
+    p.add_argument(
+        "--keep-cross-domain",
+        action="store_true",
+        help="Also emit relation_dataset_target.jsonl (cross_domain_test rows from Target cache). Default False (legacy Source-only behavior).",
+    )
     args = p.parse_args(argv)
 
     models = [args.model] if args.model else list(MODELS.keys())
@@ -285,7 +466,7 @@ def main(argv: list[str]) -> int:
             print(f"[SKIP] unknown model {m}", flush=True)
             continue
         try:
-            n = build_one(m, proto, force=args.force)
+            n = build_one(m, proto, force=args.force, keep_cross_domain=args.keep_cross_domain)
             total += n
         except Exception as e:
             print(f"[FAIL] {m}: {type(e).__name__}: {e}", flush=True)
