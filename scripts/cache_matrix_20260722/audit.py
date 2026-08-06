@@ -34,12 +34,13 @@ RUNS_DIR = ROOT / "outputs/cache_matrix_20260722/runs"
 SDR_DIR = ROOT / "outputs/cache_matrix_20260722/sdr"
 REPORT = SUMMARY_DIR / "audit_report.md"
 
-# 13-model canonical list (newer cache_matrix_20260722 drop). SP-MLP / T-LSTM
-# still cover 16 (legacy 3 VA extra); we don't enforce 13 on those.
+# 15-model canonical list. phi4_multimodal dropped (max_new_tokens=64 bug
+# produced ImproImpro loops; 0 judgments). SP-MLP / T-LSTM still cover 16
+# (legacy 3 VA extra); we don't enforce 15 on those.
 CANONICAL_MODELS = [
     "gemma3_12b", "gemma3_4b", "gemma4_12b", "glm4_6v_flash",
-    "llava_onevision_qwen2_7b", "minicpm_v_2_6", "minicpm_v_4_5",
-    "internvl3_5_8b", "qwen2_5_omni_7b", "qwen2_5_vl_7b",
+    "llava_onevision_qwen2_7b", "llava_v1_5_7b", "minicpm_v_2_6", "minicpm_v_4_5",
+    "internvl3_5_8b", "phi3_5_vision", "qwen2_5_omni_7b", "qwen2_5_vl_7b",
     "qwen3_5_4b", "qwen3_5_9b", "qwen3_vl_8b",
 ]
 SEEDS = (20260717, 20260718, 20260719)
@@ -48,11 +49,11 @@ SEEDS = (20260717, 20260718, 20260719)
 # primary_kind: "val_ac" -> top-level best_val_balanced_accuracy_ac (C/A)
 #               "test_mn" -> best_metrics.test_mn_acc with best_test_mn_acc fallback
 ENCODER_SPECS = [
-    ("ca_tme_gru",    "ca_tme_gru",    "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  39),
-    ("ca_tme_lstm",   "ca_tme_lstm",   "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  39),
-    ("ca_tme_bilstm", "ca_tme_bilstm", "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  39),
-    ("mn_tme_e2e",    "mn_tme_e2e",    "metrics.json",       "best_metrics.test_mn_acc",      "test_mn", 39),
-    ("mn_tme_frozen", "mn_tme_frozen", "metrics.json",       "best_metrics.test_mn_acc",      "test_mn", 39),
+    ("ca_tme_gru",    "ca_tme_gru",    "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  45),
+    ("ca_tme_lstm",   "ca_tme_lstm",   "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  45),
+    ("ca_tme_bilstm", "ca_tme_bilstm", "train_metrics.json", "best_val_balanced_accuracy_ac", "val_ac",  45),
+    ("mn_tme_e2e",    "mn_tme_e2e",    "metrics.json",       "best_metrics.test_mn_acc",      "test_mn", 45),
+    ("mn_tme_frozen", "mn_tme_frozen", "metrics.json",       "best_metrics.test_mn_acc",      "test_mn", 45),
     ("sp_mlp",        "sp_mlp",        "mn_metrics.json",    "best_test_mn_acc",              "test_mn_top", 48),
     ("t_lstm",        "t_lstm",        "mn_metrics.json",    "best_test_mn_acc",              "test_mn_top", 48),
 ]
@@ -107,13 +108,17 @@ def _scan_encoder(enc_name: str, dir_name: str, mfile: str, primary_key: str, ki
         if not run_dir.is_dir() or "_seed" not in run_dir.name:
             continue
         model, _, seed = run_dir.name.partition("_seed")
-        if not seed:
+        # Skip suffixed dirs like '.failed_noclip' / '.weak_sdr' — only
+        # pure-numeric seeds are canonical runs.
+        try:
+            seed_int = int(seed)
+        except ValueError:
             continue
         metrics = _load_json(run_dir / mfile)
         rows.append({
             "encoder": enc_name,
             "model": model,
-            "seed": int(seed),
+            "seed": seed_int,
             "primary": _extract_primary(metrics, kind),
             "metrics_loaded": metrics is not None,
             "run_dir": str(run_dir.relative_to(ROOT)),
