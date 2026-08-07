@@ -789,7 +789,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"sdr_scores={result.sdr_scores_path}")
     print(f"state_patterns={result.state_patterns_path}")
     print(f"state_summary={result.state_summary_path}")
-    print(f"core_sdr_summary={result.core_sdr_summary_path}")
+    print(f"core_sdr_summary={result.core_summary_path}")
 
     if args.target_cache_root is not None:
         if args.target_output_dir is None:
@@ -816,7 +816,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"target_sdr_scores={target_result.sdr_scores_path}")
         print(f"target_state_patterns={target_result.state_patterns_path}")
         print(f"target_state_summary={target_result.state_summary_path}")
-        print(f"target_core_sdr_summary={target_result.core_sdr_summary_path}")
+        print(f"target_core_sdr_summary={target_result.core_summary_path}")
     return 0
 
 
