@@ -469,7 +469,14 @@ def _prepare_target_inputs(
         "prompt_cache_manifest": prompt_cache_manifest,
         "prompt_conditioned_cache_manifest": prompt_conditioned_manifest,
         "filtered_cache_root": target_filtered_root,
-        "filtered_cache_manifest_path": filtered_wrapped,
+        # Return manifest FILENAME (not full path). build_state_dataset ->
+        # load_full_cache_manifest -> _resolve_path concatenates cache_root
+        # with manifest_path when manifest_path is relative. Passing the
+        # full path here caused cache_root / cache_root / ... double-join,
+        # silently fell back to {"entries": []} (empty cache), broke
+        # build_state_bundles on Target. Mirrors Source-side CLI
+        # --cache-manifest-path unified_full_cache_manifest.json convention.
+        "filtered_cache_manifest_path": Path("unified_full_cache_manifest.json"),
     }
 
 
