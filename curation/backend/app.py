@@ -11,7 +11,8 @@ from curation.backend.routes_exports import router as exports_router
 from curation.backend.routes_media import router as media_router
 from curation.backend.routes_samples import router as samples_router
 from curation.backend.app_state import get_conn
-from curation.backend.db import progress_stats
+from curation.backend.db import list_annotations, progress_stats
+from curation.scripts.adjudicate_annotations import adjudicate_all
 
 app = FastAPI(title="MPRisk Curation", version="0.2.0")
 
@@ -53,18 +54,16 @@ def health() -> dict[str, str]:
 def api_health(): return {"status":"ok"}
 @app.get("/api/progress")
 def api_progress(conn=Depends(get_conn)): return progress_stats(conn)
-@app.get("/api/annotators/statistics")
-def annotator_statistics(conn=Depends(get_conn)): return progress_stats(conn)
 @app.get("/api/annotators/{annotator_id}/statistics")
 def annotator_statistics_by_id(annotator_id: str, conn=Depends(get_conn)):
     return progress_stats(conn, annotator_id=annotator_id)
 
 @app.get("/api/adjudication/preview")
-def adjudication_preview(): return {"items":[]}
+def adjudication_preview(conn=Depends(get_conn)):
+    return {"items": adjudicate_all(list_annotations(conn))}
 
 
 # serve the built frontend so annotators only need the backend port
 _dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _dist.is_dir():
     app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
-
