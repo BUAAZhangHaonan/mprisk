@@ -599,12 +599,16 @@ def evaluate_target_dataset(
     ).to(torch_device)
     if checkpoint.get("proxy_state_dict") is not None:
         objective.load_state_dict(checkpoint["proxy_state_dict"])
-    d_objective: ModalitySplitRankingLoss | None = None
-    if config.enable_state_supervision:
-        d_objective = ModalitySplitRankingLoss(
-            d_margin=config.d_ranking_margin,
-            angular_margin_rad=config.angular_ranking_margin_rad,
-        ).to(torch_device)
+    # Target eval always computes D diagnostics (acos(center_M1, center_M2) /
+    # sqrt(S_M1 + S_M2) plus Mann-Whitney p) regardless of whether the Source
+    # checkpoint used D supervision during training. The Target relation
+    # dataset carries the M1/M2/M12 conditions needed by the ranking loss,
+    # and the margins below only affect the auxiliary pair_margin_satisfaction
+    # sub-metric, not the D scores or the significance test themselves.
+    d_objective = ModalitySplitRankingLoss(
+        d_margin=config.d_ranking_margin,
+        angular_margin_rad=config.angular_ranking_margin_rad,
+    ).to(torch_device)
     val_loss, val_score, val_state_separation = _evaluate(
         model,
         objective,
