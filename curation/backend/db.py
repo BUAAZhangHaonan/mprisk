@@ -239,10 +239,15 @@ def list_annotations(conn: sqlite3.Connection, sample_id: str | None = None) -> 
     return [json.loads(row["payload_json"]) for row in rows]
 
 
-def progress_stats(conn: sqlite3.Connection) -> dict[str, Any]:
+def progress_stats(conn: sqlite3.Connection, annotator_id: str | None = None) -> dict[str, Any]:
+    annotation_filter = ""
+    annotation_params: tuple[str, ...] = ()
+    if annotator_id is not None:
+        annotation_filter = "where annotator_id = ?"
+        annotation_params = (annotator_id,)
     groups: dict[str, dict[str, Any]] = {}
     rows = conn.execute(
-        """
+        f"""
         select s.candidate_type as candidate_type,
                s.protocol as protocol,
                count(*) as total,
@@ -251,11 +256,10 @@ def progress_stats(conn: sqlite3.Connection) -> dict[str, Any]:
         from samples s
         left join (
             select sample_id, count(distinct annotator_id) as n
-            from human_annotations group by sample_id
+            from human_annotations {annotation_filter} group by sample_id
         ) a on a.sample_id = s.sample_id
         group by s.candidate_type, s.protocol
-        """
-    ).fetchall()
+        """, annotation_params).fetchall()
     for row in rows:
         key = f"{row['protocol']}:{row['candidate_type']}"
         groups[key] = {
@@ -265,11 +269,11 @@ def progress_stats(conn: sqlite3.Connection) -> dict[str, Any]:
             "annotated_once": row["annotated_once"] or 0,
             "annotated_twice": row["annotated_twice"] or 0,
         }
-    total_annotations = conn.execute("select count(*) from human_annotations").fetchone()[0]
+    total_annotations = conn.execute(f"select count(distinct sample_id) from human_annotations {annotation_filter}", annotation_params).fetchone()[0]
     annotators = [
         {"annotator_id": row["annotator_id"], "count": row["n"]}
         for row in conn.execute(
-            "select annotator_id, count(*) as n from human_annotations group by annotator_id order by n desc"
+            f"select annotator_id, count(distinct sample_id) as n from human_annotations {annotation_filter} group by annotator_id order by n desc", annotation_params
         ).fetchall()
     ]
     return {"groups": list(groups.values()), "total_annotations": total_annotations, "annotators": annotators}

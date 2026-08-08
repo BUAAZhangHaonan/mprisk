@@ -55,6 +55,10 @@ def api_health(): return {"status":"ok"}
 def api_progress(conn=Depends(get_conn)): return progress_stats(conn)
 @app.get("/api/annotators/statistics")
 def annotator_statistics(conn=Depends(get_conn)): return progress_stats(conn)
+@app.get("/api/annotators/{annotator_id}/statistics")
+def annotator_statistics_by_id(annotator_id: str, conn=Depends(get_conn)):
+    return progress_stats(conn, annotator_id=annotator_id)
+
 @app.get("/api/adjudication/preview")
 def adjudication_preview(): return {"items":[]}
 
