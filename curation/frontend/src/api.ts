@@ -77,8 +77,9 @@ export function mediaUrl(pathOrUrl: string, audioOnly = false): string {
   if (/^(?:https?:|data:|blob:)/i.test(pathOrUrl)) {
     return pathOrUrl;
   }
-  const audioSuffix = audioOnly ? "&audio=true" : "";
-  return `${API_BASE}/media?path=${encodeURIComponent(pathOrUrl)}${audioSuffix}`;
+  const assetPath = pathOrUrl.split("/").map(encodeURIComponent).join("/");
+  const audioSuffix = audioOnly ? "?audio=true" : "";
+  return `${API_BASE}/media/${assetPath}${audioSuffix}`;
 }
 
 export type SampleFilters = {

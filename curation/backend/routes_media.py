@@ -26,8 +26,9 @@ def resolve_allowed(path: str) -> Path:
     raise HTTPException(status_code=403, detail="path outside allowed media roots")
 
 
-@router.get("")
-def media(asset_id: str = Query(..., min_length=1), audio: bool = Query(False)):
+def serve_asset(asset_id: str, audio: bool) -> Response | FileResponse:
+    if not asset_id or Path(asset_id).is_absolute():
+        raise HTTPException(status_code=403, detail="invalid media asset id")
     target = resolve_allowed(str(allowed_roots()[0] / asset_id))
     if not target.is_file():
         raise HTTPException(status_code=404, detail="media file not found")
@@ -47,3 +48,8 @@ def media(asset_id: str = Query(..., min_length=1), audio: bool = Query(False)):
             raise HTTPException(status_code=404, detail="no audio track")
         return Response(content=result.stdout, media_type="audio/wav")
     return FileResponse(target)
+
+
+@router.get("/{asset_id:path}")
+def media(asset_id: str, audio: bool = Query(False)):
+    return serve_asset(asset_id, audio)
