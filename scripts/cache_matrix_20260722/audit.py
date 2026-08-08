@@ -29,10 +29,13 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SUMMARY_DIR = ROOT / "outputs/cache_matrix_20260722/_summary"
-RUNS_DIR = ROOT / "outputs/cache_matrix_20260722/runs"
-SDR_DIR = ROOT / "outputs/cache_matrix_20260722/sdr"
+BASE = ROOT / "outputs/cache_matrix_20260722"
+SUMMARY_DIR = BASE / "_summary"
+RUNS_DIR = BASE / "runs"
+SDR_DIR = BASE / "sdr"
+TARGET_SDR_DIR = BASE / "sdr_target"
 REPORT = SUMMARY_DIR / "audit_report.md"
+TARGET_ENCODERS = ("ca_tme_gru", "ca_tme_lstm", "ca_tme_bilstm")
 
 # 15-model canonical list. phi4_multimodal dropped (max_new_tokens=64 bug
 # produced ImproImpro loops; 0 judgments). SP-MLP / T-LSTM still cover 16
@@ -219,6 +222,79 @@ def _check_internvl(rows: list[dict], enc_name: str, problems: list[str], ok: li
         )
 
 
+def _check_target_ca(problems: list[str], ok: list[str]):
+    """Target C/A cells: 15 models x 3 encoders x 3 seeds = 135 expected.
+
+    Each cell exposes target_metrics.json with val_balanced_accuracy_ac.
+    """
+    expected = len(CANONICAL_MODELS) * len(SEEDS) * len(TARGET_ENCODERS)
+    n_cells = 0
+    n_finite = 0
+    n_missing = []
+    for enc in TARGET_ENCODERS:
+        enc_dir = RUNS_DIR / enc
+        if not enc_dir.exists():
+            continue
+        for run_dir in sorted(enc_dir.iterdir()):
+            if not run_dir.is_dir() or "_seed" not in run_dir.name:
+                continue
+            model, _, seed = run_dir.name.partition("_seed")
+            try:
+                seed_int = int(seed)
+            except ValueError:
+                continue
+            if model not in CANONICAL_MODELS or seed_int not in SEEDS:
+                continue
+            metrics = _load_json(run_dir / "target_metrics.json")
+            if metrics is None:
+                n_missing.append(f"{model}/seed{seed_int}/{enc}")
+                continue
+            n_cells += 1
+            v = metrics.get("val_balanced_accuracy_ac")
+            if _is_finite(v):
+                n_finite += 1
+    if n_cells == expected and not n_missing:
+        ok.append(f"target C/A cells = {n_cells}/{expected}")
+    else:
+        problems.append(f"target C/A cells = {n_cells}/{expected} (missing: {len(n_missing)})")
+    if n_finite == expected:
+        ok.append(f"target C/A val_balanced_accuracy_ac finite ({n_finite}/{expected})")
+    else:
+        problems.append(f"target C/A non-finite val_balanced_accuracy_ac ({n_finite}/{expected})")
+
+
+def _check_target_sdr(problems: list[str], ok: list[str]):
+    """Target SDR: every canonical model has a non-empty state_patterns.jsonl
+    covering all 4 state modes."""
+    n_complete = 0
+    missing_models = []
+    for model in CANONICAL_MODELS:
+        model_dir = TARGET_SDR_DIR / model
+        candidates = list(model_dir.rglob("state_patterns.jsonl")) if model_dir.exists() else []
+        if not candidates:
+            missing_models.append(model)
+            continue
+        try:
+            rows = [json.loads(line) for line in candidates[0].read_text(encoding="utf-8").splitlines() if line.strip()]
+        except (OSError, json.JSONDecodeError) as exc:
+            problems.append(f"target SDR[{model}]: cannot parse {candidates[0]}: {exc}")
+            continue
+        if not rows:
+            problems.append(f"target SDR[{model}]: empty state_patterns.jsonl")
+            continue
+        modes = {r.get("state_pattern") or r.get("mode") or r.get("pattern") for r in rows}
+        modes = {m for m in modes if m}
+        if len(modes) < 4:
+            problems.append(f"target SDR[{model}]: only {len(modes)} modes covered: {sorted(modes)}")
+            continue
+        ok.append(f"target SDR[{model}]: {len(rows)} rows, 4 modes")
+        n_complete += 1
+    if missing_models:
+        problems.append(f"target SDR missing state_patterns.jsonl for: {sorted(missing_models)}")
+    else:
+        ok.append(f"target SDR complete ({n_complete}/{len(CANONICAL_MODELS)})")
+
+
 def _check_sdr(problems: list[str], ok: list[str]):
     sdr_complete = 0
     sdr_missing_thresholds = 0
@@ -276,6 +352,8 @@ def main() -> int:
         _check_internvl(rows, enc_name, problems, ok)
 
     _check_sdr(problems, ok)
+    _check_target_ca(problems, ok)
+    _check_target_sdr(problems, ok)
 
     status = "PASS" if not problems else "FAIL"
     lines = [
