@@ -10,6 +10,7 @@ type MediaEntry = {
   group: MediaGroup;
   kind: MediaKind;
   viewHint: View | null;
+  extractAudio?: boolean;
 };
 
 const imageExtensions = new Set(["avif", "bmp", "gif", "jpeg", "jpg", "png", "svg", "webp"]);
@@ -47,11 +48,13 @@ function inferViewHint(key: string): View | null {
 
 function inferKind(key: string, value: string): MediaKind {
   const extension = extensionOf(value);
+  const group = normalizeGroup(key);
+  // an "audio" media path pointing at a video container means: play its audio track only
+  if (group === "audio" && videoExtensions.has(extension)) return "audio";
   if (imageExtensions.has(extension)) return "image";
   if (videoExtensions.has(extension)) return "video";
   if (audioExtensions.has(extension)) return "audio";
 
-  const group = normalizeGroup(key);
   if (group === "audio") return "audio";
   if (group === "text") return "text";
   return "path";
@@ -80,7 +83,7 @@ function isInlineText(value: string) {
 }
 
 function mediaEntries(sample: Sample): MediaEntry[] {
-  return Object.entries(sample.media_paths ?? {})
+  const entries = Object.entries(sample.media_paths ?? {})
     .filter(([, value]) => value.trim().length > 0)
     .map(([key, value]) => {
       const kind = inferKind(key, value);
@@ -90,8 +93,22 @@ function mediaEntries(sample: Sample): MediaEntry[] {
         kind,
         group: inferGroup(key, kind),
         viewHint: inferViewHint(key),
+        extractAudio: kind === "audio" && videoExtensions.has(extensionOf(value)),
       };
     });
+  // inline transcript stored on the candidate itself (CH-SIMS v2 keeps text in meta.csv)
+  const hasTextEntry = entries.some((entry) => entry.group === "text");
+  if (!hasTextEntry && sample.text_content?.trim()) {
+    entries.push({
+      key: "text",
+      value: sample.text_content,
+      kind: "text",
+      group: "text",
+      viewHint: null,
+      extractAudio: false,
+    });
+  }
+  return entries;
 }
 
 function protocolGroups(sample: Sample) {
@@ -130,7 +147,14 @@ function renderMedia(entry: MediaEntry) {
     return <video className="mediaAsset" src={mediaUrl(entry.value)} controls preload="metadata" />;
   }
   if (entry.kind === "audio") {
-    return <audio className="audioAsset" src={mediaUrl(entry.value)} controls preload="metadata" />;
+    return (
+      <audio
+        className="audioAsset"
+        src={mediaUrl(entry.value, entry.extractAudio)}
+        controls
+        preload="none"
+      />
+    );
   }
   if (entry.kind === "text" && isInlineText(entry.value)) {
     return <p className="inlineText">{entry.value}</p>;

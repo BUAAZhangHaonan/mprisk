@@ -70,14 +70,127 @@ button, input, select, textarea {
   gap: 8px;
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 8px;
+  background: #f5efe0;
+  border-radius: 6px;
+}
+
+.pagination button {
+  padding: 4px 12px;
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.pagination button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.pagination .pageInfo {
+  margin: 0 8px;
+  font-size: 13px;
+  color: #5a6660;
+}
+
 .sampleRow {
   border: 1px solid #c9c2b2;
   background: #fffaf0;
-  display: grid;
-  grid-template-columns: 2fr 1fr 80px 120px;
-  gap: 12px;
   padding: 12px;
   text-align: left;
+}
+
+.sampleMeta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.metaLeft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.metaLeft .sourceId {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #3a4540;
+}
+
+.metaRight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.pillProto {
+  background: #e4e0d2;
+  color: #4a4538;
+  font-size: 12px;
+}
+
+.verdictBlock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.verdictLabel {
+  font-weight: 700;
+  font-size: 13px;
+  color: #3a4540;
+}
+
+.annotCount {
+  font-size: 12px;
+  color: #5a6660;
+}
+
+.pillMuted {
+  background: #ece8de;
+  color: #8a8578;
+}
+
+.navBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  background: #f5efe0;
+  border-radius: 6px;
+}
+
+.navBar button {
+  padding: 6px 16px;
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.navBar button:hover {
+  background: #f0e8d0;
+}
+
+.navSampleId {
+  font-family: ui-monospace, monospace;
+  font-size: 13px;
+  color: #5a6660;
 }
 
 .pill, .count {
@@ -214,4 +327,178 @@ textarea {
   background: #d5ff61;
   padding: 12px 18px;
   font-weight: 800;
+}
+/* --- curation additions: filters, progress, llm suggestions --- */
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.filterLabel {
+  font-weight: 700;
+  font-size: 13px;
+  color: #3a4540;
+  min-width: 36px;
+}
+
+.toggleGroup {
+  display: flex;
+  gap: 4px;
+}
+
+.toggleBtn {
+  padding: 4px 12px;
+  border: 1px solid #c9c2b2;
+  background: #fffaf0;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+.toggleBtn:hover {
+  background: #f0e8d0;
+}
+
+.toggleBtn.active {
+  background: #16231e;
+  color: #f8f3e6;
+  border-color: #16231e;
+}
+
+.filters {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin: 12px 0;
+  flex-wrap: wrap;
+}
+
+.filters label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 14px;
+}
+
+.filters select {
+  padding: 4px 8px;
+}
+
+.checkboxFilter {
+  cursor: pointer;
+}
+
+.progressBars {
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.progressRow {
+  display: grid;
+  grid-template-columns: 160px 1fr 180px;
+  gap: 10px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.progressTrack {
+  height: 10px;
+  background: #e2ddd0;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: #4c9a6f;
+}
+
+.progressNums {
+  color: #5a6660;
+}
+
+.progressTotal {
+  font-size: 12px;
+  color: #5a6660;
+}
+
+.pillLlm {
+  background: #dbe7ff;
+  color: #23407a;
+}
+
+.pillWarn {
+  background: #ffe2c9;
+  color: #8a4a12;
+}
+
+.pillOk {
+  background: #d4f0d8;
+  color: #1f6b3a;
+}
+
+.pillInfo {
+  background: #e0eef0;
+  color: #2a5e6b;
+}
+
+.pillConflict {
+  background: #ffd6d6;
+  color: #8a1f1f;
+}
+
+.pillAligned {
+  background: #d4f0d8;
+  color: #1f6b3a;
+}
+
+.llmPanel {
+  margin: 12px 0;
+  border: 1px solid #d8d2c2;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #fbf9f2;
+}
+
+.llmPanel summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.llmHint {
+  font-weight: 400;
+  color: #777161;
+  font-size: 12px;
+}
+
+.llmRow {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.llmView {
+  font-weight: 700;
+  width: 36px;
+}
+
+.llmConfidence {
+  color: #5a6660;
+}
+
+.llmEvidence {
+  color: #43413a;
+}
+
+.saveStatus {
+  margin-left: 10px;
+  font-size: 13px;
+  color: #4c9a6f;
 }
