@@ -292,7 +292,7 @@ the strict path for future human-adjudicated batches and intentionally keeps the
 rule. Re-exporting this delivery would both change its inclusion labels and lose delivery-only
 provenance fields.
 
-The machine-verifiable exception, archive hash, label sources, counts, subtitle crop, variety-text
+The machine-verifiable exception, label sources, counts, subtitle crop, variety-text
 handling, real/generated source boundary, and pending future annotation statistics are recorded
 in:
 
