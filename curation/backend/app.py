@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from curation.backend.routes_annotations import router as annotations_router
 from curation.backend.routes_exports import router as exports_router
@@ -68,4 +69,10 @@ def adjudication_preview(conn=Depends(get_conn)):
 # serve the built frontend so annotators only need the backend port
 _dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 if _dist.is_dir():
+    @app.get("/queue", include_in_schema=False)
+    @app.get("/annotate", include_in_schema=False)
+    @app.get("/adjudication", include_in_schema=False)
+    def frontend_page():
+        return FileResponse(_dist / "index.html")
+
     app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")

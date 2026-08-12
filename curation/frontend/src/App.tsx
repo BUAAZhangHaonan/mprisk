@@ -20,8 +20,13 @@ export type QueueFilters = {
 const annotatorStorageKey = "mprisk.annotator_id";
 const PAGE_SIZE = 50;
 
+function pageFromPath(): Page {
+  const value = window.location.pathname.slice(1);
+  return value === "annotate" || value === "adjudication" ? value : "queue";
+}
+
 export default function App() {
-  const [page, setPage] = useState<Page>("queue");
+  const [page, setPage] = useState<Page>(pageFromPath);
   const [samples, setSamples] = useState<Sample[]>([]);
   const [pagination, setPagination] = useState<PaginatedSamples | null>(null);
   const [pageNum, setPageNum] = useState(1);
@@ -66,6 +71,17 @@ export default function App() {
   useEffect(() => {
     reloadProgress();
   }, [reloadProgress]);
+
+  useEffect(() => {
+    const handlePopState = () => setPage(pageFromPath());
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  const openPage = useCallback((next: Page) => {
+    window.history.pushState({}, "", `/${next}`);
+    setPage(next);
+  }, []);
 
   // reset to page 1 when filters change
   const onFiltersChange = useCallback((next: QueueFilters) => {
@@ -121,7 +137,7 @@ export default function App() {
       <aside className="rail">
         <div className="brand">mprisk curation</div>
         {nav.map(([key, Icon, label]) => (
-          <button className={page === key ? "active" : ""} onClick={() => setPage(key)} key={key}>
+          <button className={page === key ? "active" : ""} onClick={() => openPage(key)} key={key}>
             <Icon size={18} />
             <span>{label}</span>
           </button>
@@ -139,7 +155,7 @@ export default function App() {
             onPageChange={setPageNum}
             onSelect={(sample) => {
               setSelected(sample);
-              setPage("annotate");
+              openPage("annotate");
             }}
           />
         )}
