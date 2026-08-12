@@ -83,7 +83,7 @@ function isInlineText(value: string) {
 }
 
 function mediaEntries(sample: Sample): MediaEntry[] {
-  const entries = Object.entries(sample.media_paths ?? {})
+  const entries = Object.entries(sample.media_asset_ids)
     .filter(([, value]) => value.trim().length > 0)
     .map(([key, value]) => {
       const kind = inferKind(key, value);

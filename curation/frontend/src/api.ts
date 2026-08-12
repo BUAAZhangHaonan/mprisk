@@ -23,7 +23,7 @@ export type Sample = {
   m1_modality?: string;
   m2_modality?: string;
   candidate_type: string;
-  media_paths?: Record<string, string>;
+  media_asset_ids: Record<string, string>;
   text_content?: string;
   llm_sample_type_suggestion?: string;
   llm_screening?: LlmScreening | null;
