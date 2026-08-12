@@ -50,6 +50,7 @@ def serve_asset(asset_id: str, audio: bool) -> Response | FileResponse:
     return FileResponse(target)
 
 
+@router.head("/{asset_id:path}", include_in_schema=False)
 @router.get("/{asset_id:path}")
 def media(asset_id: str, audio: bool = Query(False)):
     return serve_asset(asset_id, audio)

@@ -28,6 +28,8 @@ app.add_middleware(
 @app.middleware("http")
 async def no_cache_html(request, call_next):
     response = await call_next(request)
+    if "etag" in response.headers:
+        del response.headers["etag"]
     ct = response.headers.get("content-type", "")
     if "text/html" in ct:
         response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
