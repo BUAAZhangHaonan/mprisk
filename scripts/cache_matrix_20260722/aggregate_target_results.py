@@ -3,9 +3,10 @@
 
 Reads:
   outputs/cache_matrix_20260722/runs/ca_tme_{gru,lstm,bilstm}/<model>_seed<seed>/target_metrics.json
-Each file exposes val_balanced_accuracy_ac and val_state_separation (target C/A
-eval over CH-SIMS v2; no Conflict/Aligned D-gap or Mann-Whitney p is recorded
-by the eval pipeline, so those columns are emitted as null).
+Each file exposes val_balanced_accuracy_ac and a nested val_state_separation
+dict (target C/A eval over CH-SIMS v2). val_D_gap and val_D_mannwhitney_p are
+read from inside val_state_separation; a file missing the nested fields yields
+null for those columns.
 
 Emits:
   _summary/target_results.csv          (one row per (encoder, model, seed))
@@ -55,6 +56,9 @@ def main() -> int:
             except ValueError:
                 continue
             metrics = _load_json(run_dir / "target_metrics.json")
+            separation: dict = {}
+            if metrics is not None and isinstance(metrics.get("val_state_separation"), dict):
+                separation = metrics["val_state_separation"]
             if metrics is None:
                 rows.append({
                     "encoder": encoder, "model": model, "seed": seed_int,
@@ -70,10 +74,8 @@ def main() -> int:
                 "model": model,
                 "seed": seed_int,
                 "val_balanced_accuracy_ac": metrics.get("val_balanced_accuracy_ac"),
-                # The eval pipeline does not write D_gap / Mann-Whitney p for the
-                # Target split; expose nulls so the schema is explicit.
-                "val_D_gap": metrics.get("val_D_gap"),
-                "val_D_mannwhitney_p": metrics.get("val_D_mannwhitney_p"),
+                "val_D_gap": separation.get("val_D_gap"),
+                "val_D_mannwhitney_p": separation.get("val_D_mannwhitney_p"),
                 "val_state_separation": metrics.get("val_state_separation"),
                 "metrics_loaded": True,
             })

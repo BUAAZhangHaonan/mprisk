@@ -49,7 +49,7 @@ Source->Target drop is averaged across the 3 encoders (positive = degradation).
 Biggest avg drop: **qwen2_5_omni_7b** (+0.4147).  
 Smallest avg drop: **qwen3_vl_8b** (+0.3296).
 
-_val_D_gap and val_D_mannwhitney_p: n/a — Target eval pipeline only writes val_balanced_accuracy_ac and val_state_separation (always null in current outputs)._
+_val_D_gap and val_D_mannwhitney_p: available in all 135/135 target_metrics.json files, nested under `val_state_separation` (`val_state_separation.val_D_gap` / `val_state_separation.val_D_mannwhitney_p`). See target_results.csv / target_aggregate_summary.csv._
 
 ## Section 3: Source M/N (15 models x 4 methods x 3 seeds)
 
