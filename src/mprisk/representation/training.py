@@ -291,6 +291,7 @@ def train_trajectory_encoder(
     best_score = -1.0
     best_epoch = 0
     stale_epochs = 0
+    best_val_f1: float | None = None
     best_validation_state_separation: dict[str, float] | None = None
     unconstrained_best_score = -1.0
     unconstrained_best_epoch = 0
@@ -336,7 +337,7 @@ def train_trajectory_encoder(
             epoch=epoch,
             class_weights=class_weights,
         )
-        val_loss, val_score, val_state_separation = _evaluate(
+        val_loss, val_score, val_state_separation, val_f1 = _evaluate(
             model,
             objective,
             d_objective,
@@ -366,6 +367,7 @@ def train_trajectory_encoder(
             best_score = val_score
             best_epoch = epoch
             best_validation_state_separation = val_state_separation
+            best_val_f1 = val_f1
             stale_epochs = 0
         elif not state_constrained_selection or best_epoch > 0:
             stale_epochs += 1
@@ -379,11 +381,13 @@ def train_trajectory_encoder(
             **train_metrics,
             "val_loss": val_loss,
             "val_balanced_accuracy_ac": val_score,
+            "val_f1": val_f1,
             "val_state_separation": val_state_separation,
             "checkpoint_feasibility": checkpoint_feasibility,
             "val_sample_count": len({sample.sample_id for sample in val_samples}),
             "best_epoch": best_epoch,
             "best_val_balanced_accuracy_ac": best_score,
+            "best_val_f1": best_val_f1,
             "unconstrained_best_epoch": unconstrained_best_epoch,
             "unconstrained_best_val_balanced_accuracy_ac": unconstrained_best_score,
             "stale_epochs": stale_epochs,
@@ -462,6 +466,7 @@ def train_trajectory_encoder(
         "selection_unit": "sample_id",
         "best_epoch": best_epoch,
         "best_val_balanced_accuracy_ac": best_score,
+        "best_val_f1": best_val_f1,
         "best_validation_state_separation": best_validation_state_separation,
         "unconstrained_best_epoch": unconstrained_best_epoch,
         "unconstrained_best_val_balanced_accuracy_ac": unconstrained_best_score,
@@ -545,16 +550,23 @@ def evaluate_target_dataset(
     eval_dataset_path: str | Path,
     output_dir: str | Path,
     device: str = "cpu",
+    representation_split: str | None = None,
 ) -> Path:
     """Evaluate a Source-trained encoder on a Target cross-domain dataset.
 
     Loads the checkpoint, builds the encoder + ProxyAnchor objective from
     the stored training config, reads the Target relation_dataset_target.jsonl
     (bypassing the rigid 4-split contract enforced by train_trajectory_encoder),
-    and computes val_balanced_accuracy_ac over all Target rows.
+    and computes val_balanced_accuracy_ac + val_f1 (macro-F1 over
+    Conflict/Aligned) over all Target rows.
 
-    Writes target_metrics.json next to the Source-trained train_metrics.json
-    so the cross-domain driver can pick it up alongside the Source results.
+    When ``representation_split`` is set (e.g. "relation_val"), rows are
+    filtered to that registered Source split and the metrics land in
+    ``eval_f1.json`` instead — the eval-only Source-val backfill path.
+
+    Writes target_metrics.json (or eval_f1.json) next to the Source-trained
+    train_metrics.json so the cross-domain driver can pick it up alongside
+    the Source results.
     """
     checkpoint_file = Path(checkpoint_path)
     checkpoint = torch.load(checkpoint_file, map_location="cpu")
@@ -571,6 +583,12 @@ def evaluate_target_dataset(
         expected_protocol=config.protocol,
         expected_prompt_set_artifact_sha256=config.prompt_set_artifact_sha256,
     )
+    if representation_split is not None:
+        rows = [row for row in rows if row["representation_split"] == representation_split]
+        if not rows:
+            raise ValueError(
+                f"relation dataset has no rows for representation_split={representation_split}"
+            )
     samples = _rows_to_sample_refs(rows)
     _validate_prompt_contract(samples, config=config)
     layer_count = int(checkpoint["model_config"]["layer_count"])
@@ -609,7 +627,7 @@ def evaluate_target_dataset(
         d_margin=config.d_ranking_margin,
         angular_margin_rad=config.angular_ranking_margin_rad,
     ).to(torch_device)
-    val_loss, val_score, val_state_separation = _evaluate(
+    val_loss, val_score, val_state_separation, val_f1 = _evaluate(
         model,
         objective,
         d_objective,
@@ -621,7 +639,11 @@ def evaluate_target_dataset(
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     metrics = {
-        "schema": "mprisk_representation_target_eval_metrics_v1",
+        "schema": (
+            "mprisk_representation_source_val_eval_metrics_v1"
+            if representation_split is not None
+            else "mprisk_representation_target_eval_metrics_v1"
+        ),
         "repr_key": config.repr_key,
         "model_key": config.model_key,
         "checkpoint": str(checkpoint_file),
@@ -629,6 +651,7 @@ def evaluate_target_dataset(
         "selection_metric": _selection_metric_name(config),
         "selection_unit": "sample_id",
         "val_balanced_accuracy_ac": val_score,
+        "val_f1": val_f1,
         "val_loss": val_loss,
         "val_state_separation": val_state_separation,
         "eval_rows": len(samples),
@@ -636,7 +659,12 @@ def evaluate_target_dataset(
         "eval_sample_label_counts": label_counts,
         "device": str(torch_device),
     }
-    metrics_path = output_root / "target_metrics.json"
+    if representation_split is not None:
+        metrics["representation_split"] = representation_split
+    metrics_path = (
+        output_root / "eval_f1.json" if representation_split is not None
+        else output_root / "target_metrics.json"
+    )
     write_json(metrics_path, metrics)
     return metrics_path
 
@@ -1783,7 +1811,7 @@ def _evaluate(
     *,
     config: TrainingConfig,
     class_weights: torch.Tensor | None,
-) -> tuple[float, float, dict[str, float] | None]:
+) -> tuple[float, float, dict[str, float] | None, float]:
     model.eval()
     if objective is not None:
         objective.eval()
@@ -1838,6 +1866,7 @@ def _evaluate(
         float(np.mean(losses)),
         _balanced_accuracy(labels, prediction_values),
         state_separation,
+        _macro_f1(labels, prediction_values),
     )
 
 
@@ -1975,6 +2004,33 @@ def _balanced_accuracy(labels: list[int], predictions: list[int]) -> float:
             raise ValueError("validation must contain both A/C labels")
         recalls.append(sum(predictions[index] == label for index in indexes) / len(indexes))
     return float(sum(recalls) / len(recalls))
+
+
+def _macro_f1(labels: list[int], predictions: list[int]) -> float:
+    """Macro-F1: mean of per-class F1 with Conflict (1) and Aligned (0) as positive."""
+    f1_scores = []
+    for label in (0, 1):
+        true_positive = sum(
+            1 for truth, prediction in zip(labels, predictions, strict=True)
+            if truth == label and prediction == label
+        )
+        false_positive = sum(
+            1 for truth, prediction in zip(labels, predictions, strict=True)
+            if truth != label and prediction == label
+        )
+        false_negative = sum(
+            1 for truth, prediction in zip(labels, predictions, strict=True)
+            if truth == label and prediction != label
+        )
+        if true_positive == 0:
+            f1_scores.append(0.0)
+            continue
+        precision = true_positive / (true_positive + false_positive)
+        recall = true_positive / (true_positive + false_negative)
+        f1_scores.append(
+            2.0 * precision * recall / (precision + recall) if precision + recall > 0 else 0.0
+        )
+    return float(sum(f1_scores) / len(f1_scores))
 
 
 def _checkpoint_payload(

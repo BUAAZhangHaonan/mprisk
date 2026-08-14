@@ -69,8 +69,10 @@ def _fmt_plain(v: float | None) -> str:
 # --- Table A: Source C/A ---
 def table_a() -> str:
     lines = ["## Table A: Source C/A (in-domain)", ""]
-    lines.append("Balanced accuracy on Source C/A validation split (mean ± std, 3 seeds).")
-    lines.append("F1 is not emitted by the Source training pipeline, so all F1 cells are —.")
+    lines.append("Balanced accuracy + macro-F1 (Conflict/Aligned) on the Source C/A")
+    lines.append("validation split, re-evaluated eval-only on best_checkpoint.pt")
+    lines.append("(eval_f1.json; mean ± std, 3 seeds). Acc is the same val split and")
+    lines.append("checkpoint as the training-time best_val_balanced_accuracy_ac.")
     lines.append("")
     lines.append("| Model | GRU Acc | GRU F1 | LSTM Acc | LSTM F1 | BiLSTM Acc | BiLSTM F1 |")
     lines.append("|---|---|---|---|---|---|---|")
@@ -78,12 +80,14 @@ def table_a() -> str:
         row = [model]
         for enc in ENCODERS:
             accs = []
+            f1s = []
             for seed in SEEDS:
-                m = _load(RUNS / f"ca_tme_{enc}" / f"{model}_seed{seed}" / "train_metrics.json")
+                m = _load(RUNS / f"ca_tme_{enc}" / f"{model}_seed{seed}" / "eval_f1.json")
                 if m is not None:
-                    accs.append(m.get("best_val_balanced_accuracy_ac"))
+                    accs.append(m.get("val_balanced_accuracy_ac"))
+                    f1s.append(m.get("val_f1"))
             row.append(_fmt(_ms(accs)))
-            row.append("—")  # F1 not emitted
+            row.append(_fmt(_ms(f1s)))
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
     return "\n".join(lines)
@@ -92,8 +96,7 @@ def table_a() -> str:
 # --- Table B: Target C/A ---
 def table_b() -> str:
     lines = ["## Table B: Target C/A (cross-domain, CH-SIMS v2)", ""]
-    lines.append("Cross-domain Target balanced accuracy + val_D_gap (mean ± std, 3 seeds).")
-    lines.append("F1 is not emitted; Target eval only writes balanced_accuracy + D diagnostics.")
+    lines.append("Cross-domain Target balanced accuracy + macro-F1 + val_D_gap (mean ± std, 3 seeds).")
     lines.append("D_gap = mean(Conflict D) - mean(Aligned D); large positive = healthy state separation.")
     lines.append("")
     lines.append("| Model | GRU Acc | GRU F1 | GRU D_gap | LSTM Acc | LSTM F1 | LSTM D_gap | BiLSTM Acc | BiLSTM F1 | BiLSTM D_gap |")
@@ -102,15 +105,17 @@ def table_b() -> str:
         row = [model]
         for enc in ENCODERS:
             accs = []
+            f1s = []
             gaps = []
             for seed in SEEDS:
                 m = _load(RUNS / f"ca_tme_{enc}" / f"{model}_seed{seed}" / "target_metrics.json")
                 if m is not None:
                     accs.append(m.get("val_balanced_accuracy_ac"))
+                    f1s.append(m.get("val_f1"))
                     sep = m.get("val_state_separation") or {}
                     gaps.append(sep.get("val_D_gap"))
             row.append(_fmt(_ms(accs)))
-            row.append("—")
+            row.append(_fmt(_ms(f1s)))
             row.append(_fmt(_ms(gaps)))
         lines.append("| " + " | ".join(row) + " |")
     lines.append("")
@@ -400,7 +405,7 @@ def main() -> int:
         "",
         "Generated from raw per-cell JSON files under `outputs/cache_matrix_20260722/runs/`.",
         "All numbers are mean across 3 seeds (seed20260717/18/19) unless noted.",
-        "Where a field is not emitted by the underlying pipeline (e.g. F1 in train_metrics.json), the cell is `—`.",
+        "Where a metric file is missing or a field was not emitted, the cell is `—`.",
         "",
         table_a(),
         table_b(),

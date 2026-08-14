@@ -2,40 +2,41 @@
 
 Generated from raw per-cell JSON files under `outputs/cache_matrix_20260722/runs/`.
 All numbers are mean across 3 seeds (seed20260717/18/19) unless noted.
-Where a field is not emitted by the underlying pipeline (e.g. F1 in train_metrics.json), the cell is `—`.
+Where a metric file is missing or a field was not emitted, the cell is `—`.
 
 ## Table A: Source C/A (in-domain)
 
-Balanced accuracy on Source C/A validation split (mean ± std, 3 seeds).
-F1 is not emitted by the Source training pipeline, so all F1 cells are —.
+Balanced accuracy + macro-F1 (Conflict/Aligned) on the Source C/A
+validation split, re-evaluated eval-only on best_checkpoint.pt
+(eval_f1.json; mean ± std, 3 seeds). Acc is the same val split and
+checkpoint as the training-time best_val_balanced_accuracy_ac.
 
 | Model | GRU Acc | GRU F1 | LSTM Acc | LSTM F1 | BiLSTM Acc | BiLSTM F1 |
 |---|---|---|---|---|---|---|
-| gemma3_12b | 0.962 ± 0.009 | — | 0.963 ± 0.010 | — | 0.961 ± 0.003 | — |
-| gemma3_4b | 0.959 ± 0.005 | — | 0.945 ± 0.013 | — | 0.910 ± 0.063 | — |
-| gemma4_12b | 0.907 ± 0.006 | — | 0.898 ± 0.009 | — | 0.874 ± 0.047 | — |
-| glm4_6v_flash | 0.939 ± 0.010 | — | 0.932 ± 0.041 | — | 0.949 ± 0.017 | — |
-| llava_onevision_qwen2_7b | 0.963 ± 0.007 | — | 0.966 ± 0.004 | — | 0.944 ± 0.017 | — |
-| llava_v1_5_7b | 0.964 ± 0.019 | — | 0.940 ± 0.027 | — | 0.954 ± 0.007 | — |
-| minicpm_v_2_6 | 0.954 ± 0.017 | — | 0.934 ± 0.015 | — | 0.955 ± 0.018 | — |
-| minicpm_v_4_5 | 0.972 ± 0.010 | — | 0.957 ± 0.011 | — | 0.965 ± 0.007 | — |
-| internvl3_5_8b | 0.953 ± 0.018 | — | 0.953 ± 0.004 | — | 0.956 ± 0.007 | — |
-| phi3_5_vision | 0.953 ± 0.003 | — | 0.942 ± 0.004 | — | 0.943 ± 0.006 | — |
-| qwen2_5_omni_7b | 0.965 ± 0.018 | — | 0.962 ± 0.022 | — | 0.961 ± 0.008 | — |
-| qwen2_5_vl_7b | 0.968 ± 0.021 | — | 0.961 ± 0.024 | — | 0.964 ± 0.020 | — |
-| qwen3_5_4b | 0.943 ± 0.011 | — | 0.937 ± 0.026 | — | 0.960 ± 0.008 | — |
-| qwen3_5_9b | 0.975 ± 0.005 | — | 0.966 ± 0.018 | — | 0.975 ± 0.022 | — |
-| qwen3_vl_8b | 0.969 ± 0.006 | — | 0.963 ± 0.015 | — | 0.970 ± 0.007 | — |
+| gemma3_12b | 0.962 ± 0.009 | 0.959 ± 0.009 | — | — | — | — |
+| gemma3_4b | 0.953 | 0.953 | — | — | — | — |
+| gemma4_12b | — | — | — | — | — | — |
+| glm4_6v_flash | — | — | — | — | — | — |
+| llava_onevision_qwen2_7b | — | — | — | — | — | — |
+| llava_v1_5_7b | — | — | — | — | — | — |
+| minicpm_v_2_6 | — | — | — | — | — | — |
+| minicpm_v_4_5 | — | — | — | — | — | — |
+| internvl3_5_8b | — | — | — | — | — | — |
+| phi3_5_vision | — | — | — | — | — | — |
+| qwen2_5_omni_7b | — | — | — | — | — | — |
+| qwen2_5_vl_7b | — | — | — | — | — | — |
+| qwen3_5_4b | — | — | — | — | — | — |
+| qwen3_5_9b | — | — | — | — | — | — |
+| qwen3_vl_8b | — | — | — | — | — | — |
 
 ## Table B: Target C/A (cross-domain, CH-SIMS v2)
 
-Cross-domain Target balanced accuracy + val_D_gap (mean ± std, 3 seeds).
-F1 is not emitted; Target eval only writes balanced_accuracy + D diagnostics.
+Cross-domain Target balanced accuracy + macro-F1 + val_D_gap (mean ± std, 3 seeds).
 D_gap = mean(Conflict D) - mean(Aligned D); large positive = healthy state separation.
 
 | Model | GRU Acc | GRU F1 | GRU D_gap | LSTM Acc | LSTM F1 | LSTM D_gap | BiLSTM Acc | BiLSTM F1 | BiLSTM D_gap |
 |---|---|---|---|---|---|---|---|---|---|
-| gemma3_12b | 0.600 ± 0.032 | — | 0.552 ± 0.918 | 0.580 ± 0.029 | — | 0.569 ± 0.990 | 0.563 ± 0.012 | — | -0.281 ± 0.567 |
+| gemma3_12b | 0.600 ± 0.032 | 0.458 ± 0.104 | 0.552 ± 0.918 | 0.580 ± 0.029 | — | 0.569 ± 0.990 | 0.563 ± 0.012 | — | -0.281 ± 0.567 |
 | gemma3_4b | 0.586 ± 0.037 | — | -0.013 ± 0.984 | 0.600 ± 0.031 | — | 0.900 ± 0.552 | 0.555 ± 0.054 | — | 0.204 ± 0.556 |
 | gemma4_12b | 0.491 ± 0.010 | — | 0.647 ± 0.825 | 0.504 ± 0.018 | — | 1.030 ± 1.448 | 0.520 ± 0.028 | — | 0.987 ± 1.240 |
 | glm4_6v_flash | 0.532 ± 0.011 | — | -0.007 ± 0.435 | 0.521 ± 0.012 | — | 0.268 ± 0.251 | 0.531 ± 0.005 | — | 0.193 ± 0.098 |

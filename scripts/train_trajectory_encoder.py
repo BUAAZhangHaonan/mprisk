@@ -50,6 +50,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--eval-dataset, skips training entirely and only runs Target eval. "
         "The training config is loaded from the checkpoint payload.",
     )
+    parser.add_argument(
+        "--eval-split",
+        default=None,
+        choices=("relation_val", "relation_train", "official_test", "aligned_calibration"),
+        help="Restrict --eval-dataset rows to this registered representation_split "
+        "and write eval_f1.json instead of target_metrics.json. Used for "
+        "eval-only Source val F1 backfill on best_checkpoint.pt.",
+    )
     return parser
 
 
@@ -67,8 +75,9 @@ def main(argv: list[str] | None = None) -> int:
             eval_dataset_path=args.eval_dataset,
             output_dir=args.output_dir,
             device=args.device,
+            representation_split=args.eval_split,
         )
-        print(f"target_metrics_path={target_metrics_path}")
+        print(f"eval_metrics_path={target_metrics_path}")
         return 0
 
     if args.dataset is None or args.config is None:
