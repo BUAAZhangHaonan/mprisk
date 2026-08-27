@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any
+
+# read-only GLM 3-round annotation db (never written by the curation service)
+GLM_ANNOTATION_DB = Path(
+    os.environ.get("MPRISK_CURATION_DATA", "/home/team/zhanghaonan/TAFFC/mprisk-data/curation")
+) / "glm_5_3_flash_annotation.sqlite"
 
 
 def connect(path: str | Path = "curation/outputs/curation.sqlite") -> sqlite3.Connection:
@@ -288,3 +294,95 @@ def upsert_adjudication(conn: sqlite3.Connection, adjudication: dict[str, Any]) 
         (adjudication["sample_id"], json.dumps(adjudication, ensure_ascii=False)),
     )
     conn.commit()
+
+
+_GLM_LABEL_NAMES = {1: "positive", 0: "neutral", -1: "negative"}
+
+
+def _glm_conf_text(value: float | None) -> str:
+    return f"{value:.2f}" if value is not None else "未知"
+
+
+def _glm_summary(
+    final: sqlite3.Row,
+    rounds: list[sqlite3.Row],
+    adjudication: dict[str, Any] | None,
+) -> str:
+    label = _GLM_LABEL_NAMES.get(final["final_label"], "unknown")
+    if final["method"] == "adjudicated":
+        rationale = (adjudication or {}).get("rationale") or "无记录"
+        confidence = (adjudication or {}).get("confidence")
+        return (
+            f"三轮意见存在分歧，模型终裁为「{label}」"
+            f"（置信 {_glm_conf_text(confidence)}）。裁决理由：{rationale}"
+        )
+    majority_rounds = [r for r in rounds if r["label"] == final["final_label"]]
+    evidence = ""
+    if majority_rounds:
+        evidence = max(majority_rounds, key=lambda r: (r["confidence"] or 0.0))["evidence"] or ""
+    return (
+        f"三轮交叉标注多数一致为「{label}」"
+        f"（{len(majority_rounds)}/{len(rounds)} 一致，平均置信 {_glm_conf_text(final['mean_confidence'])}）。"
+        f"主要依据：{evidence}"
+    )
+
+
+def _glm_modality(conn: sqlite3.Connection, source_id: str, modality: str) -> dict[str, Any] | None:
+    final = conn.execute(
+        "select final_label, method, agreement, mean_confidence, adjudication_id "
+        "from glm_final where source_id = ? and modality = ?",
+        (source_id, modality),
+    ).fetchone()
+    if final is None or final["final_label"] is None:
+        return None
+    rounds = conn.execute(
+        "select round, label, confidence, evidence from glm_runs "
+        "where source_id = ? and modality = ? and status = 'ok' order by round",
+        (source_id, modality),
+    ).fetchall()
+    adjudication = None
+    if final["adjudication_id"] is not None:
+        adj = conn.execute(
+            "select rationale, confidence from glm_adjudications where id = ?",
+            (final["adjudication_id"],),
+        ).fetchone()
+        if adj is not None:
+            adjudication = {"rationale": adj["rationale"], "confidence": adj["confidence"]}
+    return {
+        "final_label": _GLM_LABEL_NAMES.get(final["final_label"], "unknown"),
+        "final_label_raw": final["final_label"],
+        "method": final["method"],
+        "agreement": final["agreement"],
+        "mean_confidence": final["mean_confidence"],
+        "summary": _glm_summary(final, rounds, adjudication),
+        "rounds": [
+            {
+                "round": r["round"],
+                "label": _GLM_LABEL_NAMES.get(r["label"], "unknown"),
+                "confidence": r["confidence"],
+                "evidence": r["evidence"],
+            }
+            for r in rounds
+        ],
+        "adjudication": adjudication,
+    }
+
+
+def get_glm_annotation(source_id: str) -> dict[str, Any] | None:
+    """Read the GLM 3-round model suggestion for one source_id ({"V": ..., "T": ...}).
+
+    Opens the annotation sqlite strictly read-only; returns None when the source
+    has no usable final label on either modality.
+    """
+    if not source_id:
+        return None
+    try:
+        conn = sqlite3.connect(f"file:{GLM_ANNOTATION_DB}?mode=ro", uri=True)
+    except sqlite3.OperationalError:
+        return None
+    try:
+        conn.row_factory = sqlite3.Row
+        result = {m: _glm_modality(conn, source_id, m) for m in ("V", "T")}
+    finally:
+        conn.close()
+    return result if result["V"] or result["T"] else None

@@ -15,6 +15,29 @@ export type LlmScreening = {
   quality_flags: string[];
 };
 
+export type GlmRound = {
+  round: number;
+  label: string;
+  confidence: number | null;
+  evidence: string | null;
+};
+
+export type GlmModalitySuggestion = {
+  final_label: string;
+  final_label_raw: number;
+  method: "majority" | "adjudicated";
+  agreement: number | null;
+  mean_confidence: number | null;
+  summary: string;
+  rounds: GlmRound[];
+  adjudication: { rationale: string | null; confidence: number | null } | null;
+};
+
+export type GlmJoint = {
+  relation: "aligned" | "conflict";
+  labels: { V: string; T: string };
+};
+
 export type Sample = {
   sample_id: string;
   source_dataset: string;
@@ -28,6 +51,8 @@ export type Sample = {
   llm_sample_type_suggestion?: string;
   llm_screening?: LlmScreening | null;
   llm_agrees?: boolean;
+  glm_annotation?: { V: GlmModalitySuggestion | null; T: GlmModalitySuggestion | null } | null;
+  glm_joint?: GlmJoint | null;
   review_priority?: string;
   annotation_count?: number;
   annotators?: string[];

@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
-import { AnnotationPayload, fetchSample, saveAnnotation, Sample, ViewSuggestion } from "../api";
+import {
+  AnnotationPayload,
+  fetchSample,
+  saveAnnotation,
+  Sample,
+  ViewSuggestion,
+  GlmModalitySuggestion,
+} from "../api";
 import { LabelForm } from "../components/LabelForm";
 import { MediaPanel } from "../components/MediaPanel";
 import { KeyboardShortcuts } from "../components/KeyboardShortcuts";
@@ -74,6 +81,84 @@ function LlmSuggestions({ sample }: { sample: Sample }) {
   );
 }
 
+function GlmMethodBadge({ suggestion }: { suggestion: GlmModalitySuggestion }) {
+  if (suggestion.method === "adjudicated") return <span className="llmConfidence">终裁</span>;
+  if (suggestion.agreement != null && suggestion.agreement >= 0.999) {
+    return <span className="llmConfidence">3/3 一致</span>;
+  }
+  return <span className="llmConfidence">2/3 多数</span>;
+}
+
+function GlmModalityBlock({ name, suggestion }: { name: string; suggestion: GlmModalitySuggestion }) {
+  const confidence =
+    suggestion.method === "adjudicated"
+      ? suggestion.adjudication?.confidence ?? null
+      : suggestion.mean_confidence;
+  return (
+    <div>
+      <div className="llmRow">
+        <span className="llmView">{name}</span>
+        <span className="pill pillLlm">{suggestion.final_label}</span>
+        <GlmMethodBadge suggestion={suggestion} />
+        {confidence != null && <span className="llmConfidence">{Math.round(confidence * 100)}%</span>}
+      </div>
+      <div className="llmRow">
+        <span className="llmView">总评</span>
+        <span className="llmEvidence">{suggestion.summary}</span>
+      </div>
+      {suggestion.rounds.map((round) => (
+        <div className="llmRow" key={round.round}>
+          <span className="llmView">R{round.round}</span>
+          <span className="pill pillLlm">{round.label}</span>
+          {round.confidence != null && (
+            <span className="llmConfidence">{Math.round(round.confidence * 100)}%</span>
+          )}
+          <span className="llmEvidence">{round.evidence}</span>
+        </div>
+      ))}
+      {suggestion.adjudication && (
+        <div className="llmRow">
+          <span className="llmView">裁决</span>
+          <span className="llmEvidence">{suggestion.adjudication.rationale}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GlmSuggestions({ sample }: { sample: Sample }) {
+  const glm = sample.glm_annotation;
+  if (!glm || (!glm.V && !glm.T)) return null;
+  const vName = "视觉 (M1)";
+  const tName = sample.m2_modality === "text" ? "文本 (M2)" : "文本（转写参考）";
+  const joint = sample.glm_joint;
+  return (
+    <details className="llmPanel">
+      <summary>
+        GLM 三轮标注建议
+        <span className="llmHint"> — 模型建议，先做自己的判断</span>
+      </summary>
+      {glm.V && <GlmModalityBlock name={vName} suggestion={glm.V} />}
+      {glm.T && <GlmModalityBlock name={tName} suggestion={glm.T} />}
+      {sample.m2_modality === "audio" && (
+        <div className="llmRow">
+          <span className="llmView">音频</span>
+          <span className="llmEvidence">音频模态无模型标注（GLM 无音频输入）</span>
+        </div>
+      )}
+      {joint && (
+        <div className="llmRow">
+          <span className="llmView">V/T 关系</span>
+          <span className="pill pillLlm">{joint.relation}</span>
+          <span className="llmEvidence">
+            视觉 {joint.labels.V} / 文本 {joint.labels.T}
+          </span>
+        </div>
+      )}
+    </details>
+  );
+}
+
 function HistoryRow({ ann }: { ann: AnnotationPayload }) {
   return (
     <div className="llmRow">
@@ -120,6 +205,11 @@ export function AnnotatePage({
     sample ? emptyPayload(sample.sample_id, annotatorId) : null,
   );
   const [history, setHistory] = useState<AnnotationPayload[]>(sample?.annotations ?? []);
+  const [liveSample, setLiveSample] = useState<Sample | null>(sample);
+
+  useEffect(() => {
+    setLiveSample(sample);
+  }, [sample]);
 
   useEffect(() => {
     if (annotatorId.trim()) {
@@ -139,10 +229,13 @@ export function AnnotatePage({
       return current;
     });
     setStatus("");
-    // fetch fresh detail to populate history
+    // fetch fresh detail so suggestion panels and history see full fields
     if (sample) {
       fetchSample(sample.sample_id)
-        .then((detail) => setHistory(detail.annotations ?? []))
+        .then((detail) => {
+          setLiveSample(detail);
+          setHistory(detail.annotations ?? []);
+        })
         .catch(() => setHistory([]));
     } else {
       setHistory([]);
@@ -152,6 +245,8 @@ export function AnnotatePage({
   if (!sample || !payload) {
     return <div className="empty">No sample selected.</div>;
   }
+
+  const s = liveSample && liveSample.sample_id === sample.sample_id ? liveSample : sample;
 
   const saveCurrent = async () => {
     const trimmed = annotatorId.trim();
@@ -167,7 +262,10 @@ export function AnnotatePage({
       setStatus("saved");
       // refresh history so the annotator sees their own just-saved record
       fetchSample(currentPayload.sample_id)
-        .then((detail) => setHistory(detail.annotations ?? []))
+        .then((detail) => {
+          setLiveSample(detail);
+          setHistory(detail.annotations ?? []);
+        })
         .catch(() => {});
       onSaved?.();
     } catch (error) {
@@ -199,8 +297,9 @@ export function AnnotatePage({
           </button>
         ))}
       </div>
-      <MediaPanel sample={sample} view={view} />
-      <LlmSuggestions sample={sample} />
+      <MediaPanel sample={s} view={view} />
+      <LlmSuggestions sample={s} />
+      <GlmSuggestions sample={s} />
       <HistoryPanel annotations={history} />
       <LabelForm payload={payload} onChange={setPayload} onSave={saveCurrent} />
     </div>

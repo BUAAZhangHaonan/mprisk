@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from curation.backend.app_state import get_conn
 from curation.backend.db import (
+    get_glm_annotation,
     get_llm_screening,
     get_sample,
     list_annotations,
@@ -70,6 +71,19 @@ def detail(sample_id: str, conn=Depends(get_conn)):
         sample["llm_screening"] = None
         sample["llm_sample_type_suggestion"] = None
         sample["llm_agrees"] = None
+    # GLM 3-round annotation suggestion (read-only side db, keyed by source_id)
+    glm = get_glm_annotation(sample.get("source_id") or "")
+    sample["glm_annotation"] = glm
+    v_final = glm["V"]["final_label"] if glm and glm["V"] else None
+    t_final = glm["T"]["final_label"] if glm and glm["T"] else None
+    sample["glm_joint"] = (
+        {
+            "relation": "aligned" if v_final == t_final else "conflict",
+            "labels": {"V": v_final, "T": t_final},
+        }
+        if v_final and t_final
+        else None
+    )
     return {
         **sample,
         "annotations": annotations,
